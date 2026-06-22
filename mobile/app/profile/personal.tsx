@@ -1,0 +1,278 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, TextInput,
+  Pressable, ActivityIndicator, Alert, Image,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import {
+  ArrowLeft, User, Envelope, Phone, MapPin,
+  NotePencil, Camera, Check,
+} from 'phosphor-react-native';
+import { getMe, updateMe, uploadAvatar } from '../../services/profileService';
+import { UserProfile } from '../../types';
+
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+const D = {
+  bg: '#F4F6F5',
+  emerald: '#005F56',
+  white: '#FFFFFF',
+  text: '#0D1514',
+  muted: '#607370',
+  light: '#96AEAB',
+  border: '#E2EDEB',
+  inputBg: '#F8FAFA',
+  inputBorder: '#DDE8E6',
+  inputFocus: '#005F56',
+};
+
+function Field({
+  label, icon, value, onChangeText, placeholder, keyboardType, multiline, focused, onFocus, onBlur,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder?: string;
+  keyboardType?: any;
+  multiline?: boolean;
+  focused?: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
+}) {
+  return (
+    <View style={fi.wrap}>
+      <Text style={fi.label}>{label}</Text>
+      <View style={[fi.row, focused && fi.rowFocused, multiline && fi.rowMulti]}>
+        <View style={fi.iconBox}>{icon}</View>
+        <TextInput
+          style={[fi.input, multiline && fi.inputMulti]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder ?? ''}
+          placeholderTextColor={D.light}
+          keyboardType={keyboardType ?? 'default'}
+          autoCapitalize="none"
+          multiline={multiline}
+          numberOfLines={multiline ? 3 : 1}
+          onFocus={onFocus}
+          onBlur={onBlur}
+        />
+      </View>
+    </View>
+  );
+}
+
+const fi = StyleSheet.create({
+  wrap: { marginBottom: 16 },
+  label: { fontSize: 11, fontWeight: '600', color: D.muted, letterSpacing: 0.3, marginBottom: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: D.inputBg, borderWidth: 1.5, borderColor: D.inputBorder, borderRadius: 14, overflow: 'hidden' },
+  rowFocused: { borderColor: D.inputFocus, backgroundColor: D.white },
+  rowMulti: { alignItems: 'flex-start' },
+  iconBox: { paddingLeft: 14, paddingRight: 4, paddingTop: 14 },
+  input: { flex: 1, paddingVertical: 14, paddingHorizontal: 10, fontSize: 15, color: D.text },
+  inputMulti: { minHeight: 80, textAlignVertical: 'top' },
+});
+
+export default function PersonalInfoScreen() {
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [focused, setFocused] = useState<string | null>(null);
+
+  const { data: profile, isLoading } = useQuery<UserProfile>({
+    queryKey: ['me'],
+    queryFn: getMe,
+  });
+
+  const [form, setForm] = useState({ name: '', phone: '', bio: '', address: '' });
+
+  useEffect(() => {
+    if (profile) {
+      setForm({
+        name: profile.name ?? '',
+        phone: profile.phone ?? '',
+        bio: profile.bio ?? '',
+        address: profile.address ?? '',
+      });
+    }
+  }, [profile]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => updateMe(form),
+    onSuccess: (updated) => {
+      qc.setQueryData(['me'], updated);
+      Alert.alert('Saved', 'Your profile has been updated.');
+    },
+    onError: () => Alert.alert('Error', 'Could not save changes. Please try again.'),
+  });
+
+  const avatarMutation = useMutation({
+    mutationFn: uploadAvatar,
+    onSuccess: (updated) => {
+      qc.setQueryData(['me'], updated);
+    },
+    onError: () => Alert.alert('Error', 'Could not upload photo.'),
+  });
+
+  async function pickAvatar() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to change your profile picture.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      avatarMutation.mutate(result.assets[0].uri);
+    }
+  }
+
+  const avatarUri = profile?.profilePicture
+    ? `${BASE_URL}${profile.profilePicture}`
+    : null;
+
+  const initials = profile?.name?.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() ?? 'U';
+
+  return (
+    <SafeAreaView style={s.safe} edges={['top']}>
+      {/* Header */}
+      <View style={s.header}>
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}
+        >
+          <ArrowLeft size={20} color={D.text} weight="bold" />
+        </Pressable>
+        <Text style={s.title}>Personal Information</Text>
+        <Pressable
+          onPress={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+          style={({ pressed }) => [s.saveBtn, pressed && { opacity: 0.65 }]}
+        >
+          {saveMutation.isPending
+            ? <ActivityIndicator size="small" color={D.white} />
+            : <Check size={18} color={D.white} weight="bold" />}
+        </Pressable>
+      </View>
+
+      {isLoading ? (
+        <View style={s.loadWrap}><ActivityIndicator size="large" color={D.emerald} /></View>
+      ) : (
+        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+          {/* Avatar */}
+          <View style={s.avatarSection}>
+            <View style={s.avatarWrap}>
+              {avatarUri
+                ? <Image source={{ uri: avatarUri }} style={s.avatarImg} />
+                : (
+                  <View style={s.avatarFallback}>
+                    <Text style={s.avatarTxt}>{initials}</Text>
+                  </View>
+                )}
+              {avatarMutation.isPending && (
+                <View style={s.avatarLoading}>
+                  <ActivityIndicator color={D.white} />
+                </View>
+              )}
+            </View>
+            <Pressable
+              onPress={pickAvatar}
+              style={({ pressed }) => [s.changePhotoBtn, pressed && { opacity: 0.75 }]}
+            >
+              <Camera size={15} color={D.emerald} weight="bold" />
+              <Text style={s.changePhotoTxt}>Change Photo</Text>
+            </Pressable>
+          </View>
+
+          {/* Form */}
+          <View style={s.card}>
+            <Field
+              label="FULL NAME"
+              icon={<User size={17} color={focused === 'name' ? D.emerald : D.light} weight="regular" />}
+              value={form.name}
+              onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
+              placeholder="Your full name"
+              focused={focused === 'name'}
+              onFocus={() => setFocused('name')}
+              onBlur={() => setFocused(null)}
+            />
+            <Field
+              label="EMAIL"
+              icon={<Envelope size={17} color={D.light} weight="regular" />}
+              value={profile?.email ?? ''}
+              onChangeText={() => {}}
+              placeholder="Email address"
+            />
+            <Field
+              label="PHONE"
+              icon={<Phone size={17} color={focused === 'phone' ? D.emerald : D.light} weight="regular" />}
+              value={form.phone}
+              onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
+              placeholder="+44 7700 000000"
+              keyboardType="phone-pad"
+              focused={focused === 'phone'}
+              onFocus={() => setFocused('phone')}
+              onBlur={() => setFocused(null)}
+            />
+            <Field
+              label="ADDRESS"
+              icon={<MapPin size={17} color={focused === 'address' ? D.emerald : D.light} weight="regular" />}
+              value={form.address}
+              onChangeText={(v) => setForm((f) => ({ ...f, address: v }))}
+              placeholder="Your home address"
+              focused={focused === 'address'}
+              onFocus={() => setFocused('address')}
+              onBlur={() => setFocused(null)}
+            />
+            <Field
+              label="BIO"
+              icon={<NotePencil size={17} color={focused === 'bio' ? D.emerald : D.light} weight="regular" />}
+              value={form.bio}
+              onChangeText={(v) => setForm((f) => ({ ...f, bio: v }))}
+              placeholder="A short bio about yourself..."
+              multiline
+              focused={focused === 'bio'}
+              onFocus={() => setFocused('bio')}
+              onBlur={() => setFocused(null)}
+            />
+          </View>
+
+          <Text style={s.note}>Email address cannot be changed. Contact your administrator for email updates.</Text>
+
+        </ScrollView>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: D.bg },
+  scroll: { paddingHorizontal: 18, paddingBottom: 40 },
+  loadWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 12 },
+  backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: D.white, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: D.border },
+  title: { fontSize: 17, fontWeight: '700', color: D.text },
+  saveBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: D.emerald, alignItems: 'center', justifyContent: 'center' },
+
+  avatarSection: { alignItems: 'center', paddingVertical: 24 },
+  avatarWrap: { position: 'relative', marginBottom: 12 },
+  avatarImg: { width: 96, height: 96, borderRadius: 30 },
+  avatarFallback: { width: 96, height: 96, borderRadius: 30, backgroundColor: D.emerald, alignItems: 'center', justifyContent: 'center' },
+  avatarTxt: { fontSize: 30, fontWeight: '700', color: '#fff' },
+  avatarLoading: { ...StyleSheet.absoluteFillObject, borderRadius: 30, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
+  changePhotoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: D.white, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1, borderColor: D.border },
+  changePhotoTxt: { fontSize: 13, fontWeight: '600', color: D.emerald },
+
+  card: { backgroundColor: D.white, borderRadius: 22, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: D.border, shadowColor: '#00534810', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 16, elevation: 3 },
+
+  note: { fontSize: 12, color: D.light, textAlign: 'center', lineHeight: 18, paddingHorizontal: 16 },
+});

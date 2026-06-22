@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "ShiftGO",
+    "slug": "shiftgo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "shiftgo",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#005f55"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.shiftgo.app",
+      "infoPlist": {
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "ShiftGO uses your location to automatically clock you in and out when you arrive at or leave a care house.",
+        "NSLocationAlwaysUsageDescription": "ShiftGO uses your location in the background to track shift attendance.",
+        "NSLocationWhenInUseUsageDescription": "ShiftGO uses your location to detect when you arrive at your shift location.",
+        "NSPhotoLibraryUsageDescription": "ShiftGO needs access to your photo library to update your profile picture.",
+        "UIBackgroundModes": ["location", "fetch"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#005f55"
+      },
+      "package": "com.shiftgo.app",
+      "permissions": [
+        "ACCESS_BACKGROUND_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "ShiftGO uses your location to auto clock-in when you arrive at a care house."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#005f55"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ShiftGO needs access to your photos to update your profile picture."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

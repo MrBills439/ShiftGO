@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  HR
+  MANAGER
+  TEAM_LEADER
+  WORKER
+}
+
+enum ClockType {
+  IN
+  OUT
+}
+
+enum ClockMethod {
+  AUTO
+  MANUAL
+}
+
+enum NotificationType {
+  SHIFT_ASSIGNED
+  SHIFT_REMOVED
+  SHIFT_REMINDER
+  MISSED_CLOCK_IN
+  CLOCK_OUT_PROMPT
+  GENERAL
+}
+
+enum TrainingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+}
+
+enum DbsStatus {
+  PENDING
+  CLEAR
+  FLAGGED
+  EXPIRED
+}
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  passwordHash   String
+  role           Role
+  phone          String?
+  bio            String?
+  profilePicture String?
+  address        String?
+  fcmToken       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  managedHouses        House[]           @relation("ManagerHouses")
+  workerHouses         HouseWorker[]
+  teamLeaderHouses     HouseTeamLeader[]
+  createdShifts        Shift[]           @relation("ShiftCreator")
+  workerShifts         Shift[]           @relation("ShiftWorker")
+  clockEvents          ClockEvent[]
+  timesheets           Timesheet[]       @relation("WorkerTimesheets")
+  confirmedTimesheets  Timesheet[]       @relation("ConfirmedTimesheets")
+  notifications        Notification[]
+  trainings            Training[]
+  dbsCheck             DbsCheck?
+}
+
+model House {
+  id             String   @id @default(cuid())
+  name           String
+  address        String
+  latitude       Float
+  longitude      Float
+  geofenceRadius Int      @default(50)
+  autoConfirm    Boolean  @default(false)
+  managerId      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  manager     User?             @relation("ManagerHouses", fields: [managerId], references: [id])
+  workers     HouseWorker[]
+  teamLeaders HouseTeamLeader[]
+  shifts      Shift[]
+  clockEvents ClockEvent[]
+  timesheets  Timesheet[]
+}
+
+model HouseWorker {
+  houseId  String
+  workerId String
+
+  house  House @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  worker User  @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@id([houseId, workerId])
+}
+
+model HouseTeamLeader {
+  houseId      String
+  teamLeaderId String
+
+  house      House @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  teamLeader User  @relation(fields: [teamLeaderId], references: [id], onDelete: Cascade)
+
+  @@id([houseId, teamLeaderId])
+}
+
+model Shift {
+  id          String   @id @default(cuid())
+  houseId     String
+  workerId    String
+  createdById String
+  startTime   DateTime
+  endTime     DateTime
+  date        DateTime
+  createdAt   DateTime @default(now())
+
+  house       House      @relation(fields: [houseId], references: [id])
+  worker      User       @relation("ShiftWorker", fields: [workerId], references: [id])
+  createdBy   User       @relation("ShiftCreator", fields: [createdById], references: [id])
+  clockEvents ClockEvent[]
+  timesheet   Timesheet?
+}
+
+model ClockEvent {
+  id        String      @id @default(cuid())
+  workerId  String
+  houseId   String
+  shiftId   String
+  type      ClockType
+  method    ClockMethod
+  timestamp DateTime    @default(now())
+
+  worker User  @relation(fields: [workerId], references: [id])
+  house  House @relation(fields: [houseId], references: [id])
+  shift  Shift @relation(fields: [shiftId], references: [id])
+}
+
+model Timesheet {
+  id            String    @id @default(cuid())
+  workerId      String
+  houseId       String
+  shiftId       String    @unique
+  clockInAt     DateTime?
+  clockOutAt    DateTime?
+  totalHours    Float?
+  confirmedById String?
+  confirmedAt   DateTime?
+  autoConfirmed Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  worker      User   @relation("WorkerTimesheets", fields: [workerId], references: [id])
+  house       House  @relation(fields: [houseId], references: [id])
+  shift       Shift  @relation(fields: [shiftId], references: [id])
+  confirmedBy User?  @relation("ConfirmedTimesheets", fields: [confirmedById], references: [id])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Training {
+  id          String         @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  status      TrainingStatus @default(PENDING)
+  completedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DbsCheck {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  status      DbsStatus @default(PENDING)
+  reference   String?
+  issuedAt    DateTime?
+  expiresAt   DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

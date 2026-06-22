@@ -1,0 +1,33 @@
+'use client';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { useAuthStore } from '@/store/authStore';
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const { user, isLoading, hydrate } = useAuthStore();
+  const router = useRouter();
+
+  useEffect(() => { hydrate(); }, []);
+  useEffect(() => {
+    if (!isLoading && !user) router.replace('/login');
+    if (!isLoading && user && user.role !== 'HR') router.replace('/dashboard');
+  }, [user, isLoading]);
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface-DEFAULT">
+        <div className="w-8 h-8 rounded-full border-2 border-primary-DEFAULT border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen bg-surface-DEFAULT">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-container mx-auto p-6 lg:p-8">{children}</div>
+      </main>
+    </div>
+  );
+}
