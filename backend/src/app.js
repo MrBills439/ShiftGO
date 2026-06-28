@@ -10,36 +10,66 @@ const houseRoutes = require('./routes/houses');
 const shiftRoutes = require('./routes/shifts');
 const clockRoutes = require('./routes/clock');
 const timesheetRoutes = require('./routes/timesheets');
+const rotaRoutes = require('./routes/rota');
+const leaveRequestRoutes = require('./routes/leaveRequests');
 const notificationRoutes = require('./routes/notifications');
 const trainingRoutes = require('./routes/training');
 const dbsRoutes = require('./routes/dbs');
-const { serverError } = require('./utils/response');
+const auditLogRoutes = require('./routes/auditLogs');
+const activityRoutes = require('./routes/activity');
+const errorHandler = require('./middleware/errorHandler');
+const { apiLimiter } = require('./middleware/rateLimit');
 
 const app = express();
 
+// Trust the first upstream proxy in managed deployments such as Railway,
+// DigitalOcean, Nginx, and Cloudflare so rate limiting uses the client IP.
+app.set('trust proxy', 1);
+
+// Middleware
 app.use(helmet());
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(morgan('dev'));
 
 // Serve uploaded avatars
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-app.get('/health', (_, res) => res.json({ status: 'ok', app: 'ShiftGO' }));
+// Health check
+app.get('/health', (_, res) => res.json({ status: 'ok', app: 'ShiftGO', timestamp: new Date().toISOString() }));
 
+// General API limiter. Health checks are intentionally outside this limiter.
+app.use(apiLimiter);
+
+// Routes (NOTE: clients expect routes WITHOUT /api prefix)
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/houses', houseRoutes);
 app.use('/shifts', shiftRoutes);
 app.use('/clock', clockRoutes);
 app.use('/timesheets', timesheetRoutes);
+app.use('/rota', rotaRoutes);
+app.use('/leave-requests', leaveRequestRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/training', trainingRoutes);
 app.use('/dbs', dbsRoutes);
+app.use('/audit-logs', auditLogRoutes);
+app.use('/activity', activityRoutes);
 
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  serverError(res, err.message);
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: `Route ${req.method} ${req.path} not found`,
+    },
+    timestamp: new Date().toISOString(),
+  });
 });
+
+// Error handler (MUST be last)
+app.use(errorHandler);
 
 module.exports = app;
