@@ -1,32 +1,43 @@
 import { clsx } from 'clsx';
 
-type Variant = 'active' | 'upcoming' | 'completed' | 'pending' | 'confirmed' | 'error' |
+type Variant = 'success' | 'warning' | 'danger' | 'info' | 'neutral' |
+               'active' | 'upcoming' | 'completed' | 'pending' | 'confirmed' | 'error' |
                'hr' | 'manager' | 'team_leader' | 'worker';
 
 const MAP: Record<Variant, string> = {
-  active:      'bg-[#e6f4f0] text-primary-DEFAULT',
-  upcoming:    'bg-[#e3f0f8] text-[#1a6b8a]',
-  completed:   'bg-surface-high text-on-surface-variant',
-  pending:     'bg-[#fff8e1] text-[#784a00]',
-  confirmed:   'bg-[#e6f4f0] text-primary-DEFAULT',
-  error:       'bg-error-container text-error-DEFAULT',
-  hr:          'bg-primary-DEFAULT text-white',
-  manager:     'bg-secondary-container text-secondary-DEFAULT',
-  team_leader: 'bg-[#e3f0f8] text-[#1a6b8a]',
-  worker:      'bg-surface-highest text-on-surface-variant',
+  success:     'bg-success-bg text-success-text border-success-border',
+  warning:     'bg-warning-bg text-warning-text border-warning-border',
+  danger:      'bg-danger-bg text-danger-text border-danger-border',
+  info:        'bg-info-bg text-info-text border-info-border',
+  neutral:     'bg-surface-muted text-fg-muted border-border',
+  active:      'bg-success-bg text-success-text border-success-border',
+  upcoming:    'bg-info-bg text-info-text border-info-border',
+  completed:   'bg-surface-muted text-fg-muted border-border',
+  pending:     'bg-warning-bg text-warning-text border-warning-border',
+  confirmed:   'bg-success-bg text-success-text border-success-border',
+  error:       'bg-danger-bg text-danger-text border-danger-border',
+  hr:          'bg-brand-600 text-white border-brand-600',
+  manager:     'bg-brand-50 text-brand-700 border-brand-200',
+  team_leader: 'bg-info-bg text-info-text border-info-border',
+  worker:      'bg-surface-muted text-fg-muted border-border',
 };
 
 const DOT: Record<Variant, string> = {
-  active:      'bg-primary-DEFAULT',
-  upcoming:    'bg-[#1a6b8a]',
-  completed:   'bg-outline-DEFAULT',
-  pending:     'bg-[#784a00]',
-  confirmed:   'bg-primary-DEFAULT',
-  error:       'bg-error-DEFAULT',
+  success:     'bg-success-solid',
+  warning:     'bg-warning-solid',
+  danger:      'bg-danger-solid',
+  info:        'bg-info-solid',
+  neutral:     'bg-fg-subtle',
+  active:      'bg-success-solid',
+  upcoming:    'bg-info-solid',
+  completed:   'bg-fg-subtle',
+  pending:     'bg-warning-solid',
+  confirmed:   'bg-success-solid',
+  error:       'bg-danger-solid',
   hr:          'bg-white',
-  manager:     'bg-secondary-DEFAULT',
-  team_leader: 'bg-[#1a6b8a]',
-  worker:      'bg-outline-DEFAULT',
+  manager:     'bg-brand-600',
+  team_leader: 'bg-info-solid',
+  worker:      'bg-fg-subtle',
 };
 
 interface Props {
@@ -37,7 +48,7 @@ interface Props {
 
 export function Badge({ variant, label, dot = true }: Props) {
   return (
-    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wider uppercase font-inter', MAP[variant])}>
+    <span className={clsx('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase font-inter', MAP[variant])}>
       {dot && <span className={clsx('w-1.5 h-1.5 rounded-full', DOT[variant])} />}
       {label}
     </span>

@@ -14,7 +14,7 @@ const TYPE_ICON: Record<string, { icon: React.ElementType; bg: string; color: st
   SHIFT_REMOVED:    { icon: CalendarBlankIcon,  bg: 'bg-error-container', color: 'text-error-DEFAULT' },
   SHIFT_REMINDER:   { icon: ClockCountdownIcon, bg: 'bg-[#fff8e1]',       color: 'text-[#784a00]' },
   MISSED_CLOCK_IN:  { icon: ClockCountdownIcon, bg: 'bg-error-container', color: 'text-error-DEFAULT' },
-  CLOCK_OUT_PROMPT: { icon: CheckCircleIcon,    bg: 'bg-[#e6f4f0]',       color: 'text-primary-DEFAULT' },
+  CLOCK_OUT_PROMPT: { icon: CheckCircleIcon,    bg: 'bg-[#e6f4f0]',       color: 'text-primary' },
   GENERAL:          { icon: InfoIcon,           bg: 'bg-surface-high',    color: 'text-on-surface-variant' },
 };
 
@@ -82,14 +82,14 @@ export function NotificationDropdown({ onClose }: Props) {
             <button
               onClick={() => markAllRead.mutate(undefined)}
               disabled={markAllRead.isPending}
-              className="text-[11px] text-primary-DEFAULT hover:underline font-inter disabled:opacity-50"
+              className="text-[11px] text-primary hover:underline font-inter disabled:opacity-50"
             >
               Mark all read
             </button>
           )}
           <button
             onClick={onClose}
-            className="p-1 rounded text-outline-DEFAULT hover:text-on-surface hover:bg-surface-low transition-colors"
+            className="p-1 rounded text-outline hover:text-on-surface hover:bg-surface-low transition-colors"
           >
             <XIcon size={14} />
           </button>
@@ -105,7 +105,7 @@ export function NotificationDropdown({ onClose }: Props) {
         ) : recent.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
             <div className="w-10 h-10 rounded-xl bg-surface-low flex items-center justify-center mb-3">
-              <CheckCircleIcon size={20} className="text-outline-DEFAULT" weight="regular" />
+              <CheckCircleIcon size={20} className="text-outline" weight="regular" />
             </div>
             <p className="text-sm font-medium text-on-surface">All caught up</p>
             <p className="text-xs text-on-surface-variant mt-1">No notifications yet.</p>
@@ -121,7 +121,7 @@ export function NotificationDropdown({ onClose }: Props) {
           <Link
             href="/dashboard/notifications"
             onClick={onClose}
-            className="flex items-center justify-center gap-1.5 py-3 text-xs font-semibold text-primary-DEFAULT hover:bg-[#f0faf7] transition-colors"
+            className="flex items-center justify-center gap-1.5 py-3 text-xs font-semibold text-primary hover:bg-[#f0faf7] transition-colors"
           >
             View all notifications
             <ArrowRightIcon size={13} weight="bold" />
@@ -157,13 +157,13 @@ function NotifRow({ notif, onRead }: { notif: AppNotification; onRead: (id: stri
         <p className="text-[11px] text-on-surface-variant mt-0.5 leading-relaxed line-clamp-2">
           {notif.body}
         </p>
-        <p className="text-[10px] text-outline-DEFAULT font-inter mt-1">{timeAgo(notif.createdAt)}</p>
+        <p className="text-[10px] text-outline font-inter mt-1">{timeAgo(notif.createdAt)}</p>
       </div>
 
       {!notif.read && (
         <button
           onClick={() => onRead(notif.id)}
-          className="text-[10px] text-outline-DEFAULT hover:text-primary-DEFAULT flex-shrink-0 mt-0.5 font-inter"
+          className="text-[10px] text-outline hover:text-primary flex-shrink-0 mt-0.5 font-inter"
         >
           Mark read
         </button>

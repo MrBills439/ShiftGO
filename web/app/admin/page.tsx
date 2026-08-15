@@ -47,7 +47,7 @@ export default function AdminPage() {
 
       <div className="grid lg:grid-cols-4 gap-4 mb-8">
         {[
-          { label: 'Total Users', value: allUsers.length,   icon: UsersIcon,      color: 'bg-[#e6f4f0] text-primary-DEFAULT' },
+          { label: 'Total Users', value: allUsers.length,   icon: UsersIcon,      color: 'bg-[#e6f4f0] text-primary' },
           { label: 'Houses',      value: houses.length,     icon: BuildingsIcon,  color: 'bg-[#e3f0f8] text-[#1a6b8a]' },
           { label: 'Managers',    value: byRole('MANAGER'), icon: ShieldCheckIcon, color: 'bg-[#fff8e1] text-[#784a00]' },
           { label: 'Workers',     value: byRole('WORKER'),  icon: UsersIcon,      color: 'bg-surface-high text-on-surface-variant' },
@@ -68,7 +68,7 @@ export default function AdminPage() {
         <div className="glass-card p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 rounded-lg bg-[#e6f4f0] flex items-center justify-center">
-              <MapPinIcon size={18} className="text-primary-DEFAULT" />
+              <MapPinIcon size={18} className="text-primary" />
             </div>
             <div>
               <h2 className="text-base font-semibold text-on-surface">Global Geofence Radius</h2>
@@ -104,7 +104,7 @@ export default function AdminPage() {
         <div className="glass-card p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 rounded-lg bg-[#e6f4f0] flex items-center justify-center">
-              <BuildingsIcon size={18} className="text-primary-DEFAULT" />
+              <BuildingsIcon size={18} className="text-primary" />
             </div>
             <div>
               <h2 className="text-base font-semibold text-on-surface">Per-House Geofence</h2>
@@ -118,7 +118,7 @@ export default function AdminPage() {
                   <p className="text-sm font-medium text-on-surface">{h.name}</p>
                   <p className="text-xs text-on-surface-variant font-inter truncate max-w-[200px]">{h.address}</p>
                 </div>
-                <span className="text-sm font-semibold text-primary-DEFAULT font-inter">{h.geofenceRadius}m</span>
+                <span className="text-sm font-semibold text-primary font-inter">{h.geofenceRadius}m</span>
               </div>
             ))}
             {houses.length === 0 && <p className="text-sm text-on-surface-variant text-center py-4">No houses configured</p>}

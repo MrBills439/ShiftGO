@@ -1,4 +1,6 @@
 const authService = require('../services/authService');
+const { auditContext, createAuditLog } = require('../services/auditService');
+const { agencyIdFor } = require('../utils/agency');
 const { ok, fail, unauthorized, created } = require('../utils/response');
 
 async function login(req, res) {
@@ -26,7 +28,14 @@ async function refresh(req, res) {
 
 async function register(req, res) {
   try {
-    const user = await authService.createUser(req.body);
+    const user = await authService.createUser(req.body, agencyIdFor(req));
+    await createAuditLog({
+      ...auditContext(req),
+      action: 'USER_CREATED',
+      entityType: 'User',
+      entityId: user.id,
+      newValue: user,
+    });
     created(res, user);
   } catch (err) {
     if (err.code === 'P2002') return fail(res, 'Email already in use');

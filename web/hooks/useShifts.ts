@@ -17,14 +17,18 @@ export function useCreateShift() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post('/shifts', body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['shifts'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['rota-week'] });
+    },
   });
 }
 
 export function useDeleteShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete(`/shifts/${id}`),
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api.delete(`/shifts/${id}`, { data: { reason } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['shifts'] }),
   });
 }

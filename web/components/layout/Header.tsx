@@ -15,10 +15,10 @@ export function Header({ title, subtitle, action }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex items-start justify-between mb-6">
+    <div className="mb-6 flex items-start justify-between gap-4 border-b border-border pb-5">
       <div>
-        <h1 className="text-2xl font-bold text-on-surface">{title}</h1>
-        {subtitle && <p className="text-sm text-on-surface-variant mt-0.5">{subtitle}</p>}
+        <h1 className="text-2xl font-semibold text-fg">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-fg-muted">{subtitle}</p>}
       </div>
       <div className="flex items-center gap-3">
         {action}
@@ -26,7 +26,7 @@ export function Header({ title, subtitle, action }: Props) {
           <button
             onClick={() => setOpen((v) => !v)}
             aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
-            className="relative p-2 rounded-lg text-on-surface-variant hover:bg-surface-low transition-colors"
+            className="relative rounded-md p-2 text-fg-muted transition-colors hover:bg-surface-subtle focus-visible:ring-4 focus-visible:ring-brand-600/20"
           >
             <BellIcon size={20} weight="regular" />
             {unreadCount > 0 && (

@@ -16,8 +16,7 @@ export default function LoginPage() {
   useEffect(() => { hydrate(); }, []);
   useEffect(() => { if (user) router.replace('/dashboard'); }, [user]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitLogin() {
     if (!email || !password) { setError('Enter your email and password'); return; }
     setLoading(true); setError(null);
     try {
@@ -28,6 +27,11 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    void submitLogin();
   }
 
   return (
@@ -59,7 +63,7 @@ export default function LoginPage() {
         <p className="text-white/30 text-xs">ShiftGO v1.0 · Care Management Platform</p>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-6 bg-surface-DEFAULT">
+      <div className="flex-1 flex items-center justify-center p-6 bg-surface">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-8 h-8 rounded-lg bg-primary-DEFAULT flex items-center justify-center">
@@ -102,7 +106,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-outline-DEFAULT hover:text-on-surface"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface"
                 >
                   {showPw ? <EyeSlashIcon size={16} /> : <EyeIcon size={16} />}
                 </button>
@@ -115,7 +119,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3">
+            <button type="button" onClick={() => void submitLogin()} disabled={loading} className="btn-primary w-full justify-center py-3">
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>

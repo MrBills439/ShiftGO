@@ -22,6 +22,9 @@ export interface House {
   autoConfirm: boolean;
 }
 
+export type ShiftType = 'DAY' | 'WAKE_NIGHT' | 'SLEEP_IN' | 'EMERGENCY';
+export type ShiftStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+
 export interface Shift {
   id: string;
   houseId: string;
@@ -29,6 +32,11 @@ export interface Shift {
   startTime: string;
   endTime: string;
   date: string;
+  shiftType: ShiftType;
+  status: ShiftStatus;
+  cancelledAt: string | null;
+  cancelledById: string | null;
+  cancellationReason: string | null;
   house: House;
 }
 
@@ -111,4 +119,31 @@ export interface Timesheet {
   autoConfirmed: boolean;
   shift: Shift;
   house: House;
+}
+
+export interface RotaDay {
+  date: string;
+  shifts: Shift[];
+}
+
+export interface RotaWeek {
+  startDate: string;
+  endDate: string;
+  days: RotaDay[];
+}
+
+export type LeaveRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export interface LeaveRequest {
+  id: string;
+  workerId: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  status: LeaveRequestStatus;
+  reviewedById: string | null;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

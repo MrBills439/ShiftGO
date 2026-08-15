@@ -30,11 +30,11 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   const loc = locations?.[0];
   if (!loc) return;
 
-  const { latitude, longitude } = loc.coords;
+  const { latitude, longitude, accuracy } = loc.coords;
 
   try {
     // Auto clock-in: backend checks all active shifts and clocks in if inside geofence
-    const checkinResults = await autoCheckin(latitude, longitude);
+    const checkinResults = await autoCheckin(latitude, longitude, accuracy);
 
     // Track which house geofences the worker is currently inside
     const previouslyInside = await getInsideState();
@@ -48,7 +48,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
     const exits = [...previouslyInside].filter((id) => !nowInside.has(id));
 
     if (exits.length > 0) {
-      await geofenceExit(latitude, longitude);
+      await geofenceExit(latitude, longitude, accuracy);
     }
 
     await setInsideState(nowInside);

@@ -240,15 +240,41 @@ export default function ShiftsScreen() {
                 <Text style={s.sectionTitle}>Upcoming Shifts</Text>
                 {displayUpcoming.map(shift => <ShiftCard key={shift.id} shift={shift} onPress={() => router.push(`/shift/${shift.id}` as any)} />)}
 
-                {/* View Full Rota */}
-                <Pressable
-                  style={({ pressed }) => [s.rotaBtn, pressed && { opacity: 0.75 }]}
-                  onPress={() => Alert.alert('Full Rota', 'Rota view coming soon.')}
-                >
-                  <View style={s.rotaIcon}><CalendarBlank size={18} color={D.emerald} weight="regular" /></View>
-                  <Text style={s.rotaTxt}>View Full Rota</Text>
-                  <CaretRight size={16} color={D.light} weight="bold" />
-                </Pressable>
+                {/* Weekly Rota */}
+                <Text style={[s.sectionTitle, { marginTop: 24 }]}>This Week's Shifts</Text>
+                {(() => {
+                  const grouped: Record<string, Shift[]> = {};
+                  displayUpcoming.forEach((shift) => {
+                    const date = new Date(shift.startTime).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
+                    if (!grouped[date]) grouped[date] = [];
+                    grouped[date].push(shift);
+                  });
+
+                  const sortedDates = Object.keys(grouped).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+                  return sortedDates.length > 0 ? (
+                    sortedDates.map((date) => (
+                      <View key={date} style={s.rotaDay}>
+                        <Text style={s.rotaDayLabel}>{date}</Text>
+                        <View style={s.rotaDayShifts}>
+                          {grouped[date].map((shift) => (
+                            <View key={shift.id} style={s.rotaDayShift}>
+                              <View style={s.rotaShiftTime}>
+                                <Clock size={12} color={D.emerald} weight="bold" />
+                                <Text style={s.rotaShiftTimeText}>{fmtTime(shift.startTime)}–{fmtTime(shift.endTime)}</Text>
+                              </View>
+                              <Text style={s.rotaShiftHouse} numberOfLines={1}>{shift.house.name}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={s.rotaEmpty}>
+                      <Text style={s.rotaEmptyTxt}>No shifts scheduled this week</Text>
+                    </View>
+                  );
+                })()}
               </>
             )}
 
@@ -306,10 +332,16 @@ const s = StyleSheet.create({
 
   sectionTitle: { fontSize: 13, fontWeight: '700', color: D.muted, letterSpacing: 0.4, marginBottom: 12, textTransform: 'uppercase' },
 
-  // Rota button
-  rotaBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: D.white, borderRadius: 18, padding: 16, marginTop: 4, borderWidth: 1, borderColor: D.border, shadowColor: '#00534810', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2 },
-  rotaIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(0,95,86,0.09)', alignItems: 'center', justifyContent: 'center' },
-  rotaTxt: { flex: 1, fontSize: 14, fontWeight: '600', color: D.text },
+  // Rota view
+  rotaDay: { marginBottom: 16 },
+  rotaDayLabel: { fontSize: 12, fontWeight: '700', color: D.muted, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 8 },
+  rotaDayShifts: { gap: 8 },
+  rotaDayShift: { backgroundColor: D.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: D.border },
+  rotaShiftTime: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  rotaShiftTimeText: { fontSize: 12, fontWeight: '600', color: D.text },
+  rotaShiftHouse: { fontSize: 13, color: D.muted },
+  rotaEmpty: { backgroundColor: D.white, borderRadius: 12, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: D.border, marginBottom: 16 },
+  rotaEmptyTxt: { fontSize: 13, color: D.muted },
 
   // Empty state
   empty: { alignItems: 'center', paddingTop: 60, paddingBottom: 40 },

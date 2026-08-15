@@ -23,7 +23,7 @@ const ICON = {
 };
 
 const STYLE = {
-  success: 'border-primary-DEFAULT/30 bg-[#1c2e2a]/90 text-white',
+  success: 'border-primary/30 bg-[#1c2e2a]/90 text-white',
   error:   'border-error-DEFAULT/30 bg-[#2e1c1c]/90 text-white',
   info:    'border-outline-variant/30 bg-inverse-surface/90 text-inverse-on-surface',
 };

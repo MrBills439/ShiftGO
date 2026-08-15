@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { Platform, StyleSheet, View } from 'react-native';
-import { CalendarBlank, ClockCountdown, ListChecks, UserCircle } from 'phosphor-react-native';
+import { CalendarBlank, ClockCountdown, ListChecks, UserCircle, CalendarDots } from 'phosphor-react-native';
 import { Colors } from '../../constants/theme';
 
 function TabBar({ children }: { children: React.ReactNode }) {
@@ -43,6 +43,13 @@ export default function TabsLayout() {
         options={{
           title: 'Clock',
           tabBarIcon: ({ color, size }) => <ClockCountdown size={size} color={color} weight="regular" />,
+        }}
+      />
+      <Tabs.Screen
+        name="leave"
+        options={{
+          title: 'Leave',
+          tabBarIcon: ({ color, size }) => <CalendarDots size={size} color={color} weight="regular" />,
         }}
       />
       <Tabs.Screen

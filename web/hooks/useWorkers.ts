@@ -1,12 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { User } from '@/types';
+import { Role, User } from '@/types';
 
-export function useUsers(role?: string) {
+export type UserStatus = 'ACTIVE' | 'DEACTIVATED';
+
+export type CreateUserInput = {
+  name: string;
+  email: string;
+  role: Role;
+  phone?: string;
+  password?: string;
+  temporaryPassword?: string;
+};
+
+export function useUsers(role?: string, status: UserStatus = 'ACTIVE') {
   return useQuery<User[]>({
-    queryKey: ['users', role],
+    queryKey: ['users', role, status],
     queryFn: async () => {
-      const { data } = await api.get('/users', { params: role ? { role } : {} });
+      const { data } = await api.get('/users', { params: { ...(role ? { role } : {}), status } });
       return data.data;
     },
     staleTime: 60_000,
@@ -16,8 +27,20 @@ export function useUsers(role?: string) {
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.post('/auth/register', body),
+    mutationFn: (body: CreateUserInput) => api.post('/users', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useDeactivateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api.post(`/users/${id}/deactivate`, { reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+    },
   });
 }
 

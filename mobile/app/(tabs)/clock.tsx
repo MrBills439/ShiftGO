@@ -36,7 +36,17 @@ const D = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+const getGreeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening'; };
+const shiftTypeLabel = (type?: string) => {
+  switch (type) {
+    case 'DAY': return 'Day Shift';
+    case 'WAKE_NIGHT': return 'Wake Night Shift';
+    case 'SLEEP_IN': return 'Sleep In Shift';
+    case 'EMERGENCY': return 'Emergency Shift';
+    default: return 'Care Support Shift';
+  }
+};
 const fmt = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const fmtDate = (iso: string) => {
   const d = new Date(iso), today = new Date(), tmr = new Date();
@@ -61,6 +71,12 @@ const prog = (s: Shift) => {
 };
 const getActive = (shifts: Shift[]) => { const now = new Date(); return shifts.find(s => new Date(s.startTime) <= now && new Date(s.endTime) >= now) ?? null; };
 const getNext = (shifts: Shift[], active: Shift | null) => shifts.find(s => new Date(s.startTime) > new Date() && s.id !== active?.id) ?? null;
+const gpsConfidenceLabel = (accuracy?: number | null) => {
+  if (accuracy == null || accuracy > 100) return 'GPS unreliable';
+  if (accuracy > 50) return 'Weak GPS';
+  return 'Good GPS';
+};
+const requiresManualGpsConfirmation = (accuracy?: number | null) => accuracy != null && accuracy > 50 && accuracy <= 100;
 
 // ─── Status Pill ──────────────────────────────────────────────────────────────
 function Pill({ icon, label, on = true }: { icon: React.ReactNode; label: string; on?: boolean }) {
@@ -131,8 +147,19 @@ export default function ClockScreen() {
   const router = useRouter();
   const activeShift = getActive(upcoming);
   const nextShift = getNext(upcoming, activeShift);
-  const { isClockedIn, isLoading: statusLoading, isActing, error, clockIn, clockOut } = useClockStatus(activeShift);
+  const {
+    isClockedIn,
+    isLoading: statusLoading,
+    isActing,
+    error,
+    syncMessage,
+    queueSummary,
+    clockIn,
+    clockOut,
+    retrySync,
+  } = useClockStatus(activeShift);
   const [gps, setGps] = useState<boolean | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [, tick] = useState(0);
   const { data: unreadCount = 0 } = useQuery<number>({
     queryKey: ['notif-count'],
@@ -147,7 +174,15 @@ export default function ClockScreen() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         setGps(status === 'granted');
-        if (status === 'granted') try { await startBackgroundLocation(); } catch {}
+        if (status === 'granted') {
+          try {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            setGpsAccuracy(loc.coords.accuracy ?? null);
+          } catch {
+            setGpsAccuracy(null);
+          }
+          try { await startBackgroundLocation(); } catch {}
+        }
       } catch { setGps(false); }
     })();
   }, []);
@@ -171,8 +206,8 @@ export default function ClockScreen() {
         {/* ── Header ── */}
         <View style={s.header}>
           <View style={{ flex: 1 }}>
-            <Text style={s.greet}>Good {greeting()}, {firstName} 👋</Text>
-            <Text style={s.greetSub}>{activeShift ? `Scheduled at ${activeShift.house.name}` : 'No active shift right now'}</Text>
+            <Text style={s.greet}>{getGreeting()}, {firstName} 👋</Text>
+            <Text style={s.greetSub}>{activeShift ? `Shift at ${activeShift.house.name}` : 'No shift scheduled today'}</Text>
           </View>
           <View style={s.headerRight}>
             <Pressable
@@ -220,7 +255,7 @@ export default function ClockScreen() {
 
             <Text style={s.heroLabel}>TODAY'S SHIFT</Text>
             <Text style={s.heroHouse}>{activeShift.house.name}</Text>
-            <Text style={s.heroType}>Care Support Shift</Text>
+            <Text style={s.heroType}>{shiftTypeLabel(activeShift.shiftType)}</Text>
 
             <View style={s.heroTimeRow}>
               <Text style={s.heroTime}>{fmt(activeShift.startTime)} – {fmt(activeShift.endTime)}</Text>
@@ -234,9 +269,8 @@ export default function ClockScreen() {
 
             {/* Pills */}
             <View style={s.pills}>
-              <Pill icon={<CheckCircle size={10} color={gps ? D.mint : 'rgba(255,255,255,0.4)'} weight="fill" />} label="GPS Verified" on={gps === true} />
-              <Pill icon={<Cpu size={10} color={D.mint} weight="bold" />} label="Auto Clock-In" />
-              <Pill icon={<NavigationArrow size={10} color={D.mint} weight="fill" />} label="In Geofence" />
+              <Pill icon={<CheckCircle size={10} color={gps && gpsAccuracy != null && gpsAccuracy <= 50 ? D.mint : 'rgba(255,255,255,0.4)'} weight="fill" />} label={gps ? gpsConfidenceLabel(gpsAccuracy) : 'GPS unreliable'} on={gps === true && gpsAccuracy != null && gpsAccuracy <= 50} />
+              <Pill icon={<Cpu size={10} color={requiresManualGpsConfirmation(gpsAccuracy) ? D.amber : D.mint} weight="bold" />} label={requiresManualGpsConfirmation(gpsAccuracy) ? 'Manual confirmation required' : 'Auto Clock-In'} on={!requiresManualGpsConfirmation(gpsAccuracy)} />
             </View>
           </LinearGradient>
         ) : (
@@ -263,25 +297,43 @@ export default function ClockScreen() {
         <View style={s.clockArea}>
           <ClockBtn isClockedIn={isClockedIn} isLoading={isActing} onPress={isClockedIn ? clockOut : clockIn} />
           {error && <Text style={s.errTxt}>{error}</Text>}
+          {syncMessage && (
+            <View style={s.syncRow}>
+              <Text style={[
+                s.syncTxt,
+                queueSummary.failedCount > 0 && s.syncFailed,
+                queueSummary.pendingCount > 0 && s.syncPending,
+              ]}>
+                {syncMessage}
+              </Text>
+              {(queueSummary.pendingCount > 0 || queueSummary.failedCount > 0) && (
+                <Pressable onPress={retrySync} style={s.retryBtn}>
+                  <Text style={s.retryTxt}>Retry sync</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </View>
 
         {/* ── Status Strip ── */}
-        <View style={s.strip}>
-          <View style={s.si}>
-            <View style={s.siIcon}><NavigationArrow size={12} color={D.emerald} weight="fill" /></View>
-            <View><Text style={s.siV}>Near location</Text><Text style={s.siS}>GPS active</Text></View>
+        {activeShift && (
+          <View style={s.strip}>
+            <View style={s.si}>
+              <View style={s.siIcon}><NavigationArrow size={12} color={gps === true ? D.emerald : D.error} weight="fill" /></View>
+              <View><Text style={s.siV}>GPS Status</Text><Text style={s.siS}>{gps === true ? 'GPS enabled' : 'GPS unavailable'}</Text></View>
+            </View>
+            <View style={s.sl} />
+            <View style={s.si}>
+              <View style={s.siIcon}><ShieldCheck size={12} color={gpsAccuracy != null && gpsAccuracy <= 100 ? D.emerald : D.error} weight="fill" /></View>
+              <View><Text style={s.siV}>Accuracy</Text><Text style={s.siS}>{gpsAccuracy != null ? `${Math.round(gpsAccuracy)}m` : 'Unknown'}</Text></View>
+            </View>
+            <View style={s.sl} />
+            <View style={s.si}>
+              <View style={s.siIcon}><ArrowsClockwise size={12} color={requiresManualGpsConfirmation(gpsAccuracy) ? D.amber : D.emerald} weight="bold" /></View>
+              <View><Text style={s.siV}>Clock-In</Text><Text style={s.siS}>{requiresManualGpsConfirmation(gpsAccuracy) ? 'Manual needed' : 'Auto ready'}</Text></View>
+            </View>
           </View>
-          <View style={s.sl} />
-          <View style={s.si}>
-            <View style={s.siIcon}><ShieldCheck size={12} color={D.emerald} weight="fill" /></View>
-            <View><Text style={s.siV}>Compliant</Text><Text style={s.siS}>All checks OK</Text></View>
-          </View>
-          <View style={s.sl} />
-          <View style={s.si}>
-            <View style={s.siIcon}><ArrowsClockwise size={12} color={D.emerald} weight="bold" /></View>
-            <View><Text style={s.siV}>Auto enabled</Text><Text style={s.siS}>Clock-in ready</Text></View>
-          </View>
-        </View>
+        )}
 
       </ScrollView>
     </SafeAreaView>
@@ -343,6 +395,12 @@ const s = StyleSheet.create({
 
   clockArea: { alignItems: 'center', justifyContent: 'center', paddingVertical: 14 },
   errTxt: { fontSize: 12, color: D.error, marginTop: 8, textAlign: 'center' },
+  syncRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
+  syncTxt: { fontSize: 12, color: D.emerald, fontWeight: '700' },
+  syncPending: { color: D.amber },
+  syncFailed: { color: D.error },
+  retryBtn: { borderWidth: 1, borderColor: D.border, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: D.white },
+  retryTxt: { fontSize: 11, color: D.emerald, fontWeight: '700' },
 
   strip: { flexDirection: 'row', alignItems: 'center', backgroundColor: D.white, borderRadius: 18, padding: 12, borderWidth: 1, borderColor: D.border },
   si: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7 },

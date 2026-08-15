@@ -14,6 +14,11 @@ enum Role {
   WORKER
 }
 
+enum UserStatus {
+  ACTIVE
+  DEACTIVATED
+}
+
 enum ClockType {
   IN
   OUT
@@ -22,6 +27,19 @@ enum ClockType {
 enum ClockMethod {
   AUTO
   MANUAL
+}
+
+enum GpsConfidence {
+  HIGH
+  MEDIUM
+  LOW
+  UNRELIABLE
+}
+
+enum LocationSource {
+  GPS
+  MANUAL
+  OFFLINE_SYNC
 }
 
 enum NotificationType {
@@ -47,17 +65,67 @@ enum DbsStatus {
   EXPIRED
 }
 
+enum TimesheetStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ShiftType {
+  DAY
+  WAKE_NIGHT
+  SLEEP_IN
+  EMERGENCY
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model Agency {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  houses        House[]
+  shifts        Shift[]
+  clockEvents   ClockEvent[]
+  timesheets    Timesheet[]
+  notifications Notification[]
+  trainings     Training[]
+  dbsChecks     DbsCheck[]
+  auditLogs     AuditLog[]
+  leaveRequests LeaveRequest[]
+}
+
 model User {
   id             String   @id @default(cuid())
+  agencyId       String   @default("default-agency")
   name           String
   email          String   @unique
   passwordHash   String
   role           Role
+  status         UserStatus @default(ACTIVE)
   phone          String?
   bio            String?
   profilePicture String?
   address        String?
   fcmToken       String?
+  deactivatedAt  DateTime?
+  deactivatedById String?
+  deactivationReason String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -66,16 +134,29 @@ model User {
   teamLeaderHouses     HouseTeamLeader[]
   createdShifts        Shift[]           @relation("ShiftCreator")
   workerShifts         Shift[]           @relation("ShiftWorker")
+  cancelledShifts      Shift[]           @relation("ShiftCanceller")
   clockEvents          ClockEvent[]
   timesheets           Timesheet[]       @relation("WorkerTimesheets")
   confirmedTimesheets  Timesheet[]       @relation("ConfirmedTimesheets")
+  reviewedTimesheets   Timesheet[]       @relation("ReviewedTimesheets")
   notifications        Notification[]
   trainings            Training[]
   dbsCheck             DbsCheck?
+  deactivatedBy        User?             @relation("UserDeactivations", fields: [deactivatedById], references: [id])
+  deactivatedUsers     User[]            @relation("UserDeactivations")
+  createdLeaveRequests LeaveRequest[]    @relation("LeaveRequestCreator")
+  approvedLeaveRequests LeaveRequest[]   @relation("LeaveRequestReviewer")
+
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+  @@index([status])
+  @@index([deactivatedById])
 }
 
 model House {
   id             String   @id @default(cuid())
+  agencyId       String   @default("default-agency")
   name           String
   address        String
   latitude       Float
@@ -92,6 +173,10 @@ model House {
   shifts      Shift[]
   clockEvents ClockEvent[]
   timesheets  Timesheet[]
+
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
 }
 
 model HouseWorker {
@@ -116,45 +201,92 @@ model HouseTeamLeader {
 
 model Shift {
   id          String   @id @default(cuid())
+  agencyId    String   @default("default-agency")
   houseId     String
   workerId    String
   createdById String
   startTime   DateTime
   endTime     DateTime
   date        DateTime
+  shiftType   ShiftType @default(DAY)
+  status      ShiftStatus @default(SCHEDULED)
+  cancelledAt DateTime?
+  cancelledById String?
+  cancellationReason String?
   createdAt   DateTime @default(now())
 
   house       House      @relation(fields: [houseId], references: [id])
   worker      User       @relation("ShiftWorker", fields: [workerId], references: [id])
   createdBy   User       @relation("ShiftCreator", fields: [createdById], references: [id])
+  cancelledBy User?      @relation("ShiftCanceller", fields: [cancelledById], references: [id])
   clockEvents ClockEvent[]
   timesheet   Timesheet?
+  agency      Agency     @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+  @@index([shiftType])
+  @@index([agencyId, startTime, endTime])
+  @@index([workerId, startTime, endTime])
 }
 
 model ClockEvent {
   id        String      @id @default(cuid())
+  agencyId  String      @default("default-agency")
   workerId  String
   houseId   String
   shiftId   String
   type      ClockType
   method    ClockMethod
   timestamp DateTime    @default(now())
+  accuracy  Float?
+  gpsConfidence GpsConfidence?
+  locationSource LocationSource?
 
   worker User  @relation(fields: [workerId], references: [id])
   house  House @relation(fields: [houseId], references: [id])
   shift  Shift @relation(fields: [shiftId], references: [id])
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  agencyId   String   @default("default-agency")
+  actorId    String?
+  actorRole  String?
+  action     String
+  entityType String
+  entityId   String
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  agency     Agency   @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 model Timesheet {
   id            String    @id @default(cuid())
+  agencyId      String    @default("default-agency")
   workerId      String
   houseId       String
   shiftId       String    @unique
   clockInAt     DateTime?
   clockOutAt    DateTime?
   totalHours    Float?
+  status        TimesheetStatus @default(PENDING)
+  rejectionReason String?
   confirmedById String?
   confirmedAt   DateTime?
+  reviewedById  String?
+  reviewedAt    DateTime?
   autoConfirmed Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -163,10 +295,15 @@ model Timesheet {
   house       House  @relation(fields: [houseId], references: [id])
   shift       Shift  @relation(fields: [shiftId], references: [id])
   confirmedBy User?  @relation("ConfirmedTimesheets", fields: [confirmedById], references: [id])
+  reviewedBy  User?  @relation("ReviewedTimesheets", fields: [reviewedById], references: [id])
+  agency      Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
 }
 
 model Notification {
   id        String           @id @default(cuid())
+  agencyId  String           @default("default-agency")
   userId    String
   type      NotificationType
   title     String
@@ -176,10 +313,14 @@ model Notification {
   createdAt DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
 }
 
 model Training {
   id          String         @id @default(cuid())
+  agencyId    String         @default("default-agency")
   userId      String
   title       String
   description String?
@@ -190,10 +331,14 @@ model Training {
   updatedAt   DateTime       @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
 }
 
 model DbsCheck {
   id          String    @id @default(cuid())
+  agencyId    String    @default("default-agency")
   userId      String    @unique
   status      DbsStatus @default(PENDING)
   reference   String?
@@ -204,4 +349,31 @@ model DbsCheck {
   updatedAt   DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+}
+
+model LeaveRequest {
+  id              String              @id @default(cuid())
+  agencyId        String              @default("default-agency")
+  workerId        String
+  startDate       DateTime
+  endDate         DateTime
+  reason          String
+  status          LeaveRequestStatus  @default(PENDING)
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  worker      User   @relation("LeaveRequestCreator", fields: [workerId], references: [id], onDelete: Cascade)
+  reviewedBy  User?  @relation("LeaveRequestReviewer", fields: [reviewedById], references: [id])
+  agency      Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+  @@index([workerId])
+  @@index([status])
+  @@index([startDate, endDate])
 }

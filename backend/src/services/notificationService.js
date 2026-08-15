@@ -3,10 +3,35 @@ const config = require('../config');
 
 const prisma = new PrismaClient();
 let messaging = null;
+let initError = null;
+
+function isPlaceholder(value) {
+  if (!value) return true;
+  return /your_|YOUR_|xxxxx|PRIVATE_KEY_HERE|placeholder/i.test(value);
+}
+
+function firebaseStatus() {
+  const missing = [];
+  if (isPlaceholder(config.firebase.projectId)) missing.push('FIREBASE_PROJECT_ID');
+  if (isPlaceholder(config.firebase.clientEmail)) missing.push('FIREBASE_CLIENT_EMAIL');
+  if (isPlaceholder(config.firebase.privateKey)) missing.push('FIREBASE_PRIVATE_KEY');
+
+  return {
+    required: config.firebase.required,
+    configured: missing.length === 0,
+    ready: Boolean(messaging) && missing.length === 0 && !initError,
+    missing,
+    error: initError?.message || null,
+  };
+}
 
 function getMessaging() {
   if (messaging) return messaging;
-  if (!config.firebase.projectId) return null;
+  const status = firebaseStatus();
+  if (!status.configured) {
+    initError = null;
+    return null;
+  }
   try {
     const admin = require('firebase-admin');
     if (!admin.apps.length) {
@@ -19,7 +44,10 @@ function getMessaging() {
       });
     }
     messaging = admin.messaging();
-  } catch {
+    initError = null;
+  } catch (err) {
+    initError = err;
+    console.error('[FCM] Firebase Admin initialization failed:', err.message);
     messaging = null;
   }
   return messaging;
@@ -27,17 +55,25 @@ function getMessaging() {
 
 async function sendPush(fcmToken, notification) {
   const msg = getMessaging();
-  if (!msg || !fcmToken) return;
+  if (!msg || !fcmToken) {
+    return {
+      sent: false,
+      reason: !fcmToken ? 'missing-token' : 'firebase-not-ready',
+      status: firebaseStatus(),
+    };
+  }
   try {
-    await msg.send({ token: fcmToken, notification });
+    const messageId = await msg.send({ token: fcmToken, notification });
+    return { sent: true, messageId };
   } catch (err) {
     console.error('[FCM]', err.message);
+    return { sent: false, reason: 'send-failed', error: err.message };
   }
 }
 
 async function createAndSend(userId, type, title, body, data = null) {
-  await prisma.notification.create({ data: { userId, type, title, body, data } });
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { fcmToken: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { fcmToken: true, agencyId: true } });
+  await prisma.notification.create({ data: { agencyId: user?.agencyId || 'default-agency', userId, type, title, body, data } });
   if (user?.fcmToken) await sendPush(user.fcmToken, { title, body });
 }
 
@@ -91,6 +127,8 @@ const send = sendPush;
 module.exports = {
   send,
   sendPush,
+  firebaseStatus,
+  getMessaging,
   sendShiftAssigned,
   sendShiftRemoved,
   sendMissedClockInAlert,

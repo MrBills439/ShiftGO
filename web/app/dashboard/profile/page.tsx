@@ -27,7 +27,7 @@ const TRAINING_STATUS_MAP = {
 };
 
 const DBS_STATUS_MAP = {
-  CLEAR:   { label: 'Verified',  color: 'bg-[#e6f4f0] text-primary-DEFAULT' },
+  CLEAR:   { label: 'Verified',  color: 'bg-[#e6f4f0] text-primary' },
   PENDING: { label: 'Pending',   color: 'bg-surface-high text-on-surface-variant' },
   FLAGGED: { label: 'Flagged',   color: 'bg-error-container text-error-DEFAULT' },
   EXPIRED: { label: 'Expired',   color: 'bg-[#fff8e1] text-[#784a00]' },
@@ -98,7 +98,7 @@ export default function ProfilePage() {
               <span className="text-2xl font-bold text-white">{initials}</span>
             </div>
             <p className="text-lg font-bold text-on-surface">{displayUser?.name ?? '—'}</p>
-            <p className="text-xs font-semibold text-primary-DEFAULT mt-0.5 mb-3">{roleLabel}</p>
+            <p className="text-xs font-semibold text-primary mt-0.5 mb-3">{roleLabel}</p>
 
             <div className="w-full space-y-2 text-left">
               <div className="flex items-center gap-2.5 py-2 border-b border-outline-variant/30">

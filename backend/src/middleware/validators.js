@@ -1,0 +1,721 @@
+const { body, param, query, validationResult } = require('express-validator');
+
+const ROLES = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
+const USER_STATUSES = ['ACTIVE', 'DEACTIVATED'];
+const SHIFT_STATUSES = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+const SHIFT_TYPES = ['DAY', 'WAKE_NIGHT', 'SLEEP_IN', 'EMERGENCY'];
+const TIMESHEET_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
+const TRAINING_STATUSES = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'EXPIRED'];
+const DBS_STATUSES = ['PENDING', 'CLEAR', 'FLAGGED', 'EXPIRED'];
+
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    const fieldErrors = errors.array().reduce((acc, err) => {
+      acc[err.path || err.param] = err.msg;
+      return acc;
+    }, {});
+
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'One or more fields are invalid',
+        fields: fieldErrors,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  }
+  next();
+};
+
+const idParam = (name = 'id', label = 'ID') => [
+  param(name)
+    .trim()
+    .notEmpty()
+    .withMessage(`${label} is required`)
+    .isLength({ min: 5 })
+    .withMessage(`${label} must be valid`),
+];
+
+const requiredIdBody = (name, label) =>
+  body(name)
+    .trim()
+    .notEmpty()
+    .withMessage(`${label} is required`)
+    .isLength({ min: 5 })
+    .withMessage(`${label} must be valid`);
+
+const optionalIsoDate = (name, label) =>
+  body(name)
+    .optional({ nullable: true, checkFalsy: true })
+    .isISO8601()
+    .withMessage(`${label} must be a valid ISO 8601 date`);
+
+const pagination = [
+  query('page')
+    .optional()
+    .isInt({ min: 1, max: 10_000 })
+    .withMessage('Page must be an integer between 1 and 10000'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Limit must be an integer between 1 and 100'),
+];
+
+const gps = [
+  body('latitude')
+    .notEmpty()
+    .withMessage('Latitude is required')
+    .isFloat({ min: -90, max: 90 })
+    .withMessage('Latitude must be between -90 and 90'),
+  body('longitude')
+    .notEmpty()
+    .withMessage('Longitude is required')
+    .isFloat({ min: -180, max: 180 })
+    .withMessage('Longitude must be between -180 and 180'),
+  body('accuracy')
+    .optional()
+    .isFloat({ min: 0, max: 5000 })
+    .withMessage('Accuracy must be between 0 and 5000 metres'),
+];
+
+const requiredGps = [
+  body('latitude')
+    .notEmpty()
+    .withMessage('Latitude is required')
+    .isFloat({ min: -90, max: 90 })
+    .withMessage('Latitude must be between -90 and 90'),
+  body('longitude')
+    .notEmpty()
+    .withMessage('Longitude is required')
+    .isFloat({ min: -180, max: 180 })
+    .withMessage('Longitude must be between -180 and 180'),
+  body('accuracy')
+    .notEmpty()
+    .withMessage('Accuracy is required')
+    .bail()
+    .isFloat({ min: 0, max: 5000 })
+    .withMessage('Accuracy must be between 0 and 5000 metres'),
+];
+
+const validators = {
+  login: [
+    body('email')
+      .trim()
+      .notEmpty()
+      .withMessage('Email is required')
+      .isEmail()
+      .normalizeEmail()
+      .withMessage('Email must be valid'),
+    body('password')
+      .notEmpty()
+      .withMessage('Password is required')
+      .isLength({ min: 6 })
+      .withMessage('Password must be at least 6 characters'),
+    handleValidationErrors,
+  ],
+
+  refresh: [
+    body('refreshToken')
+      .trim()
+      .notEmpty()
+      .withMessage('Refresh token is required'),
+    handleValidationErrors,
+  ],
+
+  register: [
+    body('email')
+      .trim()
+      .notEmpty()
+      .withMessage('Email is required')
+      .isEmail()
+      .normalizeEmail()
+      .withMessage('Email must be valid'),
+    body('password')
+      .notEmpty()
+      .withMessage('Password is required')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters'),
+    body('name')
+      .trim()
+      .notEmpty()
+      .withMessage('Name is required')
+      .isLength({ min: 2, max: 120 })
+      .withMessage('Name must be between 2 and 120 characters'),
+    body('role')
+      .notEmpty()
+      .withMessage('Role is required')
+      .isIn(ROLES)
+      .withMessage('Role must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    handleValidationErrors,
+  ],
+
+  createUser: [
+    body('email')
+      .trim()
+      .notEmpty()
+      .withMessage('Email is required')
+      .isEmail()
+      .normalizeEmail()
+      .withMessage('Email must be valid'),
+    body('name')
+      .trim()
+      .notEmpty()
+      .withMessage('Name is required')
+      .isLength({ min: 2, max: 120 })
+      .withMessage('Name must be between 2 and 120 characters'),
+    body('role')
+      .notEmpty()
+      .withMessage('Role is required')
+      .isIn(ROLES)
+      .withMessage('Role must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    body('phone')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ max: 40 })
+      .withMessage('Phone must be 40 characters or fewer'),
+    body('password')
+      .optional({ nullable: true, checkFalsy: true })
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters'),
+    body('temporaryPassword')
+      .optional({ nullable: true, checkFalsy: true })
+      .isLength({ min: 8 })
+      .withMessage('Temporary password must be at least 8 characters'),
+    body('temporaryPassword')
+      .custom((temporaryPassword, { req }) => {
+        if (!req.body.password && !temporaryPassword) {
+          throw new Error('Password or temporary password is required');
+        }
+        return true;
+      }),
+    handleValidationErrors,
+  ],
+
+  listUsers: [
+    query('role')
+      .optional()
+      .isIn(ROLES)
+      .withMessage('Role must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    query('status')
+      .optional()
+      .isIn(USER_STATUSES)
+      .withMessage('User status must be ACTIVE or DEACTIVATED'),
+    ...pagination,
+    handleValidationErrors,
+  ],
+
+  getUser: [
+    ...idParam('id', 'User ID'),
+    handleValidationErrors,
+  ],
+
+  deactivateUser: [
+    ...idParam('id', 'User ID'),
+    body('reason')
+      .trim()
+      .notEmpty()
+      .withMessage('Deactivation reason is required')
+      .bail()
+      .isLength({ min: 3, max: 500 })
+      .withMessage('Deactivation reason must be between 3 and 500 characters'),
+    handleValidationErrors,
+  ],
+
+  updateMe: [
+    body('name')
+      .optional()
+      .trim()
+      .isLength({ min: 2, max: 120 })
+      .withMessage('Name must be between 2 and 120 characters'),
+    body('phone')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 40 })
+      .withMessage('Phone must be 40 characters or fewer'),
+    body('bio')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Bio must be 1000 characters or fewer'),
+    body('address')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Address must be 500 characters or fewer'),
+    handleValidationErrors,
+  ],
+
+  updateFcmToken: [
+    body('fcmToken')
+      .notEmpty()
+      .withMessage('FCM token is required')
+      .isString()
+      .withMessage('FCM token must be a string')
+      .isLength({ max: 4096 })
+      .withMessage('FCM token must be 4096 characters or fewer'),
+    handleValidationErrors,
+  ],
+
+  assignWorkerToHouse: [
+    requiredIdBody('workerId', 'Worker ID'),
+    requiredIdBody('houseId', 'House ID'),
+    handleValidationErrors,
+  ],
+
+  assignTeamLeaderToHouse: [
+    requiredIdBody('teamLeaderId', 'Team leader ID'),
+    requiredIdBody('houseId', 'House ID'),
+    handleValidationErrors,
+  ],
+
+  listShifts: [
+    query('houseId')
+      .optional()
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('House ID must be valid'),
+    query('workerId')
+      .optional()
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Worker ID must be valid'),
+    query('status')
+      .optional()
+      .isIn(SHIFT_STATUSES)
+      .withMessage('Shift status must be SCHEDULED, IN_PROGRESS, COMPLETED, or CANCELLED'),
+    query('shiftType')
+      .optional()
+      .isIn(SHIFT_TYPES)
+      .withMessage('Shift type must be DAY, WAKE_NIGHT, SLEEP_IN, or EMERGENCY'),
+    query('startDate')
+      .optional()
+      .isISO8601()
+      .withMessage('Start date must be a valid ISO 8601 date'),
+    query('endDate')
+      .optional()
+      .isISO8601()
+      .withMessage('End date must be a valid ISO 8601 date')
+      .custom((endDate, { req }) => {
+        if (!req.query.startDate || Number.isNaN(new Date(req.query.startDate).getTime())) return true;
+        if (new Date(endDate) < new Date(req.query.startDate)) {
+          throw new Error('End date must be on or after start date');
+        }
+        return true;
+      }),
+    ...pagination,
+    handleValidationErrors,
+  ],
+
+  createShift: [
+    requiredIdBody('workerId', 'Worker ID'),
+    requiredIdBody('houseId', 'House ID'),
+    body('startTime')
+      .notEmpty()
+      .withMessage('Start time is required')
+      .isISO8601()
+      .toDate()
+      .withMessage('Start time must be a valid ISO 8601 date'),
+    body('endTime')
+      .notEmpty()
+      .withMessage('End time is required')
+      .isISO8601()
+      .toDate()
+      .withMessage('End time must be a valid ISO 8601 date')
+      .custom((endTime, { req }) => {
+        if (!req.body.startTime || Number.isNaN(new Date(req.body.startTime).getTime())) return true;
+        if (new Date(endTime) <= new Date(req.body.startTime)) {
+          throw new Error('End time must be after start time');
+        }
+        return true;
+      }),
+    body('date')
+      .notEmpty()
+      .withMessage('Date is required')
+      .isISO8601()
+      .withMessage('Date must be a valid ISO 8601 date'),
+    body('status')
+      .optional()
+      .isIn(SHIFT_STATUSES)
+      .withMessage('Shift status must be SCHEDULED, IN_PROGRESS, COMPLETED, or CANCELLED'),
+    body('shiftType')
+      .optional()
+      .isIn(SHIFT_TYPES)
+      .withMessage('Shift type must be DAY, WAKE_NIGHT, SLEEP_IN, or EMERGENCY'),
+    handleValidationErrors,
+  ],
+
+  rotaWeek: [
+    query('startDate')
+      .notEmpty()
+      .withMessage('Start date is required')
+      .isISO8601()
+      .withMessage('Start date must be a valid ISO 8601 date'),
+    handleValidationErrors,
+  ],
+
+  rotaDay: [
+    query('date')
+      .notEmpty()
+      .withMessage('Date is required')
+      .isISO8601()
+      .withMessage('Date must be a valid ISO 8601 date'),
+    handleValidationErrors,
+  ],
+
+  getShift: [
+    ...idParam('id', 'Shift ID'),
+    handleValidationErrors,
+  ],
+
+  cancelShift: [
+    ...idParam('id', 'Shift ID'),
+    body('reason')
+      .trim()
+      .notEmpty()
+      .withMessage('Cancellation reason is required')
+      .bail()
+      .isLength({ min: 3, max: 500 })
+      .withMessage('Cancellation reason must be between 3 and 500 characters'),
+    handleValidationErrors,
+  ],
+
+  manualClockIn: [
+    requiredIdBody('houseId', 'House ID'),
+    requiredIdBody('shiftId', 'Shift ID'),
+    optionalIsoDate('timestamp', 'Clock timestamp'),
+    body('latitude')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be between -90 and 90'),
+    body('longitude')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be between -180 and 180'),
+    body('accuracy')
+      .optional()
+      .isFloat({ min: 0, max: 5000 })
+      .withMessage('Accuracy must be between 0 and 5000 metres'),
+    body('reason')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 3, max: 500 })
+      .withMessage('Manual attendance reason must be between 3 and 500 characters'),
+    body('locationSource')
+      .optional()
+      .isIn(['MANUAL', 'OFFLINE_SYNC'])
+      .withMessage('Location source must be MANUAL or OFFLINE_SYNC'),
+    handleValidationErrors,
+  ],
+
+  autoCheckin: [
+    ...requiredGps,
+    handleValidationErrors,
+  ],
+
+  geofenceExit: [
+    ...requiredGps,
+    handleValidationErrors,
+  ],
+
+  createHouse: [
+    body('name')
+      .trim()
+      .notEmpty()
+      .withMessage('House name is required')
+      .isLength({ min: 2, max: 160 })
+      .withMessage('House name must be between 2 and 160 characters'),
+    body('address')
+      .trim()
+      .notEmpty()
+      .withMessage('Address is required')
+      .isLength({ max: 500 })
+      .withMessage('Address must be 500 characters or fewer'),
+    body('latitude')
+      .notEmpty()
+      .withMessage('Latitude is required')
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be between -90 and 90'),
+    body('longitude')
+      .notEmpty()
+      .withMessage('Longitude is required')
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be between -180 and 180'),
+    body('geofenceRadius')
+      .optional()
+      .isInt({ min: 10, max: 500 })
+      .withMessage('Geofence radius must be between 10 and 500 meters'),
+    body('managerId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Manager ID must be valid'),
+    body('autoConfirm')
+      .optional()
+      .isBoolean()
+      .withMessage('Auto-confirm must be a boolean'),
+    handleValidationErrors,
+  ],
+
+  getHouse: [
+    ...idParam('id', 'House ID'),
+    handleValidationErrors,
+  ],
+
+  updateHouse: [
+    ...idParam('id', 'House ID'),
+    body('name')
+      .optional()
+      .trim()
+      .isLength({ min: 2, max: 160 })
+      .withMessage('House name must be between 2 and 160 characters'),
+    body('address')
+      .optional()
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Address must be 500 characters or fewer'),
+    body('latitude')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be between -90 and 90'),
+    body('longitude')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be between -180 and 180'),
+    body('geofenceRadius')
+      .optional()
+      .isInt({ min: 10, max: 500 })
+      .withMessage('Geofence radius must be between 10 and 500 meters'),
+    body('managerId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Manager ID must be valid'),
+    body('autoConfirm')
+      .optional()
+      .isBoolean()
+      .withMessage('Auto-confirm must be a boolean'),
+    handleValidationErrors,
+  ],
+
+  updateGeofence: [
+    ...idParam('id', 'House ID'),
+    body('radius')
+      .notEmpty()
+      .withMessage('Radius is required')
+      .isInt({ min: 10, max: 500 })
+      .withMessage('Radius must be between 10 and 500 metres'),
+    handleValidationErrors,
+  ],
+
+  notificationId: [
+    ...idParam('id', 'Notification ID'),
+    handleValidationErrors,
+  ],
+
+  listNotifications: [
+    ...pagination,
+    handleValidationErrors,
+  ],
+
+  sendTestPush: [
+    body('token')
+      .trim()
+      .notEmpty()
+      .withMessage('FCM token is required')
+      .isLength({ min: 10, max: 4096 })
+      .withMessage('FCM token must be between 10 and 4096 characters'),
+    body('title')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 120 })
+      .withMessage('Title must be between 1 and 120 characters'),
+    body('body')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 500 })
+      .withMessage('Body must be between 1 and 500 characters'),
+    handleValidationErrors,
+  ],
+
+  listAuditLogs: [
+    query('entityType')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 80 })
+      .withMessage('Entity type must be between 1 and 80 characters'),
+    query('entityId')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 120 })
+      .withMessage('Entity ID must be between 1 and 120 characters'),
+    query('actorId')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 120 })
+      .withMessage('Actor ID must be between 1 and 120 characters'),
+    query('action')
+      .optional()
+      .trim()
+      .isLength({ min: 1, max: 120 })
+      .withMessage('Action must be between 1 and 120 characters'),
+    query('dateFrom')
+      .optional()
+      .isISO8601()
+      .withMessage('Date from must be a valid ISO 8601 date'),
+    query('dateTo')
+      .optional()
+      .isISO8601()
+      .withMessage('Date to must be a valid ISO 8601 date'),
+    ...pagination,
+    handleValidationErrors,
+  ],
+
+  houseTimesheets: [
+    ...idParam('houseId', 'House ID'),
+    query('status')
+      .optional()
+      .isIn(TIMESHEET_STATUSES)
+      .withMessage('Timesheet status must be PENDING, APPROVED, or REJECTED'),
+    ...pagination,
+    handleValidationErrors,
+  ],
+
+  confirmTimesheet: [
+    ...idParam('id', 'Timesheet ID'),
+    handleValidationErrors,
+  ],
+
+  rejectTimesheet: [
+    ...idParam('id', 'Timesheet ID'),
+    body('reason')
+      .trim()
+      .notEmpty()
+      .withMessage('Rejection reason is required')
+      .bail()
+      .isLength({ min: 3, max: 500 })
+      .withMessage('Rejection reason must be between 3 and 500 characters'),
+    handleValidationErrors,
+  ],
+
+  userIdParam: [
+    ...idParam('userId', 'User ID'),
+    handleValidationErrors,
+  ],
+
+  createTraining: [
+    requiredIdBody('userId', 'User ID'),
+    body('title')
+      .trim()
+      .notEmpty()
+      .withMessage('Title is required')
+      .isLength({ min: 2, max: 200 })
+      .withMessage('Title must be between 2 and 200 characters'),
+    body('description')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 2000 })
+      .withMessage('Description must be 2000 characters or fewer'),
+    body('status')
+      .optional()
+      .isIn(TRAINING_STATUSES)
+      .withMessage('Training status must be PENDING, IN_PROGRESS, COMPLETED, or EXPIRED'),
+    optionalIsoDate('completedAt', 'Completed date'),
+    optionalIsoDate('expiresAt', 'Expiry date'),
+    handleValidationErrors,
+  ],
+
+  updateTraining: [
+    ...idParam('id', 'Training ID'),
+    body('title')
+      .optional()
+      .trim()
+      .isLength({ min: 2, max: 200 })
+      .withMessage('Title must be between 2 and 200 characters'),
+    body('description')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 2000 })
+      .withMessage('Description must be 2000 characters or fewer'),
+    body('status')
+      .optional()
+      .isIn(TRAINING_STATUSES)
+      .withMessage('Training status must be PENDING, IN_PROGRESS, COMPLETED, or EXPIRED'),
+    optionalIsoDate('completedAt', 'Completed date'),
+    optionalIsoDate('expiresAt', 'Expiry date'),
+    handleValidationErrors,
+  ],
+
+  upsertDbs: [
+    requiredIdBody('userId', 'User ID'),
+    body('status')
+      .optional()
+      .isIn(DBS_STATUSES)
+      .withMessage('DBS status must be PENDING, CLEAR, FLAGGED, or EXPIRED'),
+    body('reference')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 120 })
+      .withMessage('Reference must be 120 characters or fewer'),
+    optionalIsoDate('issuedAt', 'Issued date'),
+    optionalIsoDate('expiresAt', 'Expiry date'),
+    body('notes')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 2000 })
+      .withMessage('Notes must be 2000 characters or fewer'),
+    handleValidationErrors,
+  ],
+
+  // Leave Requests
+  createLeaveRequest: [
+    body('workerId')
+      .optional()
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Worker ID must be valid'),
+    body('startDate')
+      .notEmpty()
+      .withMessage('Start date is required')
+      .isISO8601()
+      .toDate()
+      .withMessage('Start date must be a valid date'),
+    body('endDate')
+      .notEmpty()
+      .withMessage('End date is required')
+      .isISO8601()
+      .toDate()
+      .withMessage('End date must be a valid date'),
+    body('reason')
+      .trim()
+      .notEmpty()
+      .withMessage('Reason is required')
+      .isLength({ min: 3, max: 500 })
+      .withMessage('Reason must be between 3 and 500 characters'),
+    handleValidationErrors,
+  ],
+
+  approveLeaveRequest: [
+    ...idParam('id', 'Leave request ID'),
+    handleValidationErrors,
+  ],
+
+  rejectLeaveRequest: [
+    ...idParam('id', 'Leave request ID'),
+    body('rejectionReason')
+      .trim()
+      .notEmpty()
+      .withMessage('Rejection reason is required')
+      .isLength({ min: 3, max: 500 })
+      .withMessage('Rejection reason must be between 3 and 500 characters'),
+    handleValidationErrors,
+  ],
+
+  cancelLeaveRequest: [
+    ...idParam('id', 'Leave request ID'),
+    handleValidationErrors,
+  ],
+};
+
+module.exports = { validators, handleValidationErrors };

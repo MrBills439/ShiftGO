@@ -33,7 +33,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
       });
     }
 
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
+    const token = (await Notifications.getDevicePushTokenAsync()).data;
     try { await updateFcmToken(token); } catch { /* non-critical */ }
     return token;
   } catch {

@@ -12,7 +12,7 @@ const TYPE_MAP: Record<string, { icon: React.ElementType; bg: string; color: str
   SHIFT_REMOVED:    { icon: CalendarBlankIcon, bg: 'bg-error-container',  color: 'text-error-DEFAULT' },
   SHIFT_REMINDER:   { icon: ClockCountdownIcon, bg: 'bg-[#fff8e1]',  color: 'text-[#784a00]' },
   MISSED_CLOCK_IN:  { icon: ClockCountdownIcon, bg: 'bg-error-container', color: 'text-error-DEFAULT' },
-  CLOCK_OUT_PROMPT: { icon: CheckCircleIcon,  bg: 'bg-[#e6f4f0]',   color: 'text-primary-DEFAULT' },
+  CLOCK_OUT_PROMPT: { icon: CheckCircleIcon,  bg: 'bg-[#e6f4f0]',   color: 'text-primary' },
   GENERAL:          { icon: InfoIcon,          bg: 'bg-surface-high', color: 'text-on-surface-variant' },
 };
 
@@ -38,14 +38,14 @@ function NotificationItem({ notif, onRead }: { notif: AppNotification; onRead: (
           {!notif.read && (
             <button
               onClick={() => onRead(notif.id)}
-              className="text-[11px] text-primary-DEFAULT hover:underline font-inter flex-shrink-0"
+              className="text-[11px] text-primary hover:underline font-inter flex-shrink-0"
             >
               Mark read
             </button>
           )}
         </div>
         <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">{notif.body}</p>
-        <p className="text-[11px] text-outline-DEFAULT font-inter mt-1.5">
+        <p className="text-[11px] text-outline font-inter mt-1.5">
           {new Date(notif.createdAt).toLocaleDateString('en-GB', {
             day: 'numeric', month: 'short', year: 'numeric',
             hour: '2-digit', minute: '2-digit',

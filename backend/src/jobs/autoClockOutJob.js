@@ -30,6 +30,7 @@ async function autoClockOutJob() {
       const event = await prisma.clockEvent.create({
         data: {
           workerId: shift.workerId,
+          agencyId: shift.agencyId,
           houseId:  shift.houseId,
           shiftId:  shift.id,
           type:     'OUT',
@@ -47,6 +48,7 @@ async function autoClockOutJob() {
         where: { shiftId: shift.id },
         create: {
           workerId:   shift.workerId,
+          agencyId:   shift.agencyId,
           houseId:    shift.houseId,
           shiftId:    shift.id,
           clockOutAt: now,

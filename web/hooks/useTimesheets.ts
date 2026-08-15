@@ -22,6 +22,15 @@ export function useConfirmTimesheet() {
   });
 }
 
+export function useRejectTimesheet() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api.post(`/timesheets/${id}/reject`, { reason }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['timesheets'] }),
+  });
+}
+
 export function exportTimesheetPDF(houseId: string) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('shiftgo_access') : '';
   const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';

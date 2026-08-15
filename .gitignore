@@ -1,28 +1,52 @@
 # Environment files — never commit these
 .env
-.env.local
-.env.production
-.env.production.local
+.env.*
+!.env.example
 
 # Dependencies
 node_modules/
 
 # Build output
 .next/
+out/
 dist/
 build/
+*.tsbuildinfo
 
 # Expo
 .expo/
 mobile/.expo/
+mobile/android/
+mobile/ios/
+
+# Firebase / service-account secrets
+mobile/google-services.json
+mobile/GoogleService-Info.plist
+**/serviceAccountKey.json
+**/firebase-adminsdk*.json
+
+# Private keys / certificates
+*.pem
+*.key
+*.p12
+*.p8
+*.jks
+*.keystore
 
 # Prisma generated
 backend/src/generated/
 
+# Test coverage
+coverage/
+
 # Logs
 *.log
 npm-debug.log*
+logs/
 
-# OS
+# Editor / OS files
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+*.swp

@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { PlusIcon, CalendarBlankIcon, TrashIcon } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { Modal } from '@/components/ui/Modal';
-import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/Skeleton';
@@ -13,7 +12,10 @@ import { useUsers } from '@/hooks/useWorkers';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
 
-function shiftStatus(shift: { startTime: string; endTime: string }): 'active' | 'upcoming' | 'completed' {
+function shiftStatus(shift: { startTime: string; endTime: string; status?: string }): 'active' | 'upcoming' | 'completed' | 'cancelled' {
+  if (shift.status === 'CANCELLED') return 'cancelled';
+  if (shift.status === 'COMPLETED') return 'completed';
+  if (shift.status === 'IN_PROGRESS') return 'active';
   const now = new Date();
   if (new Date(shift.startTime) <= now && new Date(shift.endTime) >= now) return 'active';
   if (new Date(shift.startTime) > now) return 'upcoming';
@@ -32,9 +34,12 @@ export default function ShiftsPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ houseId: '', workerId: '', date: '', startTime: '', endTime: '' });
   const [err, setErr] = useState('');
-  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [cancelId, setCancelId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelError, setCancelError] = useState('');
 
   const canCreate = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
+  const canCancel = ['HR', 'MANAGER'].includes(user?.role ?? '');
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -51,11 +56,22 @@ export default function ShiftsPage() {
     }
   }
 
-  function handleDelete() {
-    if (!confirmId) return;
-    deleteShift.mutate(confirmId, {
-      onSuccess: () => { setConfirmId(null); toast.success('Shift deleted'); },
-      onError:   () => { setConfirmId(null); toast.error('Failed to delete shift'); },
+  function closeCancel() {
+    setCancelId(null);
+    setCancelReason('');
+    setCancelError('');
+  }
+
+  function handleCancelShift(e: React.FormEvent) {
+    e.preventDefault();
+    if (!cancelId) return;
+    if (!cancelReason.trim()) {
+      setCancelError('Cancellation reason is required');
+      return;
+    }
+    deleteShift.mutate({ id: cancelId, reason: cancelReason.trim() }, {
+      onSuccess: () => { closeCancel(); toast.success('Shift cancelled'); },
+      onError:   (error: any) => setCancelError(error.response?.data?.message ?? 'Failed to cancel shift'),
     });
   }
 
@@ -105,13 +121,22 @@ export default function ShiftsPage() {
                       {' – '}
                       {new Date(s.endTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                     </td>
-                    <td className="table-td"><Badge variant={status} label={status} /></td>
                     <td className="table-td">
-                      {canCreate && (
+                      <Badge variant={status === 'cancelled' ? 'error' : status} label={status} />
+                      {status === 'cancelled' && s.cancellationReason && (
+                        <p className="mt-1 max-w-48 text-[11px] text-on-surface-variant">{s.cancellationReason}</p>
+                      )}
+                    </td>
+                    <td className="table-td">
+                      {canCancel && s.status === 'SCHEDULED' && (
                         <button
-                          onClick={() => setConfirmId(s.id)}
-                          className="p-1.5 rounded text-outline-DEFAULT hover:text-error-DEFAULT hover:bg-error-container transition-colors"
-                          aria-label="Delete shift"
+                          onClick={() => {
+                            setCancelId(s.id);
+                            setCancelReason('');
+                            setCancelError('');
+                          }}
+                          className="p-1.5 rounded text-outline hover:text-error-DEFAULT hover:bg-error-container transition-colors"
+                          aria-label="Cancel shift"
                         >
                           <TrashIcon size={15} />
                         </button>
@@ -165,15 +190,33 @@ export default function ShiftsPage() {
         </form>
       </Modal>
 
-      <ConfirmModal
-        open={!!confirmId}
-        onClose={() => setConfirmId(null)}
-        onConfirm={handleDelete}
-        title="Delete Shift"
-        message="This shift will be permanently removed. Workers will no longer see it in their schedule."
-        confirmLabel="Delete Shift"
-        isPending={deleteShift.isPending}
-      />
+      <Modal open={!!cancelId} onClose={closeCancel} title="Cancel Shift">
+        <form onSubmit={handleCancelShift} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+              Reason
+            </label>
+            <textarea
+              className="input-field min-h-28 resize-none"
+              value={cancelReason}
+              onChange={(e) => {
+                setCancelReason(e.target.value);
+                setCancelError('');
+              }}
+              placeholder="Explain why this shift is being cancelled"
+              maxLength={500}
+              required
+            />
+          </div>
+          {cancelError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{cancelError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={closeCancel} className="btn-secondary flex-1 justify-center">Keep Shift</button>
+            <button type="submit" disabled={deleteShift.isPending} className="btn-primary flex-1 justify-center">
+              {deleteShift.isPending ? 'Cancelling...' : 'Cancel Shift'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { FilePdfIcon, CheckCircleIcon, ListChecksIcon } from '@phosphor-icons/react';
+import { FilePdfIcon, CheckCircleIcon, ListChecksIcon, XCircleIcon } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/Skeleton';
+import { Modal } from '@/components/ui/Modal';
 import { useHouses } from '@/hooks/useHouses';
-import { useHouseTimesheets, useConfirmTimesheet, exportTimesheetPDF } from '@/hooks/useTimesheets';
+import { useHouseTimesheets, useConfirmTimesheet, useRejectTimesheet, exportTimesheetPDF } from '@/hooks/useTimesheets';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
 
@@ -21,7 +22,11 @@ export default function TimesheetsPage() {
   const [selectedHouse, setSelectedHouse] = useState('');
   const { data: timesheets = [], isLoading: timesheetsLoading } = useHouseTimesheets(selectedHouse);
   const confirm = useConfirmTimesheet();
+  const reject = useRejectTimesheet();
   const toast = useToast();
+  const [rejectId, setRejectId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState('');
 
   useEffect(() => {
     if (!housesLoading && houses.length > 0 && !selectedHouse) {
@@ -32,10 +37,38 @@ export default function TimesheetsPage() {
   const canConfirm = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
   const canExport  = ['HR', 'MANAGER'].includes(user?.role ?? '');
 
-  const pending    = timesheets.filter((t) => !t.confirmedAt && !t.autoConfirmed);
+  const pending    = timesheets.filter((t) => (t.status ?? (t.confirmedAt || t.autoConfirmed ? 'APPROVED' : 'PENDING')) === 'PENDING');
   const totalHours = timesheets.reduce((a, t) => a + (t.totalHours ?? 0), 0);
 
   const isLoading = housesLoading || (!!selectedHouse && timesheetsLoading);
+
+  function openReject(id: string) {
+    setRejectId(id);
+    setRejectReason('');
+    setRejectError('');
+  }
+
+  function closeReject() {
+    setRejectId(null);
+    setRejectReason('');
+    setRejectError('');
+  }
+
+  function submitReject(e: React.FormEvent) {
+    e.preventDefault();
+    if (!rejectId) return;
+    if (!rejectReason.trim()) {
+      setRejectError('Rejection reason is required');
+      return;
+    }
+    reject.mutate({ id: rejectId, reason: rejectReason.trim() }, {
+      onSuccess: () => {
+        closeReject();
+        toast.success('Timesheet rejected');
+      },
+      onError: (err: any) => setRejectError(err.response?.data?.message ?? 'Failed to reject timesheet'),
+    });
+  }
 
   return (
     <div>
@@ -69,7 +102,7 @@ export default function TimesheetsPage() {
       {selectedHouse && !timesheetsLoading && timesheets.length > 0 && (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="glass-card p-4 text-center">
-            <p className="text-2xl font-bold text-primary-DEFAULT">{totalHours.toFixed(1)}h</p>
+            <p className="text-2xl font-bold text-primary">{totalHours.toFixed(1)}h</p>
             <p className="text-[11px] uppercase tracking-wider font-semibold text-on-surface-variant font-inter mt-1">Total Hours</p>
           </div>
           <div className="glass-card p-4 text-center">
@@ -107,7 +140,9 @@ export default function TimesheetsPage() {
             </thead>
             <tbody>
               {timesheets.map((t) => {
-                const isConfirmed = !!(t.confirmedAt || t.autoConfirmed);
+                const status = t.status ?? (t.confirmedAt || t.autoConfirmed ? 'APPROVED' : 'PENDING');
+                const isPending = status === 'PENDING';
+                const badgeVariant = status === 'APPROVED' ? 'confirmed' : status === 'REJECTED' ? 'error' : 'pending';
                 return (
                   <tr key={t.id} className="hover:bg-surface-lowest/60 transition-colors">
                     <td className="table-td font-medium">{t.worker.name}</td>
@@ -118,28 +153,42 @@ export default function TimesheetsPage() {
                     </td>
                     <td className="table-td font-inter text-xs">{fmt(t.clockInAt)}</td>
                     <td className="table-td font-inter text-xs">{fmt(t.clockOutAt)}</td>
-                    <td className="table-td font-semibold text-primary-DEFAULT">
+                    <td className="table-td font-semibold text-primary">
                       {t.totalHours != null ? `${t.totalHours.toFixed(2)}h` : '—'}
                     </td>
                     <td className="table-td">
                       <Badge variant={t.autoConfirmed ? 'active' : 'upcoming'} label={t.autoConfirmed ? 'Auto' : 'Manual'} />
                     </td>
                     <td className="table-td">
-                      <Badge variant={isConfirmed ? 'confirmed' : 'pending'} label={isConfirmed ? 'Confirmed' : 'Pending'} />
+                      <Badge variant={badgeVariant} label={status === 'APPROVED' ? 'Approved' : status === 'REJECTED' ? 'Rejected' : 'Pending'} />
+                      {status === 'REJECTED' && t.rejectionReason && (
+                        <p className="mt-1 max-w-48 text-[11px] text-on-surface-variant">{t.rejectionReason}</p>
+                      )}
                     </td>
                     {canConfirm && (
                       <td className="table-td">
-                        {!isConfirmed && (
-                          <button
-                            onClick={() => confirm.mutate(t.id, {
-                              onSuccess: () => toast.success('Timesheet confirmed'),
-                              onError:   () => toast.error('Failed to confirm timesheet'),
-                            })}
-                            disabled={confirm.isPending}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-DEFAULT hover:bg-[#e6f4f0] px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
-                          >
-                            <CheckCircleIcon size={14} weight="regular" /> Confirm
-                          </button>
+                        {isPending && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => confirm.mutate(t.id, {
+                                onSuccess: () => toast.success('Timesheet confirmed'),
+                                onError:   () => toast.error('Failed to confirm timesheet'),
+                              })}
+                              disabled={confirm.isPending || reject.isPending}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:bg-[#e6f4f0] px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                            >
+                              <CheckCircleIcon size={14} weight="regular" /> Confirm
+                            </button>
+                            {canExport && (
+                              <button
+                                onClick={() => openReject(t.id)}
+                                disabled={confirm.isPending || reject.isPending}
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-error-DEFAULT hover:bg-error-container px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                              >
+                                <XCircleIcon size={14} weight="regular" /> Reject
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     )}
@@ -150,6 +199,34 @@ export default function TimesheetsPage() {
           </table>
         </div>
       )}
+
+      <Modal open={!!rejectId} onClose={closeReject} title="Reject Timesheet">
+        <form onSubmit={submitReject} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+              Reason
+            </label>
+            <textarea
+              className="input-field min-h-28 resize-none"
+              value={rejectReason}
+              onChange={(e) => {
+                setRejectReason(e.target.value);
+                setRejectError('');
+              }}
+              placeholder="Explain why this timesheet is being rejected"
+              maxLength={500}
+              required
+            />
+          </div>
+          {rejectError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{rejectError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={closeReject} className="btn-secondary flex-1 justify-center">Cancel</button>
+            <button type="submit" disabled={reject.isPending} className="btn-primary flex-1 justify-center">
+              {reject.isPending ? 'Rejecting...' : 'Reject Timesheet'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

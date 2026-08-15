@@ -20,7 +20,10 @@
         "NSLocationAlwaysUsageDescription": "ShiftGO uses your location in the background to track shift attendance.",
         "NSLocationWhenInUseUsageDescription": "ShiftGO uses your location to detect when you arrive at your shift location.",
         "NSPhotoLibraryUsageDescription": "ShiftGO needs access to your photo library to update your profile picture.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -29,10 +32,14 @@
         "backgroundColor": "#005f55"
       },
       "package": "com.shiftgo.app",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
-        "ACCESS_BACKGROUND_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -55,10 +62,17 @@
         {
           "photosPermission": "ShiftGO needs access to your photos to update your profile picture."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "77f2a27c-c03d-4fa8-8412-493082d6ce99"
+      }
     }
   }
 }

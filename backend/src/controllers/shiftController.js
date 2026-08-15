@@ -1,16 +1,29 @@
-const { PrismaClient } = require('@prisma/client');
 const shiftService = require('../services/shiftService');
 const { sendShiftAssigned, sendShiftRemoved } = require('../services/notificationService');
+const { auditContext, createAuditLog } = require('../services/auditService');
 const { ok, created, fail, notFound } = require('../utils/response');
-
-const prisma = new PrismaClient();
+const { agencyIdFor } = require('../utils/agency');
 
 async function createShift(req, res) {
   const { houseId, workerId, startTime, endTime, date } = req.body;
   if (!houseId || !workerId || !startTime || !endTime || !date) {
     return fail(res, 'houseId, workerId, startTime, endTime, date required');
   }
-  const shift = await shiftService.createShift(req.body, req.user.id);
+  let shift;
+  try {
+    shift = await shiftService.createShift(req.body, req.user.id, agencyIdFor(req));
+  } catch (err) {
+    if (err.statusCode === 403) return fail(res, err.message, 403);
+    if (err.statusCode === 409) return fail(res, err.message, 409);
+    throw err;
+  }
+  await createAuditLog({
+    ...auditContext(req),
+    action: 'SHIFT_CREATED',
+    entityType: 'Shift',
+    entityId: shift.id,
+    newValue: shift,
+  });
   created(res, shift);
 
   // non-blocking push notification
@@ -20,7 +33,7 @@ async function createShift(req, res) {
 }
 
 async function getShift(req, res) {
-  const shift = await shiftService.getShiftById(req.params.id);
+  const shift = await shiftService.getShiftByIdForAgency(req.params.id, agencyIdFor(req));
   if (!shift) return notFound(res);
   // workers can only see their own shifts
   if (req.user.role === 'WORKER' && shift.workerId !== req.user.id) return notFound(res);
@@ -28,40 +41,41 @@ async function getShift(req, res) {
 }
 
 async function listShifts(req, res) {
-  const { role, id } = req.user;
-
-  if (role === 'WORKER') {
-    return ok(res, await shiftService.getShiftsForWorker(id));
-  }
-  if (role === 'MANAGER') {
-    return ok(res, await shiftService.getShiftsForManager(id));
-  }
-  if (role === 'TEAM_LEADER') {
-    const { houseId } = req.query;
-    if (houseId) return ok(res, await shiftService.getShiftsForHouse(houseId));
-    // Auto-resolve from the team leader's assigned house
-    const assignment = await prisma.houseTeamLeader.findFirst({ where: { teamLeaderId: id } });
-    if (!assignment) return ok(res, []);
-    return ok(res, await shiftService.getShiftsForHouse(assignment.houseId));
-  }
-  // HR — sees all shifts platform-wide, with optional filters
-  const { houseId, workerId } = req.query;
-  if (houseId) return ok(res, await shiftService.getShiftsForHouse(houseId));
-  if (workerId) return ok(res, await shiftService.getShiftsForWorker(workerId));
-  return ok(res, await shiftService.getAllShifts());
+  const { houseId, workerId, startDate, endDate, status, shiftType } = req.query;
+  const shifts = await shiftService.listShiftsForUser(req.user, agencyIdFor(req), {
+    houseId,
+    workerId,
+    startDate,
+    endDate,
+    status,
+    shiftType,
+  });
+  return ok(res, shifts);
 }
 
 async function deleteShift(req, res) {
   try {
-    const shift = await shiftService.deleteShift(req.params.id);
-    ok(res, { deleted: true });
+    const oldShift = await shiftService.getShiftByIdForAgency(req.params.id, agencyIdFor(req));
+    const shift = await shiftService.cancelShift(req.params.id, req.user.id, req.body.reason.trim(), agencyIdFor(req));
+    await createAuditLog({
+      ...auditContext(req),
+      action: 'SHIFT_CANCELLED',
+      entityType: 'Shift',
+      entityId: shift.id,
+      oldValue: oldShift,
+      newValue: shift,
+    });
+    ok(res, shift);
 
     // non-blocking push notification
     sendShiftRemoved(shift.worker, shift, shift.house).catch((e) =>
       console.error('[Notify] shift removed', e.message),
     );
-  } catch {
-    notFound(res);
+  } catch (err) {
+    if (err.statusCode === 409) return fail(res, err.message, 409);
+    if (err.statusCode === 403) return fail(res, err.message, 403);
+    if (err.statusCode === 404) return notFound(res);
+    throw err;
   }
 }
 

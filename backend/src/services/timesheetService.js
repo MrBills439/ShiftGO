@@ -4,32 +4,54 @@ const { send } = require('./notificationService');
 
 const prisma = new PrismaClient();
 
-async function getMyTimesheets(workerId) {
+async function getMyTimesheets(workerId, agencyId) {
   return prisma.timesheet.findMany({
-    where: { workerId },
+    where: { agencyId, workerId },
     include: { shift: true, house: true },
     orderBy: { createdAt: 'desc' },
   });
 }
 
-async function getHouseTimesheets(houseId) {
+async function getHouseTimesheets(houseId, agencyId) {
   return prisma.timesheet.findMany({
-    where: { houseId },
+    where: { agencyId, houseId },
     include: {
       worker: { select: { id: true, name: true, email: true } },
       shift: true,
+      reviewedBy: { select: { id: true, name: true, email: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
 }
 
-async function confirmTimesheet(id, confirmedById) {
+async function confirmTimesheet(id, confirmedById, agencyId) {
+  const existing = await prisma.timesheet.findFirst({ where: { id, agencyId } });
+  if (!existing) {
+    const err = new Error('Timesheet not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.status !== 'PENDING') {
+    const err = new Error('Timesheet has already been reviewed');
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const reviewedAt = new Date();
   const ts = await prisma.timesheet.update({
     where: { id },
-    data: { confirmedById, confirmedAt: new Date() },
+    data: {
+      status: 'APPROVED',
+      rejectionReason: null,
+      confirmedById,
+      confirmedAt: reviewedAt,
+      reviewedById: confirmedById,
+      reviewedAt,
+    },
     include: {
       worker: { select: { id: true, name: true, email: true, fcmToken: true } },
       house:  true,
+      reviewedBy: { select: { id: true, name: true, email: true } },
     },
   });
 
@@ -44,9 +66,47 @@ async function confirmTimesheet(id, confirmedById) {
   return ts;
 }
 
-async function generatePDF(houseId, res) {
+async function rejectTimesheet(id, reviewedById, reason, agencyId) {
+  const existing = await prisma.timesheet.findFirst({ where: { id, agencyId } });
+  if (!existing) {
+    const err = new Error('Timesheet not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.status !== 'PENDING') {
+    const err = new Error('Timesheet has already been reviewed');
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const ts = await prisma.timesheet.update({
+    where: { id },
+    data: {
+      status: 'REJECTED',
+      rejectionReason: reason.trim(),
+      reviewedById,
+      reviewedAt: new Date(),
+    },
+    include: {
+      worker: { select: { id: true, name: true, email: true, fcmToken: true } },
+      house: true,
+      reviewedBy: { select: { id: true, name: true, email: true } },
+    },
+  });
+
+  if (ts.worker?.fcmToken) {
+    await send(ts.worker.fcmToken, {
+      title: 'Timesheet rejected',
+      body: `Your timesheet for ${ts.house.name} needs review: ${ts.rejectionReason}`,
+    });
+  }
+
+  return ts;
+}
+
+async function generatePDF(houseId, res, agencyId) {
   const timesheets = await prisma.timesheet.findMany({
-    where: { houseId, OR: [{ confirmedAt: { not: null } }, { autoConfirmed: true }] },
+    where: { agencyId, houseId, status: 'APPROVED' },
     include: {
       worker: { select: { name: true, email: true } },
       shift: true,
@@ -97,4 +157,10 @@ async function generatePDF(houseId, res) {
   doc.end();
 }
 
-module.exports = { getMyTimesheets, getHouseTimesheets, confirmTimesheet, generatePDF };
+module.exports = {
+  getMyTimesheets,
+  getHouseTimesheets,
+  confirmTimesheet,
+  rejectTimesheet,
+  generatePDF,
+};
