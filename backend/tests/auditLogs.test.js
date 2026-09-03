@@ -12,6 +12,7 @@ const { createAuditLog } = require('../src/services/auditService');
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+let agency;
 let manager;
 let worker;
 let house;
@@ -32,8 +33,11 @@ function tokenFor(user) {
 
 describe('Audit logs', () => {
   beforeAll(async () => {
+    agency = await prisma.agency.create({ data: { name: `Audit Agency ${suffix}` } });
+
     manager = await prisma.user.create({
       data: {
+        agencyId: agency.id,
         name: 'Audit Manager',
         email: `audit-manager-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -43,6 +47,7 @@ describe('Audit logs', () => {
 
     worker = await prisma.user.create({
       data: {
+        agencyId: agency.id,
         name: 'Audit Worker',
         email: `audit-worker-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -52,6 +57,7 @@ describe('Audit logs', () => {
 
     house = await prisma.house.create({
       data: {
+        agencyId: agency.id,
         name: `Audit House ${suffix}`,
         address: '8 Audit Street',
         latitude: 51.5,
@@ -63,6 +69,7 @@ describe('Audit logs', () => {
     const now = Date.now();
     shiftToCancel = await prisma.shift.create({
       data: {
+        agencyId: agency.id,
         houseId: house.id,
         workerId: worker.id,
         createdById: manager.id,
@@ -75,6 +82,7 @@ describe('Audit logs', () => {
 
     timesheetShift = await prisma.shift.create({
       data: {
+        agencyId: agency.id,
         houseId: house.id,
         workerId: worker.id,
         createdById: manager.id,
@@ -87,6 +95,7 @@ describe('Audit logs', () => {
 
     timesheetToReject = await prisma.timesheet.create({
       data: {
+        agencyId: agency.id,
         workerId: worker.id,
         houseId: house.id,
         shiftId: timesheetShift.id,
@@ -99,6 +108,7 @@ describe('Audit logs', () => {
 
     approvalShift = await prisma.shift.create({
       data: {
+        agencyId: agency.id,
         houseId: house.id,
         workerId: worker.id,
         createdById: manager.id,
@@ -111,6 +121,7 @@ describe('Audit logs', () => {
 
     timesheetToApprove = await prisma.timesheet.create({
       data: {
+        agencyId: agency.id,
         workerId: worker.id,
         houseId: house.id,
         shiftId: approvalShift.id,
@@ -135,6 +146,7 @@ describe('Audit logs', () => {
     await prisma.shift.deleteMany({ where: { houseId: house?.id } });
     if (house) await prisma.house.delete({ where: { id: house.id } });
     await prisma.user.deleteMany({ where: { id: { in: [manager?.id, worker?.id].filter(Boolean) } } });
+    if (agency) await prisma.agency.delete({ where: { id: agency.id } });
     await prisma.$disconnect();
   });
 

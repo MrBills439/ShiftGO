@@ -140,18 +140,17 @@ describe('Leave Requests', () => {
       expect(res.body.message).toBe('End date must be same or after start date');
     });
 
-    it('rejects short reason', async () => {
+    it('accepts a request with no reason (reason is optional)', async () => {
       const res = await request(app)
         .post('/leave-requests')
         .set('Authorization', `Bearer ${tokenFor(worker)}`)
         .send({
-          startDate: new Date('2026-09-01').toISOString(),
-          endDate: new Date('2026-09-05').toISOString(),
-          reason: 'ok',
+          startDate: new Date('2027-04-01').toISOString(),
+          endDate: new Date('2027-04-03').toISOString(),
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.status).toBe(201);
+      expect(res.body.data.reason).toBeNull();
     });
   });
 

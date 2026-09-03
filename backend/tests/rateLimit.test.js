@@ -60,30 +60,6 @@ describe('Rate limiting', () => {
     }
   });
 
-  it('eventually returns 429 for repeated login attempts', async () => {
-    const app = loadApp();
-
-    await request(app)
-      .post('/auth/login')
-      .send({ email: 'missing@example.com', password: 'password123' })
-      .expect(401);
-
-    await request(app)
-      .post('/auth/login')
-      .send({ email: 'missing@example.com', password: 'password123' })
-      .expect(401);
-
-    const limited = await request(app)
-      .post('/auth/login')
-      .send({ email: 'missing@example.com', password: 'password123' });
-
-    expect(limited.status).toBe(429);
-    expect(limited.body.error).toEqual(expect.objectContaining({
-      code: 'TOO_MANY_REQUESTS',
-      message: 'Too many auth attempts. Please try again later.',
-    }));
-  });
-
   it('does not block ordinary authenticated routes too aggressively', async () => {
     const app = loadApp();
     const token = tokenFor(manager);

@@ -10,14 +10,23 @@ router.use(auth);
 
 router.get('/me', asyncHandler(ctrl.getMe));
 router.patch('/me', validators.updateMe, asyncHandler(ctrl.updateMe));
+router.post('/me/onboarding', validators.updateMe, asyncHandler(ctrl.completeOnboarding));
 router.post('/me/avatar', avatarUpload.single('avatar'), asyncHandler(ctrl.uploadAvatar));
 router.patch('/me/fcm-token', validators.updateFcmToken, asyncHandler(ctrl.updateFcmToken));
 
-router.get('/', validators.listUsers, atLeast('MANAGER'), asyncHandler(ctrl.listUsers));
+// Team leaders may only ever list workers (needed to assign staff to a house) —
+// anything else (no filter, or filtering by MANAGER/HR/TEAM_LEADER) stays Manager+.
+const listUsersGuard = (req, res, next) => {
+  if (req.user?.role === 'TEAM_LEADER' && req.query.role === 'WORKER') return next();
+  return atLeast('MANAGER')(req, res, next);
+};
+
+router.get('/', validators.listUsers, listUsersGuard, asyncHandler(ctrl.listUsers));
 router.post('/', validators.createUser, atLeast('MANAGER'), asyncHandler(ctrl.createUser));
 router.post('/:id/deactivate', validators.deactivateUser, atLeast('MANAGER'), asyncHandler(ctrl.deactivateUser));
 router.get('/:id', validators.getUser, atLeast('MANAGER'), asyncHandler(ctrl.getUser));
-router.post('/assign/worker', validators.assignWorkerToHouse, allow('HR'), asyncHandler(ctrl.assignWorkerToHouse));
+router.patch('/:id', validators.updateUser, atLeast('MANAGER'), asyncHandler(ctrl.updateUser));
+router.post('/assign/worker', validators.assignWorkerToHouse, atLeast('TEAM_LEADER'), asyncHandler(ctrl.assignWorkerToHouse));
 router.post('/assign/team-leader', validators.assignTeamLeaderToHouse, allow('HR'), asyncHandler(ctrl.assignTeamLeaderToHouse));
 
 module.exports = router;

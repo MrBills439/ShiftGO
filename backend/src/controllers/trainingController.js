@@ -1,8 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
-
-const prisma = new PrismaClient();
 
 async function listMyTraining(req, res) {
   const trainings = await prisma.training.findMany({

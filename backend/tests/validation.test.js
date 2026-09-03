@@ -80,22 +80,6 @@ describe('Validation and auth middleware', () => {
     await prisma.$disconnect();
   });
 
-  it('returns 400 for invalid login payloads on /auth/login', async () => {
-    const res = await request(app)
-      .post('/auth/login')
-      .send({ email: 'not-an-email', password: '123' });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toEqual(expect.objectContaining({
-      code: 'VALIDATION_ERROR',
-      message: 'One or more fields are invalid',
-    }));
-    expect(res.body.error.fields).toEqual(expect.objectContaining({
-      email: expect.any(String),
-      password: expect.any(String),
-    }));
-  });
-
   it('returns 401 when a protected route has no auth token', async () => {
     const res = await request(app).get('/houses');
 

@@ -1,9 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { ok, fail } = require('../utils/response');
 const notificationService = require('../services/notificationService');
 const { agencyIdFor } = require('../utils/agency');
-
-const prisma = new PrismaClient();
 
 async function listNotifications(req, res) {
   const notifications = await prisma.notification.findMany({

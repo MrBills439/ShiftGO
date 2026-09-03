@@ -1,5 +1,6 @@
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 
 const storage = multer.diskStorage({
@@ -18,4 +19,28 @@ const fileFilter = (_req, file, cb) => {
 
 const avatarUpload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
 
-module.exports = { avatarUpload };
+// ─── Right-to-Work proof documents ──────────────────────────────────────────
+const rtwDir = path.join(__dirname, '../../uploads/rtw');
+fs.mkdirSync(rtwDir, { recursive: true });
+
+const rtwStorage = multer.diskStorage({
+  destination: rtwDir,
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${crypto.randomBytes(16).toString('hex')}${ext}`);
+  },
+});
+
+const rtwFileFilter = (_req, file, cb) => {
+  const allowed = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+  const ext = path.extname(file.originalname).toLowerCase();
+  cb(null, allowed.includes(ext));
+};
+
+const shareCodeUpload = multer({
+  storage: rtwStorage,
+  fileFilter: rtwFileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+module.exports = { avatarUpload, shareCodeUpload };

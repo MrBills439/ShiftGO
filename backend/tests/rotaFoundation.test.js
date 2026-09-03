@@ -132,7 +132,7 @@ describe('Rota foundation', () => {
     await prisma.$disconnect();
   });
 
-  it('creates a DAY shift by default', async () => {
+  it('creates a LONG_DAY shift by default', async () => {
     const start = Date.UTC(2026, 6, 6, 8, 0, 0);
     const res = await request(app)
       .post('/shifts')
@@ -140,7 +140,7 @@ describe('Rota foundation', () => {
       .send(shiftBody(workerA.id, houseA.id, start, start + 4 * 3_600_000));
 
     expect(res.status).toBe(201);
-    expect(res.body.data.shiftType).toBe('DAY');
+    expect(res.body.data.shiftType).toBe('LONG_DAY');
     createdShiftIds.push(res.body.data.id);
   });
 
@@ -165,7 +165,7 @@ describe('Rota foundation', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error.fields).toEqual(expect.objectContaining({
-      shiftType: 'Shift type must be DAY, WAKE_NIGHT, SLEEP_IN, or EMERGENCY',
+      shiftType: 'Shift type must be LONG_DAY, MID_DAY, WAKE_NIGHT, or SLEEP_IN',
     }));
   });
 
@@ -240,7 +240,7 @@ describe('Rota foundation', () => {
     const second = await request(app)
       .post('/shifts')
       .set('Authorization', `Bearer ${tokenFor(managerA)}`)
-      .send(shiftBody(workerA.id, houseA.id, start + 6 * 3_600_000, start + 10 * 3_600_000, 'DAY'));
+      .send(shiftBody(workerA.id, houseA.id, start + 6 * 3_600_000, start + 10 * 3_600_000, 'LONG_DAY'));
 
     expect(second.status).toBe(409);
     expect(second.body.message).toBe('Worker already has an overlapping shift');
@@ -255,7 +255,7 @@ describe('Rota foundation', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        shiftType: 'DAY',
+        shiftType: 'LONG_DAY',
         status: 'SCHEDULED',
         worker: expect.objectContaining({ id: workerA.id }),
         house: expect.objectContaining({ id: houseA.id }),
@@ -289,7 +289,7 @@ describe('Rota foundation', () => {
         date: new Date(start),
         startTime: new Date(start),
         endTime: new Date(start + 4 * 3_600_000),
-        shiftType: 'EMERGENCY',
+        shiftType: 'MID_DAY',
       },
     });
     createdShiftIds.push(shiftB.id);

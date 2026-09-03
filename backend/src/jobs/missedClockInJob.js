@@ -1,7 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { sendMissedClockInAlert } = require('../services/notificationService');
-
-const prisma = new PrismaClient();
 
 // Runs every 5 minutes. Finds shifts that started 5-15 mins ago with no clock-in event.
 async function missedClockInJob() {

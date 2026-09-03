@@ -11,6 +11,7 @@ const { signAccess } = require('../src/utils/jwt');
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+let agency;
 let manager;
 let worker;
 let house;
@@ -28,8 +29,11 @@ function tokenFor(user) {
 
 describe('Shift cancellation', () => {
   beforeAll(async () => {
+    agency = await prisma.agency.create({ data: { name: `Cancellation Agency ${suffix}` } });
+
     manager = await prisma.user.create({
       data: {
+        agencyId: agency.id,
         name: 'Test Manager',
         email: `manager-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -39,6 +43,7 @@ describe('Shift cancellation', () => {
 
     worker = await prisma.user.create({
       data: {
+        agencyId: agency.id,
         name: 'Test Worker',
         email: `worker-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -48,6 +53,7 @@ describe('Shift cancellation', () => {
 
     house = await prisma.house.create({
       data: {
+        agencyId: agency.id,
         name: `Test House ${suffix}`,
         address: '1 Test Street',
         latitude: 51.5,
@@ -59,6 +65,7 @@ describe('Shift cancellation', () => {
     const now = Date.now();
     scheduledShift = await prisma.shift.create({
       data: {
+        agencyId: agency.id,
         houseId: house.id,
         workerId: worker.id,
         createdById: manager.id,
@@ -71,6 +78,7 @@ describe('Shift cancellation', () => {
 
     completedShift = await prisma.shift.create({
       data: {
+        agencyId: agency.id,
         houseId: house.id,
         workerId: worker.id,
         createdById: manager.id,
@@ -85,9 +93,11 @@ describe('Shift cancellation', () => {
   afterAll(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     if (worker) await prisma.notification.deleteMany({ where: { userId: worker.id } });
+    if (agency) await prisma.auditLog.deleteMany({ where: { agencyId: agency.id } });
     await prisma.shift.deleteMany({ where: { id: { in: [scheduledShift?.id, completedShift?.id].filter(Boolean) } } });
     if (house) await prisma.house.delete({ where: { id: house.id } });
     await prisma.user.deleteMany({ where: { id: { in: [manager?.id, worker?.id].filter(Boolean) } } });
+    if (agency) await prisma.agency.delete({ where: { id: agency.id } });
     await prisma.$disconnect();
   });
 

@@ -7,6 +7,16 @@ const { validators } = require('../middleware/validators');
 // All routes require authentication
 router.use(auth);
 
+// PTO balance breakdown (own, or ?workerId= for manager/HR).
+// Declared before "/:id" so "balance" isn't treated as a request id.
+router.get('/balance', ctrl.getBalance);
+
+// Configure a worker's accrual policy (manager/HR)
+router.put('/accrual-profile/:userId', atLeast('MANAGER'), ctrl.updateAccrualProfile);
+
+// Run the year-end cycle reset for a worker (HR/manager)
+router.post('/accrual-profile/:userId/year-end-reset', atLeast('MANAGER'), ctrl.runYearEndReset);
+
 // Get all leave requests (filtered by role)
 router.get('/', ctrl.getLeaveRequests);
 

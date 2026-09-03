@@ -1,8 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { ok, created, fail } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
-
-const prisma = new PrismaClient();
 
 async function getMyDbs(req, res) {
   const dbs = await prisma.dbsCheck.findFirst({ where: { agencyId: agencyIdFor(req), userId: req.user.id } });

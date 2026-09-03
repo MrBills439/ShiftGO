@@ -1,7 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const config = require('../config');
-
-const prisma = new PrismaClient();
 let messaging = null;
 let initError = null;
 
@@ -105,6 +103,116 @@ async function sendShiftRemoved(worker, shift, house) {
   );
 }
 
+async function sendShiftOpen(workers, shift, house) {
+  const start = new Date(shift.startTime).toLocaleString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit',
+  });
+  await Promise.all(workers.map((worker) => createAndSend(
+    worker.id,
+    'SHIFT_OPEN',
+    'New Open Shift',
+    `A shift at ${house.name} on ${start} is open — claim it in the app.`,
+    { shiftId: shift.id },
+  )));
+}
+
+async function sendShiftDropped(recipients, shift, house, worker, reason) {
+  const start = new Date(shift.startTime).toLocaleString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit',
+  });
+  const body = `${worker.name} has dropped their shift at ${house.name} on ${start}. It is now open for cover.${reason ? ` Reason: ${reason}` : ''}`;
+  await Promise.all(recipients.map((r) => createAndSend(
+    r.id,
+    'SHIFT_DROPPED',
+    'Shift Dropped',
+    body,
+    { shiftId: shift.id, workerId: worker.id },
+  )));
+}
+
+async function sendShiftClaimedYou(worker, shift, house) {
+  const start = new Date(shift.startTime).toLocaleString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit',
+  });
+  await createAndSend(
+    worker.id,
+    'SHIFT_CLAIMED_YOU',
+    'Shift Claimed',
+    `You claimed the shift at ${house.name} on ${start}.`,
+    { shiftId: shift.id },
+  );
+}
+
+async function sendShiftClaimedOther(workers, shift, house) {
+  await Promise.all(workers.map((worker) => createAndSend(
+    worker.id,
+    'SHIFT_CLAIMED_OTHER',
+    'Shift No Longer Available',
+    `The open shift at ${house.name} has been claimed by another worker.`,
+    { shiftId: shift.id },
+  )));
+}
+
+function formatLeaveRange(start, end) {
+  const s = new Date(start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const e = new Date(end).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return s === e ? s : `${s} – ${e}`;
+}
+
+/** Payroll team (HR) — a worker has submitted an annual-leave request. */
+async function sendLeaveSubmittedToPayroll(recipients, leave, worker, durationLabel) {
+  const range = formatLeaveRange(leave.startDate, leave.endDate);
+  await Promise.all(recipients.map((r) => createAndSend(
+    r.id,
+    'GENERAL',
+    'Leave request — payroll',
+    `${worker.name} has requested annual leave for ${range} (${durationLabel}). It is awaiting approval.`,
+    { leaveRequestId: leave.id, workerId: worker.id, kind: 'LEAVE_SUBMITTED' },
+  )));
+}
+
+/** Payroll team (HR) — an annual-leave request has been approved; update payroll. */
+async function sendLeaveApprovedToPayroll(recipients, leave, worker, durationLabel) {
+  const range = formatLeaveRange(leave.startDate, leave.endDate);
+  await Promise.all(recipients.map((r) => createAndSend(
+    r.id,
+    'GENERAL',
+    'Approved leave — action payroll',
+    `${worker.name}'s annual leave for ${range} (${durationLabel}) has been approved. Please update payroll.`,
+    { leaveRequestId: leave.id, workerId: worker.id, kind: 'LEAVE_APPROVED_PAYROLL' },
+  )));
+}
+
+/** Payroll team (HR) — a previously approved leave was cancelled; reverse it in payroll. */
+async function sendLeaveCancelledToPayroll(recipients, leave, worker, durationLabel) {
+  const range = formatLeaveRange(leave.startDate, leave.endDate);
+  await Promise.all(recipients.map((r) => createAndSend(
+    r.id,
+    'GENERAL',
+    'Cancelled leave — action payroll',
+    `${worker.name}'s previously approved annual leave for ${range} (${durationLabel}) has been cancelled. Please update payroll.`,
+    { leaveRequestId: leave.id, workerId: worker.id, kind: 'LEAVE_CANCELLED_PAYROLL' },
+  )));
+}
+
+/** The worker — their leave request was approved or declined. */
+async function sendLeaveDecisionToWorker(worker, leave, decision, reason) {
+  const range = formatLeaveRange(leave.startDate, leave.endDate);
+  const approved = decision === 'APPROVED';
+  await createAndSend(
+    worker.id,
+    'GENERAL',
+    approved ? 'Leave approved' : 'Leave declined',
+    approved
+      ? `Your annual leave for ${range} has been approved.`
+      : `Your annual leave for ${range} was declined${reason ? `: ${reason}` : '.'}`,
+    { leaveRequestId: leave.id, kind: 'LEAVE_DECISION' },
+  );
+}
+
 async function sendMissedClockInAlert(worker, house) {
   if (!worker?.fcmToken) return;
   await sendPush(worker.fcmToken, {
@@ -131,6 +239,14 @@ module.exports = {
   getMessaging,
   sendShiftAssigned,
   sendShiftRemoved,
+  sendShiftOpen,
+  sendShiftDropped,
+  sendShiftClaimedYou,
+  sendShiftClaimedOther,
+  sendLeaveSubmittedToPayroll,
+  sendLeaveApprovedToPayroll,
+  sendLeaveCancelledToPayroll,
+  sendLeaveDecisionToWorker,
   sendMissedClockInAlert,
   sendClockOutPrompt,
   createAndSend,

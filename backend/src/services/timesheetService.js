@@ -1,8 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const PDFDocument = require('pdfkit');
 const { send } = require('./notificationService');
-
-const prisma = new PrismaClient();
 
 async function getMyTimesheets(workerId, agencyId) {
   return prisma.timesheet.findMany({

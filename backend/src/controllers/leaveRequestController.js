@@ -1,6 +1,66 @@
 const leaveService = require('../services/leaveRequestService');
+const leaveBalanceService = require('../services/leave/leaveBalanceService');
 const auditService = require('../services/auditService');
 const { ok, created, fail, conflict } = require('../utils/response');
+
+/** GET /leave-requests/balance[?workerId=] — Net Usable Balance breakdown. */
+async function getBalance(req, res) {
+  try {
+    const { role, id: requestingUserId, agencyId } = req.user;
+    const targetUserId =
+      role !== 'WORKER' && req.query.workerId ? String(req.query.workerId) : requestingUserId;
+
+    const summary = await leaveBalanceService.getBalanceSummary(targetUserId, agencyId);
+    ok(res, summary);
+  } catch (err) {
+    handleLeaveError(err, res);
+  }
+}
+
+/** PUT /leave-requests/accrual-profile/:userId — configure a worker's PTO policy (manager/HR). */
+async function updateAccrualProfile(req, res) {
+  try {
+    const { id: actorId, role: actorRole, agencyId } = req.user;
+    const profile = await leaveBalanceService.updateProfile(req.params.userId, agencyId, req.body);
+
+    await auditService.createAuditLog({
+      agencyId,
+      actorId,
+      actorRole,
+      action: 'LEAVE_ACCRUAL_PROFILE_UPDATED',
+      entityType: 'LeaveAccrualProfile',
+      entityId: profile.id,
+      newValue: profile,
+    });
+
+    ok(res, profile);
+  } catch (err) {
+    handleLeaveError(err, res);
+  }
+}
+
+/** POST /leave-requests/accrual-profile/:userId/year-end-reset — run the cycle reset (HR). */
+async function runYearEndReset(req, res) {
+  try {
+    const { id: actorId, role: actorRole, agencyId } = req.user;
+    const cycleEndDate = req.body?.cycleEndDate ? new Date(req.body.cycleEndDate) : new Date();
+    const result = await leaveBalanceService.runYearEndReset(req.params.userId, agencyId, cycleEndDate);
+
+    await auditService.createAuditLog({
+      agencyId,
+      actorId,
+      actorRole,
+      action: 'LEAVE_YEAR_END_RESET',
+      entityType: 'LeaveBalance',
+      entityId: req.params.userId,
+      newValue: result,
+    });
+
+    ok(res, result);
+  } catch (err) {
+    handleLeaveError(err, res);
+  }
+}
 
 async function createLeaveRequest(req, res) {
   try {
@@ -178,6 +238,13 @@ function handleLeaveError(err, res) {
     if (err.code === 'LEAVE_CONFLICT') {
       return conflict(res, err.message, { conflicts: err.conflicts });
     }
+    if (err.code === 'INSUFFICIENT_BALANCE') {
+      return conflict(res, err.message, {
+        requestedHours: err.requestedHours,
+        netUsableBalance: err.netUsableBalance,
+        shortfallHours: err.shortfallHours,
+      });
+    }
   }
 
   const errorCode = typeof err === 'string' ? err : err?.message;
@@ -214,4 +281,7 @@ module.exports = {
   approveLeaveRequest,
   rejectLeaveRequest,
   cancelLeaveRequest,
+  getBalance,
+  updateAccrualProfile,
+  runYearEndReset,
 };

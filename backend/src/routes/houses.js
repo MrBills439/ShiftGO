@@ -9,9 +9,13 @@ router.use(auth);
 
 router.get('/', asyncHandler(ctrl.listHouses));
 router.get('/:id', validators.getHouse, atLeast('TEAM_LEADER'), asyncHandler(ctrl.getHouse));
-router.post('/', validators.createHouse, allow('HR'), asyncHandler(ctrl.createHouse));
-router.patch('/:id', validators.updateHouse, allow('HR'), asyncHandler(ctrl.updateHouse));
-router.patch('/:id/geofence', validators.updateGeofence, allow('HR'), asyncHandler(ctrl.updateGeofence));
+router.post('/', validators.createHouse, atLeast('MANAGER'), asyncHandler(ctrl.createHouse));
+router.patch('/:id', validators.updateHouse, atLeast('MANAGER'), asyncHandler(ctrl.updateHouse));
+router.patch('/:id/geofence', validators.updateGeofence, atLeast('MANAGER'), asyncHandler(ctrl.updateGeofence));
 router.delete('/:id', validators.getHouse, allow('HR'), asyncHandler(ctrl.deleteHouse));
+
+router.get('/:id/supported-people', validators.listSupportedPeople, atLeast('TEAM_LEADER'), asyncHandler(ctrl.listSupportedPeople));
+router.post('/:id/supported-people', validators.createSupportedPerson, atLeast('MANAGER'), asyncHandler(ctrl.createSupportedPerson));
+router.delete('/:id/supported-people/:personId', validators.deleteSupportedPerson, atLeast('MANAGER'), asyncHandler(ctrl.deleteSupportedPerson));
 
 module.exports = router;

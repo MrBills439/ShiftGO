@@ -2,8 +2,8 @@ const { body, param, query, validationResult } = require('express-validator');
 
 const ROLES = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
 const USER_STATUSES = ['ACTIVE', 'DEACTIVATED'];
-const SHIFT_STATUSES = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
-const SHIFT_TYPES = ['DAY', 'WAKE_NIGHT', 'SLEEP_IN', 'EMERGENCY'];
+const SHIFT_STATUSES = ['SCHEDULED', 'OPEN', 'CLAIMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+const SHIFT_TYPES = ['LONG_DAY', 'MID_DAY', 'WAKE_NIGHT', 'SLEEP_IN'];
 const TIMESHEET_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
 const TRAINING_STATUSES = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'EXPIRED'];
 const DBS_STATUSES = ['PENDING', 'CLEAR', 'FLAGGED', 'EXPIRED'];
@@ -175,21 +175,6 @@ const validators = {
       .trim()
       .isLength({ max: 40 })
       .withMessage('Phone must be 40 characters or fewer'),
-    body('password')
-      .optional({ nullable: true, checkFalsy: true })
-      .isLength({ min: 8 })
-      .withMessage('Password must be at least 8 characters'),
-    body('temporaryPassword')
-      .optional({ nullable: true, checkFalsy: true })
-      .isLength({ min: 8 })
-      .withMessage('Temporary password must be at least 8 characters'),
-    body('temporaryPassword')
-      .custom((temporaryPassword, { req }) => {
-        if (!req.body.password && !temporaryPassword) {
-          throw new Error('Password or temporary password is required');
-        }
-        return true;
-      }),
     handleValidationErrors,
   ],
 
@@ -208,6 +193,15 @@ const validators = {
 
   getUser: [
     ...idParam('id', 'User ID'),
+    handleValidationErrors,
+  ],
+
+  updateUser: [
+    ...idParam('id', 'User ID'),
+    body('contractedHours')
+      .optional({ nullable: true, checkFalsy: true })
+      .isFloat({ min: 0, max: 168 })
+      .withMessage('Contracted hours must be between 0 and 168'),
     handleValidationErrors,
   ],
 
@@ -284,11 +278,11 @@ const validators = {
     query('status')
       .optional()
       .isIn(SHIFT_STATUSES)
-      .withMessage('Shift status must be SCHEDULED, IN_PROGRESS, COMPLETED, or CANCELLED'),
+      .withMessage('Shift status must be SCHEDULED, OPEN, CLAIMED, IN_PROGRESS, COMPLETED, or CANCELLED'),
     query('shiftType')
       .optional()
       .isIn(SHIFT_TYPES)
-      .withMessage('Shift type must be DAY, WAKE_NIGHT, SLEEP_IN, or EMERGENCY'),
+      .withMessage('Shift type must be LONG_DAY, MID_DAY, WAKE_NIGHT, or SLEEP_IN'),
     query('startDate')
       .optional()
       .isISO8601()
@@ -309,7 +303,13 @@ const validators = {
   ],
 
   createShift: [
-    requiredIdBody('workerId', 'Worker ID'),
+    body('workerId')
+      .if((value, { req }) => req.body.status !== 'OPEN')
+      .trim()
+      .notEmpty()
+      .withMessage('Worker ID is required')
+      .isLength({ min: 5 })
+      .withMessage('Worker ID must be valid'),
     requiredIdBody('houseId', 'House ID'),
     body('startTime')
       .notEmpty()
@@ -338,11 +338,106 @@ const validators = {
     body('status')
       .optional()
       .isIn(SHIFT_STATUSES)
-      .withMessage('Shift status must be SCHEDULED, IN_PROGRESS, COMPLETED, or CANCELLED'),
+      .withMessage('Shift status must be SCHEDULED, OPEN, CLAIMED, IN_PROGRESS, COMPLETED, or CANCELLED'),
     body('shiftType')
       .optional()
       .isIn(SHIFT_TYPES)
-      .withMessage('Shift type must be DAY, WAKE_NIGHT, SLEEP_IN, or EMERGENCY'),
+      .withMessage('Shift type must be LONG_DAY, MID_DAY, WAKE_NIGHT, or SLEEP_IN'),
+    body('eligibleRoles')
+      .optional()
+      .isArray()
+      .withMessage('Eligible roles must be an array'),
+    body('eligibleRoles.*')
+      .isIn(ROLES)
+      .withMessage('Eligible roles must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    body('urgent')
+      .optional()
+      .isBoolean()
+      .withMessage('Urgent must be a boolean'),
+    handleValidationErrors,
+  ],
+
+  updateShift: [
+    ...idParam('id', 'Shift ID'),
+    body('workerId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Worker ID must be valid'),
+    body('houseId')
+      .optional()
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('House ID must be valid'),
+    body('startTime')
+      .optional()
+      .isISO8601()
+      .withMessage('Start time must be a valid ISO 8601 date'),
+    body('endTime')
+      .optional()
+      .isISO8601()
+      .withMessage('End time must be a valid ISO 8601 date')
+      .custom((endTime, { req }) => {
+        if (!req.body.startTime || Number.isNaN(new Date(req.body.startTime).getTime())) return true;
+        if (new Date(endTime) <= new Date(req.body.startTime)) {
+          throw new Error('End time must be after start time');
+        }
+        return true;
+      }),
+    body('date')
+      .optional()
+      .isISO8601()
+      .withMessage('Date must be a valid ISO 8601 date'),
+    body('shiftType')
+      .optional()
+      .isIn(SHIFT_TYPES)
+      .withMessage('Shift type must be LONG_DAY, MID_DAY, WAKE_NIGHT, or SLEEP_IN'),
+    body('urgent')
+      .optional()
+      .isBoolean()
+      .withMessage('Urgent must be a boolean'),
+    body('eligibleRoles')
+      .optional()
+      .isArray()
+      .withMessage('Eligible roles must be an array'),
+    body('eligibleRoles.*')
+      .isIn(ROLES)
+      .withMessage('Eligible roles must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    handleValidationErrors,
+  ],
+
+  openShift: [
+    ...idParam('id', 'Shift ID'),
+    body('eligibleRoles')
+      .optional()
+      .isArray()
+      .withMessage('Eligible roles must be an array'),
+    body('eligibleRoles.*')
+      .isIn(ROLES)
+      .withMessage('Eligible roles must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    body('maxClaimsPerWorker')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Max claims per worker must be a positive integer'),
+    body('urgent')
+      .optional()
+      .isBoolean()
+      .withMessage('Urgent must be a boolean'),
+    handleValidationErrors,
+  ],
+
+  claimShift: [
+    ...idParam('id', 'Shift ID'),
+    handleValidationErrors,
+  ],
+
+  dropShift: [
+    ...idParam('id', 'Shift ID'),
+    body('reason')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Reason must be 500 characters or fewer'),
     handleValidationErrors,
   ],
 
@@ -455,6 +550,10 @@ const validators = {
       .optional()
       .isBoolean()
       .withMessage('Auto-confirm must be a boolean'),
+    body('assignedHours')
+      .optional({ nullable: true, checkFalsy: true })
+      .isFloat({ min: 0, max: 10000 })
+      .withMessage('Assigned hours must be 0 or more'),
     handleValidationErrors,
   ],
 
@@ -496,6 +595,10 @@ const validators = {
       .optional()
       .isBoolean()
       .withMessage('Auto-confirm must be a boolean'),
+    body('assignedHours')
+      .optional({ nullable: true, checkFalsy: true })
+      .isFloat({ min: 0, max: 10000 })
+      .withMessage('Assigned hours must be 0 or more'),
     handleValidationErrors,
   ],
 
@@ -506,6 +609,42 @@ const validators = {
       .withMessage('Radius is required')
       .isInt({ min: 10, max: 500 })
       .withMessage('Radius must be between 10 and 500 metres'),
+    handleValidationErrors,
+  ],
+
+  listSupportedPeople: [
+    ...idParam('id', 'House ID'),
+    handleValidationErrors,
+  ],
+
+  createSupportedPerson: [
+    ...idParam('id', 'House ID'),
+    body('name')
+      .trim()
+      .notEmpty()
+      .withMessage('Name is required')
+      .isLength({ min: 2, max: 160 })
+      .withMessage('Name must be between 2 and 160 characters'),
+    body('dateOfBirth')
+      .optional({ values: 'falsy' })
+      .isISO8601()
+      .withMessage('Date of birth must be a valid date'),
+    body('emergencyContactName')
+      .optional({ values: 'falsy' })
+      .trim()
+      .isLength({ max: 160 })
+      .withMessage('Emergency contact name must be 160 characters or fewer'),
+    body('emergencyContactPhone')
+      .optional({ values: 'falsy' })
+      .trim()
+      .isLength({ max: 40 })
+      .withMessage('Emergency contact phone must be 40 characters or fewer'),
+    handleValidationErrors,
+  ],
+
+  deleteSupportedPerson: [
+    ...idParam('id', 'House ID'),
+    ...idParam('personId', 'Person ID'),
     handleValidationErrors,
   ],
 
@@ -668,6 +807,30 @@ const validators = {
     handleValidationErrors,
   ],
 
+  // Right-to-Work share code (fine-grained format checks live in the service)
+  upsertShareCode: [
+    body('code').trim().notEmpty().withMessage('Share code is required'),
+    body('shareDate').notEmpty().withMessage('Share date is required'),
+    body('notes')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Notes must be 1000 characters or fewer'),
+    handleValidationErrors,
+  ],
+
+  upsertShareCodeForUser: [
+    ...idParam('userId', 'User ID'),
+    body('code').trim().notEmpty().withMessage('Share code is required'),
+    body('shareDate').notEmpty().withMessage('Share date is required'),
+    body('notes')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 1000 })
+      .withMessage('Notes must be 1000 characters or fewer'),
+    handleValidationErrors,
+  ],
+
   // Leave Requests
   createLeaveRequest: [
     body('workerId')
@@ -688,11 +851,10 @@ const validators = {
       .toDate()
       .withMessage('End date must be a valid date'),
     body('reason')
+      .optional({ nullable: true, checkFalsy: true })
       .trim()
-      .notEmpty()
-      .withMessage('Reason is required')
-      .isLength({ min: 3, max: 500 })
-      .withMessage('Reason must be between 3 and 500 characters'),
+      .isLength({ max: 500 })
+      .withMessage('Reason must be 500 characters or fewer'),
     handleValidationErrors,
   ],
 
@@ -714,6 +876,32 @@ const validators = {
 
   cancelLeaveRequest: [
     ...idParam('id', 'Leave request ID'),
+    handleValidationErrors,
+  ],
+
+  // Announcements
+  createAnnouncement: [
+    body('title')
+      .trim()
+      .notEmpty()
+      .withMessage('Title is required')
+      .isLength({ min: 3, max: 150 })
+      .withMessage('Title must be between 3 and 150 characters'),
+    body('body')
+      .trim()
+      .notEmpty()
+      .withMessage('Message is required')
+      .isLength({ min: 3, max: 3000 })
+      .withMessage('Message must be between 3 and 3000 characters'),
+    body('pinned')
+      .optional()
+      .isBoolean()
+      .withMessage('Pinned must be true or false'),
+    handleValidationErrors,
+  ],
+
+  getAnnouncement: [
+    ...idParam('id', 'Announcement ID'),
     handleValidationErrors,
   ],
 };

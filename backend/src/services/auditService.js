@@ -1,7 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { agencyIdFor } = require('../utils/agency');
-
-const prisma = new PrismaClient();
 
 function auditContext(req) {
   return {

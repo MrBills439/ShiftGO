@@ -1,8 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { isInsideGeofence } = require('./geofenceService');
 const notificationService = require('./notificationService');
-
-const prisma = new PrismaClient();
 
 function gpsConfidence(accuracy) {
   if (accuracy == null) return 'UNRELIABLE';
@@ -38,7 +36,7 @@ async function getActiveShift(workerId, houseId) {
     where: {
       workerId,
       houseId,
-      status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+      status: { in: ['SCHEDULED', 'CLAIMED', 'IN_PROGRESS'] },
       startTime: { lte: now },
       endTime: { gte: now },
     },
@@ -178,7 +176,7 @@ async function autoCheckin(workerId, latitude, longitude, accuracy, agencyId) {
     where: {
       workerId,
       ...(agencyId ? { agencyId } : {}),
-      status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+      status: { in: ['SCHEDULED', 'CLAIMED', 'IN_PROGRESS'] },
       startTime: { lte: now },
       endTime: { gte: now },
     },
@@ -226,7 +224,7 @@ async function geofenceExit(workerId, latitude, longitude, accuracy, agencyId) {
     where: {
       workerId,
       ...(agencyId ? { agencyId } : {}),
-      status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+      status: { in: ['SCHEDULED', 'CLAIMED', 'IN_PROGRESS'] },
       startTime: { lte: now },
       endTime:   { gte: now },
     },

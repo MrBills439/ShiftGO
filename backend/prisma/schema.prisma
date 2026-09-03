@@ -46,6 +46,10 @@ enum NotificationType {
   SHIFT_ASSIGNED
   SHIFT_REMOVED
   SHIFT_REMINDER
+  SHIFT_OPEN
+  SHIFT_DROPPED
+  SHIFT_CLAIMED_YOU
+  SHIFT_CLAIMED_OTHER
   MISSED_CLOCK_IN
   CLOCK_OUT_PROMPT
   GENERAL
@@ -73,16 +77,18 @@ enum TimesheetStatus {
 
 enum ShiftStatus {
   SCHEDULED
+  OPEN
+  CLAIMED
   IN_PROGRESS
   COMPLETED
   CANCELLED
 }
 
 enum ShiftType {
-  DAY
+  LONG_DAY
+  MID_DAY
   WAKE_NIGHT
   SLEEP_IN
-  EMERGENCY
 }
 
 enum LeaveRequestStatus {
@@ -92,60 +98,97 @@ enum LeaveRequestStatus {
   CANCELLED
 }
 
-model Agency {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum AccrualMethod {
+  FLAT_RATE // fixed hours awarded per completed pay period
+  HOURLY    // hours earned as a fraction of actual hours worked
+  LUMP_SUM  // full annual allowance granted upfront
+}
 
-  users         User[]
-  houses        House[]
-  shifts        Shift[]
-  clockEvents   ClockEvent[]
-  timesheets    Timesheet[]
-  notifications Notification[]
-  trainings     Training[]
-  dbsChecks     DbsCheck[]
-  auditLogs     AuditLog[]
-  leaveRequests LeaveRequest[]
+enum PayPeriod {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum LeaveLedgerType {
+  ACCRUAL    // periodic / worked-hours / lump-sum accrual
+  CARRY_OVER // hours rolled in from the previous cycle (after the carry-over cap)
+  ADJUSTMENT // manual correction by an admin
+  RESET      // year-end zeroing of accrued hours
+}
+
+model Agency {
+  id         String   @id @default(cuid())
+  name       String
+  clerkOrgId String?  @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  users           User[]
+  houses          House[]
+  shifts          Shift[]
+  clockEvents     ClockEvent[]
+  timesheets      Timesheet[]
+  notifications   Notification[]
+  trainings       Training[]
+  dbsChecks       DbsCheck[]
+  shareCodes      ShareCode[]
+  auditLogs       AuditLog[]
+  leaveRequests   LeaveRequest[]
+  supportedPeople SupportedPerson[]
+  announcements   Announcement[]
+  leaveAccrualProfiles LeaveAccrualProfile[]
+  leaveBalances        LeaveBalance[]
+  leaveLedgerEntries   LeaveLedgerEntry[]
 }
 
 model User {
-  id             String   @id @default(cuid())
-  agencyId       String   @default("default-agency")
-  name           String
-  email          String   @unique
-  passwordHash   String
-  role           Role
-  status         UserStatus @default(ACTIVE)
-  phone          String?
-  bio            String?
-  profilePicture String?
-  address        String?
-  fcmToken       String?
-  deactivatedAt  DateTime?
-  deactivatedById String?
+  id                 String     @id @default(cuid())
+  agencyId           String
+  clerkUserId        String?    @unique
+  name               String
+  email              String     @unique
+  passwordHash       String?
+  role               Role
+  status             UserStatus @default(ACTIVE)
+  phone              String?
+  bio                String?
+  profilePicture     String?
+  address            String?
+  fcmToken           String?
+  contractedHours    Float?
+  onboardedAt        DateTime?
+  deactivatedAt      DateTime?
+  deactivatedById    String?
   deactivationReason String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
-  managedHouses        House[]           @relation("ManagerHouses")
-  workerHouses         HouseWorker[]
-  teamLeaderHouses     HouseTeamLeader[]
-  createdShifts        Shift[]           @relation("ShiftCreator")
-  workerShifts         Shift[]           @relation("ShiftWorker")
-  cancelledShifts      Shift[]           @relation("ShiftCanceller")
-  clockEvents          ClockEvent[]
-  timesheets           Timesheet[]       @relation("WorkerTimesheets")
-  confirmedTimesheets  Timesheet[]       @relation("ConfirmedTimesheets")
-  reviewedTimesheets   Timesheet[]       @relation("ReviewedTimesheets")
-  notifications        Notification[]
-  trainings            Training[]
-  dbsCheck             DbsCheck?
-  deactivatedBy        User?             @relation("UserDeactivations", fields: [deactivatedById], references: [id])
-  deactivatedUsers     User[]            @relation("UserDeactivations")
-  createdLeaveRequests LeaveRequest[]    @relation("LeaveRequestCreator")
-  approvedLeaveRequests LeaveRequest[]   @relation("LeaveRequestReviewer")
+  managedHouses         House[]           @relation("ManagerHouses")
+  workerHouses          HouseWorker[]
+  teamLeaderHouses      HouseTeamLeader[]
+  createdShifts         Shift[]           @relation("ShiftCreator")
+  workerShifts          Shift[]           @relation("ShiftWorker")
+  cancelledShifts       Shift[]           @relation("ShiftCanceller")
+  shiftClaims           ShiftClaim[]
+  clockEvents           ClockEvent[]
+  timesheets            Timesheet[]       @relation("WorkerTimesheets")
+  confirmedTimesheets   Timesheet[]       @relation("ConfirmedTimesheets")
+  reviewedTimesheets    Timesheet[]       @relation("ReviewedTimesheets")
+  notifications         Notification[]
+  trainings             Training[]
+  dbsCheck              DbsCheck?
+  shareCode             ShareCode?        @relation("UserShareCode")
+  updatedShareCodes     ShareCode[]       @relation("ShareCodeUpdater")
+  deactivatedBy         User?             @relation("UserDeactivations", fields: [deactivatedById], references: [id])
+  deactivatedUsers      User[]            @relation("UserDeactivations")
+  createdLeaveRequests  LeaveRequest[]    @relation("LeaveRequestCreator")
+  approvedLeaveRequests LeaveRequest[]    @relation("LeaveRequestReviewer")
+  announcements         Announcement[]    @relation("AnnouncementAuthor")
+  announcementReads     AnnouncementRead[]
+  leaveAccrualProfile   LeaveAccrualProfile?
+  leaveBalance          LeaveBalance?
+  leaveLedgerEntries    LeaveLedgerEntry[]
 
   agency Agency @relation(fields: [agencyId], references: [id])
 
@@ -164,19 +207,39 @@ model House {
   geofenceRadius Int      @default(50)
   autoConfirm    Boolean  @default(false)
   managerId      String?
+  assignedHours  Float?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  manager     User?             @relation("ManagerHouses", fields: [managerId], references: [id])
-  workers     HouseWorker[]
-  teamLeaders HouseTeamLeader[]
-  shifts      Shift[]
-  clockEvents ClockEvent[]
-  timesheets  Timesheet[]
+  manager         User?             @relation("ManagerHouses", fields: [managerId], references: [id])
+  workers         HouseWorker[]
+  teamLeaders     HouseTeamLeader[]
+  shifts          Shift[]
+  clockEvents     ClockEvent[]
+  timesheets      Timesheet[]
+  supportedPeople SupportedPerson[]
 
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
+}
+
+model SupportedPerson {
+  id                    String    @id @default(cuid())
+  agencyId              String
+  houseId               String
+  name                  String
+  dateOfBirth           DateTime?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  house  House  @relation(fields: [houseId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+  @@index([houseId])
 }
 
 model HouseWorker {
@@ -200,28 +263,31 @@ model HouseTeamLeader {
 }
 
 model Shift {
-  id          String   @id @default(cuid())
-  agencyId    String   @default("default-agency")
-  houseId     String
-  workerId    String
-  createdById String
-  startTime   DateTime
-  endTime     DateTime
-  date        DateTime
-  shiftType   ShiftType @default(DAY)
-  status      ShiftStatus @default(SCHEDULED)
-  cancelledAt DateTime?
-  cancelledById String?
+  id                 String      @id @default(cuid())
+  agencyId           String      @default("default-agency")
+  houseId            String
+  workerId           String?
+  createdById        String
+  startTime          DateTime
+  endTime            DateTime
+  date               DateTime
+  shiftType          ShiftType   @default(LONG_DAY)
+  status             ShiftStatus @default(SCHEDULED)
+  eligibleRoles      String[]    @default([])
+  urgent             Boolean     @default(false)
+  cancelledAt        DateTime?
+  cancelledById      String?
   cancellationReason String?
-  createdAt   DateTime @default(now())
+  createdAt          DateTime    @default(now())
 
-  house       House      @relation(fields: [houseId], references: [id])
-  worker      User       @relation("ShiftWorker", fields: [workerId], references: [id])
-  createdBy   User       @relation("ShiftCreator", fields: [createdById], references: [id])
-  cancelledBy User?      @relation("ShiftCanceller", fields: [cancelledById], references: [id])
+  house       House        @relation(fields: [houseId], references: [id])
+  worker      User?        @relation("ShiftWorker", fields: [workerId], references: [id])
+  createdBy   User         @relation("ShiftCreator", fields: [createdById], references: [id])
+  cancelledBy User?        @relation("ShiftCanceller", fields: [cancelledById], references: [id])
   clockEvents ClockEvent[]
   timesheet   Timesheet?
-  agency      Agency     @relation(fields: [agencyId], references: [id])
+  claims      ShiftClaim[]
+  agency      Agency       @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
   @@index([shiftType])
@@ -229,22 +295,37 @@ model Shift {
   @@index([workerId, startTime, endTime])
 }
 
-model ClockEvent {
-  id        String      @id @default(cuid())
-  agencyId  String      @default("default-agency")
-  workerId  String
-  houseId   String
+model ShiftClaim {
+  id        String   @id @default(cuid())
   shiftId   String
-  type      ClockType
-  method    ClockMethod
-  timestamp DateTime    @default(now())
-  accuracy  Float?
-  gpsConfidence GpsConfidence?
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  workerId  String
+  worker    User     @relation(fields: [workerId], references: [id])
+  claimedAt DateTime @default(now())
+  status    String   @default("CLAIMED") // for future: PENDING|ACCEPTED|REJECTED
+  createdAt DateTime @default(now())
+
+  @@unique([shiftId, workerId])
+  @@index([workerId])
+  @@index([shiftId])
+}
+
+model ClockEvent {
+  id             String          @id @default(cuid())
+  agencyId       String          @default("default-agency")
+  workerId       String
+  houseId        String
+  shiftId        String
+  type           ClockType
+  method         ClockMethod
+  timestamp      DateTime        @default(now())
+  accuracy       Float?
+  gpsConfidence  GpsConfidence?
   locationSource LocationSource?
 
-  worker User  @relation(fields: [workerId], references: [id])
-  house  House @relation(fields: [houseId], references: [id])
-  shift  Shift @relation(fields: [shiftId], references: [id])
+  worker User   @relation(fields: [workerId], references: [id])
+  house  House  @relation(fields: [houseId], references: [id])
+  shift  Shift  @relation(fields: [shiftId], references: [id])
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
@@ -273,23 +354,23 @@ model AuditLog {
 }
 
 model Timesheet {
-  id            String    @id @default(cuid())
-  agencyId      String    @default("default-agency")
-  workerId      String
-  houseId       String
-  shiftId       String    @unique
-  clockInAt     DateTime?
-  clockOutAt    DateTime?
-  totalHours    Float?
-  status        TimesheetStatus @default(PENDING)
+  id              String          @id @default(cuid())
+  agencyId        String          @default("default-agency")
+  workerId        String
+  houseId         String
+  shiftId         String          @unique
+  clockInAt       DateTime?
+  clockOutAt      DateTime?
+  totalHours      Float?
+  status          TimesheetStatus @default(PENDING)
   rejectionReason String?
-  confirmedById String?
-  confirmedAt   DateTime?
-  reviewedById  String?
-  reviewedAt    DateTime?
-  autoConfirmed Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  confirmedById   String?
+  confirmedAt     DateTime?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  autoConfirmed   Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   worker      User   @relation("WorkerTimesheets", fields: [workerId], references: [id])
   house       House  @relation(fields: [houseId], references: [id])
@@ -312,7 +393,7 @@ model Notification {
   read      Boolean          @default(false)
   createdAt DateTime         @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
@@ -330,50 +411,167 @@ model Training {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
 }
 
 model DbsCheck {
-  id          String    @id @default(cuid())
-  agencyId    String    @default("default-agency")
-  userId      String    @unique
-  status      DbsStatus @default(PENDING)
-  reference   String?
-  issuedAt    DateTime?
-  expiresAt   DateTime?
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String    @id @default(cuid())
+  agencyId  String    @default("default-agency")
+  userId    String    @unique
+  status    DbsStatus @default(PENDING)
+  reference String?
+  issuedAt  DateTime?
+  expiresAt DateTime?
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
 }
 
+/// UK Right-to-Work share code + proof document. "Stale" (needs re-submitting) is
+/// derived, not stored: no record, or `shareDate` older than 90 days.
+model ShareCode {
+  id           String    @id @default(cuid())
+  agencyId     String    @default("default-agency")
+  userId       String    @unique
+  code         String
+  shareDate    DateTime
+  documentPath String?
+  documentName String?
+  notes        String?
+  updatedById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user      User   @relation("UserShareCode", fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy User?  @relation("ShareCodeUpdater", fields: [updatedById], references: [id])
+  agency    Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+}
+
 model LeaveRequest {
-  id              String              @id @default(cuid())
-  agencyId        String              @default("default-agency")
+  id              String             @id @default(cuid())
+  agencyId        String             @default("default-agency")
   workerId        String
   startDate       DateTime
   endDate         DateTime
-  reason          String
-  status          LeaveRequestStatus  @default(PENDING)
+  reason          String?
+  status          LeaveRequestStatus @default(PENDING)
   reviewedById    String?
   reviewedAt      DateTime?
   rejectionReason String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  worker      User   @relation("LeaveRequestCreator", fields: [workerId], references: [id], onDelete: Cascade)
-  reviewedBy  User?  @relation("LeaveRequestReviewer", fields: [reviewedById], references: [id])
-  agency      Agency @relation(fields: [agencyId], references: [id])
+  // Hours this request consumes from the worker's balance. Derived from the
+  // date range at creation (weekdays x daily contracted hours) so the PTO
+  // engine can reason in hours regardless of how the range was picked.
+  totalHours      Float              @default(0)
+
+  worker     User   @relation("LeaveRequestCreator", fields: [workerId], references: [id], onDelete: Cascade)
+  reviewedBy User?  @relation("LeaveRequestReviewer", fields: [reviewedById], references: [id])
+  agency     Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
   @@index([workerId])
   @@index([status])
   @@index([startDate, endDate])
+}
+
+/// Per-user PTO accrual policy. One row per user; HR/managers configure it.
+model LeaveAccrualProfile {
+  id                   String        @id @default(cuid())
+  agencyId             String
+  userId               String        @unique
+  method               AccrualMethod @default(FLAT_RATE)
+  payPeriod            PayPeriod     @default(MONTHLY) // cadence for FLAT_RATE
+  flatRateHours        Float         @default(0)       // hours per completed pay period
+  hourlyAccrualRate    Float         @default(0)       // leave hours earned per hour worked
+  lumpSumHours         Float         @default(0)       // annual hours granted upfront
+  accrualStartDate     DateTime      @default(now())
+  balanceCeilingHours  Float?                          // hard cap on Gross Available (null = uncapped)
+  carryOverCapHours    Float?                          // max hours that roll to next cycle (null = uncapped)
+  allowNegativeBalance Boolean       @default(false)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+}
+
+/// Materialised balance state for the current accrual cycle.
+model LeaveBalance {
+  id               String   @id @default(cuid())
+  agencyId         String
+  userId           String   @unique
+  cycleStartDate   DateTime // start of the current accrual year
+  carriedOverHours Float    @default(0) // brought in from the previous cycle (post-cap)
+  accruedHours     Float    @default(0) // cached accrual-to-date snapshot (authoritative for LUMP_SUM)
+  lastAccrualAt    DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+}
+
+/// Append-only history of accrual events (accruals, carry-over, adjustments, resets).
+model LeaveLedgerEntry {
+  id          String          @id @default(cuid())
+  agencyId    String
+  userId      String
+  type        LeaveLedgerType
+  hours       Float // signed: + adds to accrued, - removes
+  description String?
+  effectiveAt DateTime        @default(now())
+  createdAt   DateTime        @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+  @@index([userId])
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  agencyId  String
+  authorId  String
+  title     String
+  body      String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author User               @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  agency Agency             @relation(fields: [agencyId], references: [id])
+  reads  AnnouncementRead[]
+
+  @@index([agencyId])
+  @@index([createdAt])
+}
+
+model AnnouncementRead {
+  id             String   @id @default(cuid())
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId])
 }

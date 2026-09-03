@@ -5,8 +5,16 @@ process.env.RATE_LIMIT_DISABLED = 'true';
 
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
-const app = require('../src/app');
 const { signAccess } = require('../src/utils/jwt');
+
+const mockCreateOrganizationInvitation = jest.fn();
+jest.mock('../src/utils/clerkClient', () => ({
+  organizations: {
+    createOrganizationInvitation: (...args) => mockCreateOrganizationInvitation(...args),
+  },
+}));
+
+const app = require('../src/app');
 
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -30,12 +38,13 @@ function tokenFor(user) {
 
 describe('Protected agency staff onboarding', () => {
   beforeAll(async () => {
-    agency = await prisma.agency.create({ data: { name: `Onboarding Agency ${suffix}` } });
+    agency = await prisma.agency.create({ data: { name: `Onboarding Agency ${suffix}`, clerkOrgId: `org_test_${suffix}` } });
     otherAgency = await prisma.agency.create({ data: { name: `Other Agency ${suffix}` } });
 
     manager = await prisma.user.create({
       data: {
         agencyId: agency.id,
+        clerkUserId: `user_test_manager_${suffix}`,
         name: 'Onboarding Manager',
         email: `onboarding-manager-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -46,12 +55,18 @@ describe('Protected agency staff onboarding', () => {
     worker = await prisma.user.create({
       data: {
         agencyId: agency.id,
+        clerkUserId: `user_test_worker_${suffix}`,
         name: 'Onboarding Worker',
         email: `onboarding-worker-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
         role: 'WORKER',
       },
     });
+  });
+
+  beforeEach(() => {
+    mockCreateOrganizationInvitation.mockReset();
+    mockCreateOrganizationInvitation.mockResolvedValue({ id: `invitation_${suffix}`, status: 'pending' });
   });
 
   afterAll(async () => {
@@ -70,19 +85,24 @@ describe('Protected agency staff onboarding', () => {
         email: `created-worker-${suffix}@shiftgo.test`,
         role: 'WORKER',
         phone: '+441234567890',
-        temporaryPassword: 'Temporary123!',
       });
 
     expect(res.status).toBe(201);
     expect(res.body.data).toEqual(expect.objectContaining({
-      agencyId: agency.id,
-      name: 'Created Staff Worker',
       email: `created-worker-${suffix}@shiftgo.test`,
       role: 'WORKER',
-      phone: '+441234567890',
+      status: 'pending',
     }));
-    expect(res.body.data.passwordHash).toBeUndefined();
-    createdWorkerId = res.body.data.id;
+    // No inviterUserId — the org:hr/org:manager Clerk custom roles have no
+    // permissions granted in this instance, so attributing the invite to a
+    // specific member 403s. Sending it as the API key itself avoids that.
+    expect(mockCreateOrganizationInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: agency.clerkOrgId,
+      emailAddress: `created-worker-${suffix}@shiftgo.test`,
+      role: 'org:worker',
+    }));
+    expect(mockCreateOrganizationInvitation.mock.calls[0][0]).not.toHaveProperty('inviterUserId');
+    createdWorkerId = res.body.data.invitationId;
   });
 
   it('does not let a manager create users in another agency', async () => {
@@ -138,32 +158,13 @@ describe('Protected agency staff onboarding', () => {
     }));
   });
 
-  it('blocks public register in production', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-
-    const res = await request(app)
-      .post('/auth/register')
-      .send({
-        name: 'Public Production Register',
-        email: `public-register-${suffix}@shiftgo.test`,
-        role: 'WORKER',
-        password: 'Temporary123!',
-      });
-
-    process.env.NODE_ENV = originalNodeEnv;
-
-    expect(res.status).toBe(403);
-    expect(res.body.message).toBe('Public registration is disabled in production; use protected staff onboarding');
-  });
-
-  it('records an audit log when staff is created', async () => {
+  it('records an audit log when staff is invited', async () => {
     const auditLog = await prisma.auditLog.findFirst({
       where: {
         agencyId: agency.id,
         actorId: manager.id,
-        action: 'USER_CREATED',
-        entityType: 'User',
+        action: 'USER_INVITED',
+        entityType: 'OrganizationInvitation',
         entityId: createdWorkerId,
       },
     });
@@ -172,12 +173,11 @@ describe('Protected agency staff onboarding', () => {
       agencyId: agency.id,
       actorId: manager.id,
       actorRole: 'MANAGER',
-      action: 'USER_CREATED',
-      entityType: 'User',
+      action: 'USER_INVITED',
+      entityType: 'OrganizationInvitation',
       entityId: createdWorkerId,
     }));
     expect(auditLog.newValue).toEqual(expect.objectContaining({
-      agencyId: agency.id,
       role: 'WORKER',
     }));
     expect(createdCrossAttemptId).toBeUndefined();

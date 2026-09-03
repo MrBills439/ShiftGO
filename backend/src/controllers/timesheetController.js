@@ -1,10 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const timesheetService = require('../services/timesheetService');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
 const { ok, fail } = require('../utils/response');
-
-const prisma = new PrismaClient();
 
 async function myTimesheets(req, res) {
   const data = await timesheetService.getMyTimesheets(req.user.id, agencyIdFor(req));

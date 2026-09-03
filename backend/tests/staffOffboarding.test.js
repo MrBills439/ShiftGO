@@ -177,17 +177,6 @@ describe('Staff offboarding and deactivation', () => {
     expect(res.body.data.deactivatedAt).toBeTruthy();
   });
 
-  it('prevents a deactivated user from logging in', async () => {
-    const res = await request(app)
-      .post('/auth/login')
-      .send({
-        email: targetWorker.email,
-        password: testPassword,
-      });
-
-    expect(res.status).toBe(401);
-  });
-
   it('rejects existing access tokens for deactivated users before clock in/out', async () => {
     const staleToken = tokenFor(targetWorker);
 

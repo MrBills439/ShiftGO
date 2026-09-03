@@ -1,7 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { send } = require('../services/notificationService');
-
-const prisma = new PrismaClient();
 
 // Runs every minute. Finds shifts that ended in the last 2 minutes where the worker
 // is still clocked in (has an IN event but no OUT event), then auto-clocks them out.

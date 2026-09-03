@@ -17,9 +17,10 @@ function tokenFor(user) {
   });
 }
 
-function testUser(role, suffix) {
+function testUser(role, suffix, agencyId) {
   return prisma.user.create({
     data: {
+      agencyId,
       name: `Push ${role}`,
       email: `push-${role.toLowerCase()}-${suffix}@shiftgo.test`,
       passwordHash: 'test-password-hash',
@@ -30,16 +31,19 @@ function testUser(role, suffix) {
 
 describe('Push notification readiness', () => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  let agency;
   let manager;
   let worker;
 
   beforeAll(async () => {
-    manager = await testUser('MANAGER', suffix);
-    worker = await testUser('WORKER', suffix);
+    agency = await prisma.agency.create({ data: { name: `Push Agency ${suffix}` } });
+    manager = await testUser('MANAGER', suffix, agency.id);
+    worker = await testUser('WORKER', suffix, agency.id);
   });
 
   afterAll(async () => {
     await prisma.user.deleteMany({ where: { id: { in: [manager?.id, worker?.id].filter(Boolean) } } });
+    if (agency) await prisma.agency.delete({ where: { id: agency.id } });
     await prisma.$disconnect();
   });
 

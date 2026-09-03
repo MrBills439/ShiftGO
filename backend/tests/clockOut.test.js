@@ -11,6 +11,7 @@ const { signAccess } = require('../src/utils/jwt');
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+let agency;
 let manager;
 let worker;
 let house;
@@ -28,6 +29,7 @@ async function createActiveShift() {
   const now = Date.now();
   return prisma.shift.create({
     data: {
+      agencyId: agency.id,
       houseId: house.id,
       workerId: worker.id,
       createdById: manager.id,
@@ -41,8 +43,11 @@ async function createActiveShift() {
 
 describe('Clock-out duplicate prevention', () => {
   beforeAll(async () => {
+    agency = await prisma.agency.create({ data: { name: `Clock Test Agency ${suffix}` } });
+
     manager = await prisma.user.create({
       data: {
+        agencyId: agency.id,
         name: 'Clock Test Manager',
         email: `clock-manager-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -52,6 +57,7 @@ describe('Clock-out duplicate prevention', () => {
 
     worker = await prisma.user.create({
       data: {
+        agencyId: agency.id,
         name: 'Clock Test Worker',
         email: `clock-worker-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -61,6 +67,7 @@ describe('Clock-out duplicate prevention', () => {
 
     house = await prisma.house.create({
       data: {
+        agencyId: agency.id,
         name: `Clock Test House ${suffix}`,
         address: '10 Clock Street',
         latitude: 51.5,
@@ -71,11 +78,13 @@ describe('Clock-out duplicate prevention', () => {
   });
 
   afterAll(async () => {
+    if (agency) await prisma.auditLog.deleteMany({ where: { agencyId: agency.id } });
     await prisma.timesheet.deleteMany({ where: { workerId: worker?.id } });
     await prisma.clockEvent.deleteMany({ where: { workerId: worker?.id } });
     await prisma.shift.deleteMany({ where: { houseId: house?.id } });
     if (house) await prisma.house.delete({ where: { id: house.id } });
     await prisma.user.deleteMany({ where: { id: { in: [manager?.id, worker?.id].filter(Boolean) } } });
+    if (agency) await prisma.agency.delete({ where: { id: agency.id } });
     await prisma.$disconnect();
   });
 

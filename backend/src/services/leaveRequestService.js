@@ -1,6 +1,64 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
+const leaveBalanceService = require('./leave/leaveBalanceService');
+const notificationService = require('./notificationService');
+const { canRequest, leaveHoursForRange } = require('./leave/accrualEngine');
 
-const prisma = new PrismaClient();
+/** Human duration for payroll/worker messages — leave is stored in hours, but
+ *  everyone reads it in days. */
+function describeLeaveDuration(leave, worker) {
+  const daily = leaveBalanceService.dailyHoursFor(worker) || 7.5;
+  const days = Math.round((Number(leave.totalHours || 0) / daily) * 10) / 10;
+  return `${days} ${Math.abs(days) === 1 ? 'day' : 'days'}`;
+}
+
+/** The "payroll team" — active HR users in the agency. */
+async function payrollRecipients(agencyId) {
+  return prisma.user.findMany({
+    where: { agencyId, role: 'HR', status: 'ACTIVE' },
+    select: { id: true, name: true, fcmToken: true },
+  });
+}
+
+async function resolveWorker(leave) {
+  return leave.worker ?? prisma.user.findUnique({ where: { id: leave.workerId } });
+}
+
+/** Non-blocking: tell the payroll team a leave request was submitted. */
+async function notifyLeaveSubmitted(leave, agencyId) {
+  const worker = await resolveWorker(leave);
+  if (!worker) return;
+  const recipients = await payrollRecipients(agencyId);
+  if (!recipients.length) return;
+  await notificationService.sendLeaveSubmittedToPayroll(
+    recipients, leave, worker, describeLeaveDuration(leave, worker),
+  );
+}
+
+/** Non-blocking: tell the worker the outcome, and — on approval — the payroll team. */
+async function notifyLeaveDecision(leave, agencyId, decision, reason) {
+  const worker = await resolveWorker(leave);
+  if (!worker) return;
+  await notificationService.sendLeaveDecisionToWorker(worker, leave, decision, reason);
+  if (decision === 'APPROVED') {
+    const recipients = await payrollRecipients(agencyId);
+    if (recipients.length) {
+      await notificationService.sendLeaveApprovedToPayroll(
+        recipients, leave, worker, describeLeaveDuration(leave, worker),
+      );
+    }
+  }
+}
+
+/** Non-blocking: a previously approved leave was cancelled — payroll must reverse it. */
+async function notifyApprovedLeaveCancelled(leave, agencyId) {
+  const worker = await resolveWorker(leave);
+  if (!worker) return;
+  const recipients = await payrollRecipients(agencyId);
+  if (!recipients.length) return;
+  await notificationService.sendLeaveCancelledToPayroll(
+    recipients, leave, worker, describeLeaveDuration(leave, worker),
+  );
+}
 
 /**
  * Check if two date ranges overlap
@@ -48,21 +106,48 @@ async function createLeaveRequest(data, requestingUserId, requestingUserRole, ag
     throw new Error('CROSS_AGENCY_ACCESS');
   }
 
-  // Create the leave request
+  // Price the request in hours. The PTO balance is only *enforced* once HR has
+  // configured an accrual policy for this worker — with no policy there is
+  // nothing to gate on. `allowNegativeBalance` on the policy lets a request
+  // through even when Net Usable is short.
+  const balance = await leaveBalanceService.getBalanceSummary(finalWorkerId, agencyId);
+  const totalHours = leaveHoursForRange(start, end, balance.dailyHours);
+
+  if (balance.hasConfiguredProfile) {
+    const verdict = canRequest({ balance, requestedHours: totalHours });
+    if (!verdict.allowed) {
+      throw {
+        code: 'INSUFFICIENT_BALANCE',
+        message: `This request needs ${totalHours}h but only ${balance.netUsableBalance}h are available (short by ${verdict.shortfallHours}h).`,
+        requestedHours: totalHours,
+        netUsableBalance: balance.netUsableBalance,
+        shortfallHours: verdict.shortfallHours,
+      };
+    }
+  }
+
+  // Create the leave request. Reason is optional — the mobile flow doesn't
+  // collect one; store null rather than an empty string.
   const leaveRequest = await prisma.leaveRequest.create({
     data: {
       agencyId,
       workerId: finalWorkerId,
       startDate: start,
       endDate: end,
-      reason,
+      reason: reason?.trim() ? reason.trim() : null,
       status: 'PENDING',
+      totalHours,
     },
     include: {
       worker: true,
       agency: true,
     },
   });
+
+  // Non-blocking: notify the payroll team (HR) that a request is awaiting approval.
+  notifyLeaveSubmitted(leaveRequest, agencyId).catch((e) =>
+    console.error('[Notify] leave submitted', e.message),
+  );
 
   return leaveRequest;
 }
@@ -221,6 +306,11 @@ async function approveLeaveRequest(leaveRequestId, requestingUserId, requestingU
     },
   });
 
+  // Non-blocking: confirm to the worker and send the approved leave to payroll (HR).
+  notifyLeaveDecision(approved, agencyId, 'APPROVED').catch((e) =>
+    console.error('[Notify] leave approved', e.message),
+  );
+
   return approved;
 }
 
@@ -253,6 +343,11 @@ async function rejectLeaveRequest(leaveRequestId, rejectionReason, requestingUse
     },
   });
 
+  // Non-blocking: let the worker know it was declined (and why).
+  notifyLeaveDecision(rejected, agencyId, 'REJECTED', rejectionReason).catch((e) =>
+    console.error('[Notify] leave rejected', e.message),
+  );
+
   return rejected;
 }
 
@@ -282,6 +377,8 @@ async function cancelLeaveRequest(leaveRequestId, requestingUserId, requestingUs
     }
   }
 
+  const wasApproved = leave.status === 'APPROVED';
+
   const cancelled = await prisma.leaveRequest.update({
     where: { id: leaveRequestId },
     data: {
@@ -292,6 +389,13 @@ async function cancelLeaveRequest(leaveRequestId, requestingUserId, requestingUs
       reviewedBy: true,
     },
   });
+
+  // Non-blocking: if approved leave is being reversed, payroll (HR) needs to know.
+  if (wasApproved) {
+    notifyApprovedLeaveCancelled(cancelled, agencyId).catch((e) =>
+      console.error('[Notify] leave cancelled', e.message),
+    );
+  }
 
   return cancelled;
 }
