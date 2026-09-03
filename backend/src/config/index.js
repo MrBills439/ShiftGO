@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 
 const isTest = process.env.NODE_ENV === 'test';
 const isProd = process.env.NODE_ENV === 'production';
@@ -20,9 +21,18 @@ const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
   : DEFAULT_DEV_ORIGINS;
 
+// Base directory for persistent uploads (avatars, Right-to-Work documents).
+// Production points this at the mounted Railway volume: UPLOAD_DIR=/app/uploads.
+// Local dev/test falls back to backend/uploads. A relative value is resolved
+// against the process working directory.
+const uploadDir = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(__dirname, '../../uploads');
+
 module.exports = {
   port: process.env.PORT || 4000,
   nodeEnv: process.env.NODE_ENV || 'development',
+  uploadDir,
   db: {
     url: process.env.DATABASE_URL,
   },

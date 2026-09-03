@@ -1,9 +1,9 @@
 const path = require('path');
 const fs = require('fs');
 const prisma = require('../lib/prisma');
+const { resolveStoredPath } = require('../lib/storage');
 
 const STALE_AFTER_DAYS = 90;
-const UPLOAD_ROOT = path.join(__dirname, '../../uploads');
 
 /** Roles that must hold a Right-to-Work share code on file. */
 const CHECKED_ROLES = ['WORKER', 'TEAM_LEADER'];
@@ -115,8 +115,7 @@ async function setDocument(agencyId, userId, file, updatedById) {
   }
   // Remove the previous file, best-effort.
   if (existing.documentPath) {
-    const prev = path.join(UPLOAD_ROOT, existing.documentPath.replace(/^\/uploads\//, ''));
-    fs.promises.unlink(prev).catch(() => {});
+    fs.promises.unlink(resolveStoredPath(existing.documentPath)).catch(() => {});
   }
   const record = await prisma.shareCode.update({
     where: { userId },
@@ -162,7 +161,7 @@ async function listForAgency(agencyId) {
 async function resolveDocument(agencyId, userId) {
   const record = await prisma.shareCode.findFirst({ where: { agencyId, userId } });
   if (!record || !record.documentPath) return null;
-  const abs = path.join(UPLOAD_ROOT, record.documentPath.replace(/^\/uploads\//, ''));
+  const abs = resolveStoredPath(record.documentPath);
   if (!fs.existsSync(abs)) return null;
   return { absolutePath: abs, downloadName: record.documentName || path.basename(abs) };
 }
@@ -186,7 +185,7 @@ async function streamAgencyZip(agencyId, res) {
   const usedNames = new Set();
 
   for (const rec of records) {
-    const abs = path.join(UPLOAD_ROOT, rec.documentPath.replace(/^\/uploads\//, ''));
+    const abs = resolveStoredPath(rec.documentPath);
     if (!fs.existsSync(abs)) continue;
     const ext = path.extname(abs) || '.pdf';
     const safe = rec.user.name.replace(/[^\w.-]+/g, '_');

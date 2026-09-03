@@ -1,8 +1,8 @@
-const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
+const { UPLOAD_DIR } = require('./lib/storage');
 
 const webhookRoutes = require('./routes/webhooks');
 const userRoutes = require('./routes/users');
@@ -50,8 +50,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(morgan('dev'));
 
-// Serve uploaded avatars
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Serve uploaded avatars (Right-to-Work documents also live under UPLOAD_DIR but
+// are only reachable through authenticated routes, not this static mount).
+app.use('/uploads', express.static(UPLOAD_DIR));
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', app: 'ShiftGO', timestamp: new Date().toISOString() }));
