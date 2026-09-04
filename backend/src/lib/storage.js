@@ -41,9 +41,33 @@ function ensureUploadDirs() {
 
 /** Map a stored web path (e.g. "/uploads/rtw/abc.pdf") to an absolute path under
  *  the current UPLOAD_DIR. Existing DB rows keep working when UPLOAD_DIR changes
- *  because only the "/uploads/" prefix is meaningful — the rest is re-based here. */
+ *  because only the "/uploads/" prefix is meaningful — the rest is re-based here.
+ *
+ *  Path-traversal safe: the resolved path is asserted to stay inside UPLOAD_DIR.
+ *  A value that would escape (e.g. "/uploads/../../etc/passwd", or a tampered DB
+ *  row) yields `null` rather than a path outside the upload tree. Every caller
+ *  already degrades gracefully on a null/missing path (existsSync → 404 / skip). */
 function resolveStoredPath(webPath) {
-  return path.join(UPLOAD_DIR, String(webPath).replace(/^\/uploads\//, ''));
+  const rel = String(webPath || '').replace(/^\/?uploads\//, '');
+  const abs = path.resolve(UPLOAD_DIR, rel);
+  // Must resolve to a file strictly *inside* UPLOAD_DIR — never the dir itself,
+  // never a sibling/parent (path traversal).
+  if (!abs.startsWith(UPLOAD_DIR + path.sep)) {
+    console.warn('[storage] rejected out-of-tree upload path:', webPath);
+    return null;
+  }
+  return abs;
+}
+
+/** Best-effort removal of a just-uploaded file. Used to avoid orphaning a file on
+ *  disk when the follow-up database write fails. Never throws. */
+async function discardUpload(file) {
+  if (!file || !file.path) return;
+  try {
+    await fs.promises.unlink(file.path);
+  } catch {
+    /* already gone / never written — nothing to do */
+  }
 }
 
 module.exports = {
@@ -52,4 +76,5 @@ module.exports = {
   RTW_DIR,
   ensureUploadDirs,
   resolveStoredPath,
+  discardUpload,
 };

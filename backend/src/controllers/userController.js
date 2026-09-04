@@ -1,8 +1,10 @@
 const path = require('path');
+const fs = require('fs');
 const prisma = require('../lib/prisma');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
+const { resolveStoredPath, discardUpload } = require('../lib/storage');
 const clerkClient = require('../utils/clerkClient');
 const { ROLE_TO_ORG_ROLE } = require('../utils/clerkRoles');
 
@@ -204,14 +206,23 @@ async function updateMe(req, res) {
 
 async function uploadAvatar(req, res) {
   if (!req.file) return fail(res, 'No file uploaded');
-  const filename = req.file.filename;
-  const profilePicture = `/uploads/avatars/${filename}`;
-  const oldUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
-  const user = await prisma.user.update({
-    where: { id: req.user.id },
-    data: { profilePicture },
-    select: meSelect,
-  });
+  const profilePicture = `/uploads/avatars/${req.file.filename}`;
+
+  let oldUser;
+  let user;
+  try {
+    oldUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
+    user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { profilePicture },
+      select: meSelect,
+    });
+  } catch (err) {
+    // DB write failed after the file was already written to disk — don't orphan it.
+    await discardUpload(req.file);
+    throw err;
+  }
+
   await createAuditLog({
     ...auditContext(req),
     action: 'USER_UPDATED',
@@ -220,6 +231,15 @@ async function uploadAvatar(req, res) {
     oldValue: oldUser,
     newValue: user,
   });
+
+  // Delete the previous avatar once the new one is committed. Only local
+  // /uploads/avatars/ files — leave external URLs / nulls alone.
+  const oldPic = oldUser?.profilePicture;
+  if (oldPic && oldPic !== profilePicture && oldPic.startsWith('/uploads/avatars/')) {
+    const prev = resolveStoredPath(oldPic);
+    if (prev) fs.promises.unlink(prev).catch(() => {});
+  }
+
   ok(res, user);
 }
 

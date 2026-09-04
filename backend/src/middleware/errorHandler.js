@@ -17,7 +17,14 @@ const errorHandler = (err, req, res, next) => {
   let message = 'An unexpected error occurred';
 
   // Handle specific error types
-  if (err.name === 'ValidationError') {
+  if (err.name === 'MulterError') {
+    // File upload rejected by multer (size limit, disallowed type, too many files).
+    statusCode = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    errorCode = 'UPLOAD_REJECTED';
+    message = err.code === 'LIMIT_FILE_SIZE'
+      ? 'File exceeds the maximum allowed size.'
+      : (err.message || 'File upload rejected.');
+  } else if (err.name === 'ValidationError') {
     statusCode = 400;
     errorCode = 'VALIDATION_ERROR';
     message = err.message || 'Validation failed';

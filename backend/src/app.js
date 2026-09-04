@@ -2,7 +2,7 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
-const { UPLOAD_DIR } = require('./lib/storage');
+const { AVATARS_DIR } = require('./lib/storage');
 
 const webhookRoutes = require('./routes/webhooks');
 const userRoutes = require('./routes/users');
@@ -50,9 +50,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(morgan('dev'));
 
-// Serve uploaded avatars (Right-to-Work documents also live under UPLOAD_DIR but
-// are only reachable through authenticated routes, not this static mount).
-app.use('/uploads', express.static(UPLOAD_DIR));
+// Serve ONLY avatar images statically. Right-to-Work / compliance documents live
+// under UPLOAD_DIR/rtw and are deliberately NOT mounted here — they are reachable
+// only through the authenticated /right-to-work routes, which enforce agency/RBAC
+// checks. `dotfiles: 'deny'` and helmet's nosniff header harden the mount.
+app.use('/uploads/avatars', express.static(AVATARS_DIR, { dotfiles: 'deny', index: false }));
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', app: 'ShiftGO', timestamp: new Date().toISOString() }));

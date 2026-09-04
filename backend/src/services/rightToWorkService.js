@@ -115,13 +115,20 @@ async function setDocument(agencyId, userId, file, updatedById) {
   }
   // Remove the previous file, best-effort.
   if (existing.documentPath) {
-    fs.promises.unlink(resolveStoredPath(existing.documentPath)).catch(() => {});
+    const prev = resolveStoredPath(existing.documentPath);
+    if (prev) fs.promises.unlink(prev).catch(() => {});
   }
+  // The display name is echoed back in Content-Disposition on download — strip
+  // any path separators and cap the length. The on-disk name is server-generated
+  // (file.filename), so this only affects the label, never the storage path.
+  const documentName = String(file.originalname || 'document')
+    .replace(/[/\\]+/g, '_')
+    .slice(0, 255);
   const record = await prisma.shareCode.update({
     where: { userId },
     data: {
       documentPath: `/uploads/rtw/${file.filename}`,
-      documentName: file.originalname,
+      documentName,
       updatedById,
     },
     include: { updatedBy: { select: { id: true, name: true } } },

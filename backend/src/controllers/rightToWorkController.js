@@ -1,6 +1,7 @@
 const service = require('../services/rightToWorkService');
 const { ok, fail } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
+const { discardUpload } = require('../lib/storage');
 
 async function getMine(req, res) {
   ok(res, await service.getForUser(agencyIdFor(req), req.user.id));
@@ -20,6 +21,8 @@ async function uploadMyDocument(req, res) {
   try {
     ok(res, await service.setDocument(agencyIdFor(req), req.user.id, req.file, req.user.id));
   } catch (err) {
+    // Persisting the document failed after multer wrote the file — remove it.
+    await discardUpload(req.file);
     if (err.statusCode) return fail(res, err.message, err.statusCode);
     throw err;
   }
@@ -47,6 +50,7 @@ async function uploadUserDocument(req, res) {
   try {
     ok(res, await service.setDocument(agencyIdFor(req), req.params.userId, req.file, req.user.id));
   } catch (err) {
+    await discardUpload(req.file);
     if (err.statusCode) return fail(res, err.message, err.statusCode);
     throw err;
   }
