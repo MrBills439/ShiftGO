@@ -103,27 +103,17 @@
     --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   }
 
-  /* Dark Mode */
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --color-neutral-0: #1a1815;
-      --color-neutral-25: #2f2a27;
-      --color-neutral-50: #423f3c;
-      --color-neutral-100: #524b47;
-      --color-neutral-200: #6b6460;
-      --color-neutral-600: #d0cac7;
-      --color-neutral-700: #eeeeed;
-      --color-neutral-800: #f5f5f4;
-      --color-neutral-900: #fafaf9;
-    }
-  }
-
   * { box-sizing: border-box; }
 
   html {
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* This app is light-mode only — no dark: variants or theme toggle exist anywhere.
+       Without this, a device in OS dark mode gets native dark form-control chrome
+       (white text) laid over the app's static light-mode input backgrounds, making
+       every text field's text invisible. */
+    color-scheme: light;
   }
 
   body {
@@ -222,6 +212,11 @@
 
   .card-flat {
     @apply bg-white border border-neutral-200 rounded-lg;
+  }
+
+  /* Primary surface for dashboard content — panels, stat tiles, table wrappers. */
+  .glass-card {
+    @apply bg-white border border-neutral-200 rounded-xl shadow-sm;
   }
 
   /* Sidebar Item */

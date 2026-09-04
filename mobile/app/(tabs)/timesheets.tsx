@@ -1,72 +1,22 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable,
-  ActivityIndicator, RefreshControl, Alert,
+  View, Text, StyleSheet, ScrollView, Pressable, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Funnel, ClockCountdown, CalendarBlank, CalendarCheck,
-  CaretRight, Archive, CheckCircle,
+  ClockCountdown, CalendarBlank, CalendarCheck, CheckCircle,
 } from 'phosphor-react-native';
 import { useTimesheets } from '../../hooks/useTimesheets';
+import { Skeleton, SkeletonCard } from '../../components/Skeleton';
 import { Timesheet } from '../../types';
+import { D } from '../../constants/theme';
+import { getWeekStart, fmtHM as fmtH, fmtTime, fmtShortDate, fmtDayLabel, fmtWeekRange } from '../../lib/datetime';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  eDark: '#002E28',
-  eMid: '#004A42',
-  eLight: '#0A7060',
-  mint: '#52D6B5',
-  mintBg: 'rgba(82,214,181,0.14)',
-  mintBorder: 'rgba(82,214,181,0.28)',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-  activeTabBg: 'rgba(0,95,86,0.10)',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function getWeekStart(ref = new Date()): Date {
-  const d = new Date(ref);
-  const day = d.getDay(); // 0=Sun, 1=Mon…
-  d.setDate(d.getDate() - ((day + 6) % 7)); // shift to Monday
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function fmtH(hours: number): string {
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
-  return m > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h 00m`;
-}
-
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
-
-function fmtShortDate(d: Date): string {
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-}
-
-function fmtDayLabel(d: Date): string {
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-function fmtWeekRange(start: Date): string {
-  const end = new Date(start); end.setDate(start.getDate() + 6);
-  return `${fmtShortDate(start)} – ${fmtShortDate(end)} ${end.getFullYear()}`;
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-type Filter = 'week' | 'month' | 'custom';
+type Filter = 'week' | 'month' | 'all';
 
 // ─── Day Row ──────────────────────────────────────────────────────────────────
 function DayRow({ day, ts, isWeekend }: { day: Date; ts: Timesheet | undefined; isWeekend: boolean }) {
@@ -143,7 +93,9 @@ export default function TimesheetsScreen() {
   }, [data, filter, weekStart]);
 
   const totalHours = filtered.reduce((acc, t) => acc + (t.totalHours ?? 0), 0);
-  const overtime = Math.max(0, totalHours - 40);
+  // TODO: source the weekly overtime threshold from agency config when available.
+  const OVERTIME_THRESHOLD_HOURS = 40;
+  const overtime = Math.max(0, totalHours - OVERTIME_THRESHOLD_HOURS);
 
   // Generate Mon–Sun for weekly view
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -165,7 +117,7 @@ export default function TimesheetsScreen() {
   const FILTERS: { key: Filter; label: string }[] = [
     { key: 'week', label: 'This Week' },
     { key: 'month', label: 'This Month' },
-    { key: 'custom', label: 'Custom' },
+    { key: 'all', label: 'All Time' },
   ];
 
   return (
@@ -182,9 +134,6 @@ export default function TimesheetsScreen() {
             <Text style={s.title}>Timesheets</Text>
             <Text style={s.subtitle}>Track and review your work hours</Text>
           </View>
-          <Pressable style={s.filterBtn}>
-            <Funnel size={18} color={D.muted} weight="regular" />
-          </Pressable>
         </View>
 
         {/* ── Filter Tabs ── */}
@@ -193,13 +142,7 @@ export default function TimesheetsScreen() {
             <Pressable
               key={f.key}
               style={[s.tab, filter === f.key && s.tabActive]}
-              onPress={() => {
-                if (f.key === 'custom') {
-                  Alert.alert('Custom Range', 'Date range picker coming soon.');
-                  return;
-                }
-                setFilter(f.key);
-              }}
+              onPress={() => setFilter(f.key)}
             >
               <Text style={[s.tabTxt, filter === f.key && s.tabTxtActive]}>{f.label}</Text>
             </Pressable>
@@ -207,7 +150,25 @@ export default function TimesheetsScreen() {
         </View>
 
         {isLoading ? (
-          <View style={s.loadWrap}><ActivityIndicator size="large" color={D.emerald} /></View>
+          <>
+            <SkeletonCard style={{ marginBottom: 16 }}>
+              <Skeleton width={100} height={12} />
+              <Skeleton width={130} height={24} />
+              <Skeleton width={90} height={10} />
+            </SkeletonCard>
+            <SkeletonCard style={{ padding: 0, gap: 0 }}>
+              {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                <View key={i} style={dr.row}>
+                  <Skeleton width={34} height={34} radius={10} />
+                  <View style={{ flex: 1, gap: 7 }}>
+                    <Skeleton width="45%" height={12} />
+                    <Skeleton width="60%" height={10} />
+                  </View>
+                  <Skeleton width={46} height={13} />
+                </View>
+              ))}
+            </SkeletonCard>
+          </>
         ) : (
           <>
             {/* ── Summary Gradient Card ── */}
@@ -237,7 +198,7 @@ export default function TimesheetsScreen() {
               <View style={s.sumRight}>
                 <Text style={s.sumLabel}>Overtime</Text>
                 <Text style={s.sumValue}>{fmtH(overtime)}</Text>
-                <Pressable><Text style={s.sumLink}>View breakdown</Text></Pressable>
+                <Text style={s.sumSub}>over 40h / week</Text>
               </View>
             </LinearGradient>
 
@@ -265,18 +226,6 @@ export default function TimesheetsScreen() {
                 <View style={s.dayListEnd} />
               </View>
             </View>
-
-            {/* ── History Button ── */}
-            <Pressable
-              style={({ pressed }) => [s.historyCard, pressed && { opacity: 0.7 }]}
-              onPress={() => Alert.alert('Timesheet History', 'Full history view coming soon.')}
-            >
-              <View style={s.historyIcon}>
-                <Archive size={18} color={D.emerald} weight="regular" />
-              </View>
-              <Text style={s.historyTxt}>View Timesheet History</Text>
-              <CaretRight size={16} color={D.light} weight="bold" />
-            </Pressable>
           </>
         )}
 
@@ -289,7 +238,6 @@ export default function TimesheetsScreen() {
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: D.bg },
   scroll: { paddingHorizontal: 18, paddingBottom: 110 },
-  loadWrap: { paddingTop: 80, alignItems: 'center' },
 
   header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingTop: 12, marginBottom: 16 },
   title: { fontSize: 26, fontWeight: '700', color: D.text, letterSpacing: -0.4 },

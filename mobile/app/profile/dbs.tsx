@@ -11,18 +11,8 @@ import {
 } from 'phosphor-react-native';
 import { getMyDbs } from '../../services/profileService';
 import { DbsCheck, DbsStatus } from '../../types';
+import { D } from '../../constants/theme';
 
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  eDark: '#002E28',
-  eLight: '#0A7060',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-};
 
 function fmtDate(iso?: string | null) {
   if (!iso) return '—';
@@ -97,6 +87,8 @@ export default function DbsScreen() {
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
           style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}
         >
           <ArrowLeft size={20} color={D.text} weight="bold" />

@@ -1,7 +1,8 @@
 import { RotaWeek, Shift, House, User } from '@/types';
 import { ShiftCard } from './ShiftCard';
-import { PlusIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { PlusIcon, WarningCircleIcon, MagnifyingGlassIcon } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
+import { clsx } from 'clsx';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 
@@ -9,7 +10,12 @@ interface RotaWeekViewProps {
   rota: RotaWeek;
   houses: House[];
   workers: User[];
+  mode: 'assign' | 'open';
   onAddShift: (date: string, workerId?: string, houseId?: string) => void;
+  onOpenShift: (date: string, houseId: string) => void;
+  onRequestCover: (shift: Shift) => void;
+  onCopyShift: (shift: Shift) => void;
+  onEditShift: (shift: Shift) => void;
 }
 
 function activeShift(shift: Shift) {
@@ -28,15 +34,35 @@ function formatDay(dateValue: string) {
   };
 }
 
-export function RotaWeekView({ rota, houses, workers, onAddShift }: RotaWeekViewProps) {
+export function RotaWeekView({ rota, houses, workers, mode, onAddShift, onOpenShift, onRequestCover, onCopyShift, onEditShift }: RotaWeekViewProps) {
   const [draggedWorkerId, setDraggedWorkerId] = useState<string | null>(null);
+  const [staffSearch, setStaffSearch] = useState('');
+
+  const filteredWorkers = useMemo(() => {
+    if (!staffSearch.trim()) return workers;
+    const q = staffSearch.toLowerCase();
+    return workers.filter((w) => w.name.toLowerCase().includes(q) || w.email.toLowerCase().includes(q));
+  }, [workers, staffSearch]);
 
   const allShifts = useMemo(() => rota.days.flatMap((day) => day.shifts), [rota.days]);
+
+  const houseHours = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const house of houses) {
+      const hours = allShifts
+        .filter(activeShift)
+        .filter((s) => s.houseId === house.id)
+        .reduce((total, shift) => total + Math.max(0, (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / 36e5), 0);
+      map.set(house.id, hours);
+    }
+    return map;
+  }, [houses, allShifts]);
   const conflictIds = useMemo(() => {
     const ids = new Set<string>();
     const byWorker = new Map<string, Shift[]>();
-    allShifts.filter(activeShift).forEach((shift) => {
-      byWorker.set(shift.workerId, [...(byWorker.get(shift.workerId) ?? []), shift]);
+    allShifts.filter(activeShift).filter((shift) => shift.workerId).forEach((shift) => {
+      const workerId = shift.workerId as string;
+      byWorker.set(workerId, [...(byWorker.get(workerId) ?? []), shift]);
     });
     byWorker.forEach((items) => {
       items.forEach((shift) => {
@@ -82,32 +108,51 @@ export function RotaWeekView({ rota, houses, workers, onAddShift }: RotaWeekView
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[240px_1fr]">
-        <aside className="rounded-lg border border-border bg-surface p-3">
+        <aside className="flex max-h-[720px] flex-col rounded-lg border border-border bg-surface p-3">
           <div className="mb-3">
-            <h2 className="text-sm font-semibold text-fg">Available staff</h2>
-            <p className="mt-1 text-xs text-fg-muted">Drag a worker into a house/day cell to assign a shift.</p>
+            <h2 className="text-sm font-semibold text-fg">Available staff ({filteredWorkers.length}{staffSearch ? ` of ${workers.length}` : ''})</h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              {mode === 'assign'
+                ? 'Drag a worker into a house/day cell to assign a shift.'
+                : 'Switch to Assign Worker mode to drag a worker directly onto a shift.'}
+            </p>
           </div>
-          <div className="space-y-2">
-            {workers.map((worker) => (
-              <button
-                key={worker.id}
-                draggable
-                onDragStart={() => setDraggedWorkerId(worker.id)}
-                onDragEnd={() => setDraggedWorkerId(null)}
-                className="flex w-full cursor-grab items-center justify-between rounded-md border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-brand-200 hover:bg-brand-50"
-              >
-                <span>
-                  <span className="block text-sm font-medium text-fg">{worker.name}</span>
-                  <span className="block text-xs text-fg-muted">{worker.email}</span>
-                </span>
-                <Badge variant="neutral" label="Worker" dot={false} />
-              </button>
-            ))}
+          <div className="relative mb-2 flex-shrink-0">
+            <MagnifyingGlassIcon size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+            <input
+              type="text"
+              placeholder="Search staff…"
+              value={staffSearch}
+              onChange={(e) => setStaffSearch(e.target.value)}
+              className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-600/20"
+            />
+          </div>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+            {filteredWorkers.length === 0 ? (
+              <p className="px-1 py-4 text-center text-xs text-fg-muted">No staff match "{staffSearch}"</p>
+            ) : (
+              filteredWorkers.map((worker) => (
+                <button
+                  key={worker.id}
+                  draggable={mode === 'assign'}
+                  onDragStart={() => setDraggedWorkerId(worker.id)}
+                  onDragEnd={() => setDraggedWorkerId(null)}
+                  disabled={mode === 'open'}
+                  className="flex w-full cursor-grab items-center justify-between rounded-md border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-brand-200 hover:bg-brand-50 disabled:cursor-default disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-fg">{worker.name}</span>
+                    <span className="block truncate text-xs text-fg-muted">{worker.email}</span>
+                  </span>
+                  <Badge variant="neutral" label="Worker" dot={false} />
+                </button>
+              ))
+            )}
           </div>
         </aside>
 
         <section className="overflow-hidden rounded-lg border border-border bg-surface">
-          <div className="overflow-auto">
+          <div className="max-h-[720px] overflow-auto">
             <div className="grid min-w-[1120px] grid-cols-[220px_repeat(7,minmax(128px,1fr))]">
               <div className="sticky left-0 top-0 z-20 border-b border-r border-border bg-surface-subtle p-3 text-xs font-semibold text-fg-muted">
                 House / Site
@@ -122,11 +167,28 @@ export function RotaWeekView({ rota, houses, workers, onAddShift }: RotaWeekView
                 );
               })}
 
-              {houses.map((house) => (
+              {houses.map((house) => {
+                const usedHours = houseHours.get(house.id) ?? 0;
+                const budget = house.assignedHours;
+                const remaining = budget != null ? budget - usedHours : null;
+                return (
                 <div key={house.id} className="contents">
                   <div className="sticky left-0 z-10 border-b border-r border-border bg-surface p-3">
                     <p className="text-sm font-semibold text-fg">{house.name}</p>
                     <p className="mt-1 line-clamp-2 text-xs text-fg-muted">{house.address}</p>
+                    {budget != null && (
+                      <p className={clsx(
+                        'mt-1.5 font-inter text-[11px] font-semibold tabular-nums',
+                        remaining != null && remaining < 0 ? 'text-danger-text' : 'text-fg-muted'
+                      )}>
+                        {usedHours.toFixed(1)}h / {budget}h this week
+                        {remaining != null && (
+                          <span className="ml-1 font-normal">
+                            ({remaining < 0 ? `${Math.abs(remaining).toFixed(1)}h over` : `${remaining.toFixed(1)}h left`})
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </div>
                   {rota.days.map((day) => {
                     const shifts = day.shifts.filter((shift) => shift.houseId === house.id);
@@ -136,7 +198,7 @@ export function RotaWeekView({ rota, houses, workers, onAddShift }: RotaWeekView
                         key={`${house.id}-${day.date}`}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={() => {
-                          if (draggedWorkerId) onAddShift(day.date, draggedWorkerId, house.id);
+                          if (mode === 'assign' && draggedWorkerId) onAddShift(day.date, draggedWorkerId, house.id);
                           setDraggedWorkerId(null);
                         }}
                         className="min-h-[160px] border-b border-r border-border bg-surface p-2"
@@ -155,7 +217,11 @@ export function RotaWeekView({ rota, houses, workers, onAddShift }: RotaWeekView
                               key={shift.id}
                               shift={shift}
                               conflict={conflictIds.has(shift.id)}
+                              draggable={mode === 'assign'}
                               onDragStart={() => setDraggedWorkerId(shift.workerId)}
+                              onRequestCover={() => onRequestCover(shift)}
+                              onCopy={() => onCopyShift(shift)}
+                              onEdit={() => onEditShift(shift)}
                             />
                           ))}
                         </div>
@@ -163,16 +229,21 @@ export function RotaWeekView({ rota, houses, workers, onAddShift }: RotaWeekView
                           size="sm"
                           variant="ghost"
                           className="mt-2 w-full border border-dashed border-border text-xs"
-                          onClick={() => onAddShift(day.date, undefined, house.id)}
+                          onClick={() =>
+                            mode === 'assign'
+                              ? onAddShift(day.date, undefined, house.id)
+                              : onOpenShift(day.date, house.id)
+                          }
                           icon={<PlusIcon size={13} />}
                         >
-                          Add shift
+                          {mode === 'assign' ? 'Add shift' : 'Post open shift'}
                         </Button>
                       </div>
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>

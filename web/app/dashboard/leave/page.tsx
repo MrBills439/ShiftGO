@@ -1,7 +1,6 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { CheckCircleIcon, CalendarBlankIcon, XCircleIcon, ProhibitIcon } from '@phosphor-icons/react';
+import { useMemo, useState } from 'react';
+import { CheckCircleIcon, CalendarBlankIcon, XCircleIcon, ProhibitIcon, PlusIcon } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -10,9 +9,12 @@ import { TableSkeleton } from '@/components/ui/Skeleton';
 import {
   useApproveLeaveRequest,
   useCancelLeaveRequest,
+  useCreateLeaveRequest,
+  useLeaveBalance,
   useLeaveRequests,
   useRejectLeaveRequest,
 } from '@/hooks/useLeaveRequests';
+import { LeaveBalanceCard } from '@/components/leave/LeaveBalanceCard';
 import { useUsers } from '@/hooks/useWorkers';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
@@ -49,11 +51,30 @@ function errorMessage(err: any) {
   return err.response?.data?.message ?? err.response?.data?.error?.message ?? 'Request failed';
 }
 
+/** Weekdays (Mon–Fri) in [start, end] inclusive — mirrors the backend pricing. */
+function weekdaysInRange(start: string, end: string): number {
+  const s = new Date(start);
+  const e = new Date(end);
+  if (isNaN(s.getTime()) || isNaN(e.getTime()) || e < s) return 0;
+  const cur = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const last = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+  let n = 0;
+  while (cur <= last) {
+    const d = cur.getDay();
+    if (d !== 0 && d !== 6) n += 1;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return n;
+}
+
 export default function LeavePage() {
   const user = useAuthStore((s) => s.user);
-  const router = useRouter();
-  const toast = useToast();
   const canManageLeave = user?.role === 'MANAGER' || user?.role === 'HR';
+  return canManageLeave ? <ManageLeaveView /> : <MyLeaveView />;
+}
+
+function ManageLeaveView() {
+  const toast = useToast();
 
   const [status, setStatus] = useState<LeaveStatus | ''>('');
   const [workerId, setWorkerId] = useState('');
@@ -71,10 +92,6 @@ export default function LeavePage() {
   const rejectLeave = useRejectLeaveRequest();
   const cancelLeave = useCancelLeaveRequest();
 
-  useEffect(() => {
-    if (user && !canManageLeave) router.replace('/dashboard');
-  }, [user, canManageLeave, router]);
-
   const visibleLeave = useMemo(() => {
     return leaveRequests.filter((leave) => {
       const leaveStart = leave.startDate.slice(0, 10);
@@ -84,8 +101,6 @@ export default function LeavePage() {
       return true;
     });
   }, [leaveRequests, startDate, endDate]);
-
-  if (user && !canManageLeave) return null;
 
   function resetActionState() {
     setActionError('');
@@ -238,7 +253,7 @@ export default function LeavePage() {
                       <p className="text-on-surface-variant">to {formatDate(leave.endDate)}</p>
                     </td>
                     <td className="table-td max-w-64">
-                      <p className="text-sm text-on-surface">{leave.reason}</p>
+                      <p className="text-sm text-on-surface">{leave.reason ?? '—'}</p>
                     </td>
                     <td className="table-td">
                       <Badge variant={leaveBadge(leave.status) as any} label={leave.status} />
@@ -332,6 +347,203 @@ export default function LeavePage() {
             <button type="button" onClick={closeCancel} className="btn-secondary flex-1 justify-center">Keep Leave</button>
             <button type="button" onClick={submitCancel} disabled={cancelLeave.isPending} className="btn-primary flex-1 justify-center">
               {cancelLeave.isPending ? 'Cancelling...' : 'Cancel Leave'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function MyLeaveView() {
+  const user = useAuthStore((s) => s.user);
+  const toast = useToast();
+  const { data: leaveRequests = [], isLoading } = useLeaveRequests({ workerId: user?.id });
+  const { data: balance, isLoading: balanceLoading } = useLeaveBalance();
+  const createLeave = useCreateLeaveRequest();
+  const cancelLeave = useCancelLeaveRequest();
+
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [form, setForm] = useState({ startDate: '', endDate: '' });
+  const [formError, setFormError] = useState('');
+  const [cancelTarget, setCancelTarget] = useState<LeaveRequest | null>(null);
+  const [cancelError, setCancelError] = useState('');
+
+  const sorted = useMemo(
+    () => [...leaveRequests].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [leaveRequests]
+  );
+
+  function closeRequest() {
+    setRequestOpen(false);
+    setForm({ startDate: '', endDate: '' });
+    setFormError('');
+  }
+
+  function submitRequest(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError('');
+    if (new Date(form.endDate) < new Date(form.startDate)) {
+      setFormError('End date must be on or after the start date');
+      return;
+    }
+    createLeave.mutate(form, {
+      onSuccess: () => {
+        toast.success('Leave request submitted');
+        closeRequest();
+      },
+      onError: (err: any) => {
+        const fields = err.response?.data?.error?.fields;
+        setFormError(fields ? Object.values(fields).join('. ') : err.response?.data?.message ?? 'Failed to submit request');
+      },
+    });
+  }
+
+  function submitCancel() {
+    if (!cancelTarget) return;
+    setCancelError('');
+    cancelLeave.mutate(cancelTarget.id, {
+      onSuccess: () => {
+        toast.success('Leave request cancelled');
+        setCancelTarget(null);
+      },
+      onError: (err: any) => setCancelError(err.response?.data?.message ?? 'Failed to cancel request'),
+    });
+  }
+
+  const formatDate = (v: string) => new Date(v).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  return (
+    <div>
+      <Header
+        title="Leave Requests"
+        subtitle="Manage your time off"
+        action={
+          <button onClick={() => setRequestOpen(true)} className="btn-primary">
+            <PlusIcon size={16} /> Request Leave
+          </button>
+        }
+      />
+
+      <div className="mb-6">
+        <LeaveBalanceCard balance={balance} isLoading={balanceLoading} />
+      </div>
+
+      {isLoading ? (
+        <TableSkeleton cols={4} rows={4} />
+      ) : sorted.length === 0 ? (
+        <EmptyState
+          icon={CalendarBlankIcon}
+          title="No leave requests yet"
+          description="Request time off whenever you need it"
+          action={<button onClick={() => setRequestOpen(true)} className="btn-primary">Request Leave</button>}
+        />
+      ) : (
+        <div className="space-y-3">
+          {sorted.map((leave) => {
+            // Workers may only cancel a request still awaiting review — once a manager
+            // has approved or rejected it, the backend rejects a worker's cancel attempt.
+            const canCancel = user?.role === 'WORKER'
+              ? leave.status === 'PENDING'
+              : leave.status === 'PENDING' || leave.status === 'APPROVED';
+            return (
+              <div key={leave.id} className="glass-card p-4 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-medium text-on-surface">
+                      {formatDate(leave.startDate)} – {formatDate(leave.endDate)}
+                    </p>
+                    <Badge variant={leaveBadge(leave.status) as any} label={leave.status} />
+                  </div>
+                  <p className="text-sm text-on-surface-variant">Annual leave{leave.totalHours > 0 && <span> · {leave.totalHours}h</span>}</p>
+                  {leave.status === 'REJECTED' && leave.rejectionReason && (
+                    <p className="mt-1 text-xs text-error-DEFAULT">Reason: {leave.rejectionReason}</p>
+                  )}
+                  {leave.reviewedBy && (
+                    <p className="mt-1 text-[11px] text-on-surface-variant font-inter">
+                      Reviewed by {leave.reviewedBy.name}
+                    </p>
+                  )}
+                </div>
+                {canCancel && (
+                  <button
+                    onClick={() => { setCancelTarget(leave); setCancelError(''); }}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-on-surface-variant hover:bg-surface-low px-2.5 py-1.5 rounded-md transition-colors flex-shrink-0"
+                  >
+                    <ProhibitIcon size={14} /> Cancel
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal open={requestOpen} onClose={closeRequest} title="Request Leave">
+        <form onSubmit={submitRequest} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+                Start Date
+              </label>
+              <input
+                type="date"
+                className="input-field"
+                value={form.startDate}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+                End Date
+              </label>
+              <input
+                type="date"
+                className="input-field"
+                value={form.endDate}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+          {form.startDate && form.endDate && new Date(form.endDate) >= new Date(form.startDate) && (() => {
+            const days = weekdaysInRange(form.startDate, form.endDate);
+            const daily = balance?.dailyHours ?? 7.5;
+            const cost = Math.round(days * daily * 10) / 10;
+            const remaining = balance?.hasConfiguredProfile
+              ? Math.round((balance.netUsableBalance - cost) * 10) / 10
+              : null;
+            return (
+              <div className="rounded-md bg-surface-low px-3 py-2 text-xs text-on-surface-variant">
+                <span className="font-medium text-on-surface">{cost}h</span> ({days} working {days === 1 ? 'day' : 'days'} × {daily}h)
+                {remaining !== null && (
+                  <> · balance after: <span className={remaining < 0 ? 'font-medium text-error-DEFAULT' : 'font-medium text-on-surface'}>{remaining}h</span></>
+                )}
+              </div>
+            );
+          })()}
+          {formError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{formError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={closeRequest} className="btn-secondary flex-1 justify-center">Cancel</button>
+            <button type="submit" disabled={createLeave.isPending} className="btn-primary flex-1 justify-center">
+              {createLeave.isPending ? 'Submitting…' : 'Submit Request'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={!!cancelTarget} onClose={() => setCancelTarget(null)} title="Cancel Leave Request">
+        <div className="space-y-4">
+          <p className="text-sm text-on-surface-variant">
+            Cancel your leave request from {cancelTarget ? formatDate(cancelTarget.startDate) : '—'} to{' '}
+            {cancelTarget ? formatDate(cancelTarget.endDate) : '—'}?
+          </p>
+          {cancelError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{cancelError}</p>}
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setCancelTarget(null)} className="btn-secondary flex-1 justify-center">Keep Request</button>
+            <button type="button" onClick={submitCancel} disabled={cancelLeave.isPending} className="btn-primary flex-1 justify-center">
+              {cancelLeave.isPending ? 'Cancelling…' : 'Cancel Request'}
             </button>
           </div>
         </div>

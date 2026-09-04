@@ -42,6 +42,12 @@ enum LocationSource {
   OFFLINE_SYNC
 }
 
+enum LocationStatus {
+  ONSITE
+  OFFSITE
+  UNKNOWN
+}
+
 enum NotificationType {
   SHIFT_ASSIGNED
   SHIFT_REMOVED
@@ -100,8 +106,8 @@ enum LeaveRequestStatus {
 
 enum AccrualMethod {
   FLAT_RATE // fixed hours awarded per completed pay period
-  HOURLY    // hours earned as a fraction of actual hours worked
-  LUMP_SUM  // full annual allowance granted upfront
+  HOURLY // hours earned as a fraction of actual hours worked
+  LUMP_SUM // full annual allowance granted upfront
 }
 
 enum PayPeriod {
@@ -111,10 +117,10 @@ enum PayPeriod {
 }
 
 enum LeaveLedgerType {
-  ACCRUAL    // periodic / worked-hours / lump-sum accrual
+  ACCRUAL // periodic / worked-hours / lump-sum accrual
   CARRY_OVER // hours rolled in from the previous cycle (after the carry-over cap)
   ADJUSTMENT // manual correction by an admin
-  RESET      // year-end zeroing of accrued hours
+  RESET // year-end zeroing of accrued hours
 }
 
 model Agency {
@@ -124,19 +130,20 @@ model Agency {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  users           User[]
-  houses          House[]
-  shifts          Shift[]
-  clockEvents     ClockEvent[]
-  timesheets      Timesheet[]
-  notifications   Notification[]
-  trainings       Training[]
-  dbsChecks       DbsCheck[]
-  shareCodes      ShareCode[]
-  auditLogs       AuditLog[]
-  leaveRequests   LeaveRequest[]
-  supportedPeople SupportedPerson[]
-  announcements   Announcement[]
+  users                User[]
+  houses               House[]
+  shifts               Shift[]
+  clockEvents          ClockEvent[]
+  attendanceMonitors   AttendanceMonitor[]
+  timesheets           Timesheet[]
+  notifications        Notification[]
+  trainings            Training[]
+  dbsChecks            DbsCheck[]
+  shareCodes           ShareCode[]
+  auditLogs            AuditLog[]
+  leaveRequests        LeaveRequest[]
+  supportedPeople      SupportedPerson[]
+  announcements        Announcement[]
   leaveAccrualProfiles LeaveAccrualProfile[]
   leaveBalances        LeaveBalance[]
   leaveLedgerEntries   LeaveLedgerEntry[]
@@ -164,27 +171,28 @@ model User {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  managedHouses         House[]           @relation("ManagerHouses")
+  managedHouses         House[]              @relation("ManagerHouses")
   workerHouses          HouseWorker[]
   teamLeaderHouses      HouseTeamLeader[]
-  createdShifts         Shift[]           @relation("ShiftCreator")
-  workerShifts          Shift[]           @relation("ShiftWorker")
-  cancelledShifts       Shift[]           @relation("ShiftCanceller")
+  createdShifts         Shift[]              @relation("ShiftCreator")
+  workerShifts          Shift[]              @relation("ShiftWorker")
+  cancelledShifts       Shift[]              @relation("ShiftCanceller")
   shiftClaims           ShiftClaim[]
   clockEvents           ClockEvent[]
-  timesheets            Timesheet[]       @relation("WorkerTimesheets")
-  confirmedTimesheets   Timesheet[]       @relation("ConfirmedTimesheets")
-  reviewedTimesheets    Timesheet[]       @relation("ReviewedTimesheets")
+  attendanceMonitors    AttendanceMonitor[]
+  timesheets            Timesheet[]          @relation("WorkerTimesheets")
+  confirmedTimesheets   Timesheet[]          @relation("ConfirmedTimesheets")
+  reviewedTimesheets    Timesheet[]          @relation("ReviewedTimesheets")
   notifications         Notification[]
   trainings             Training[]
   dbsCheck              DbsCheck?
-  shareCode             ShareCode?        @relation("UserShareCode")
-  updatedShareCodes     ShareCode[]       @relation("ShareCodeUpdater")
-  deactivatedBy         User?             @relation("UserDeactivations", fields: [deactivatedById], references: [id])
-  deactivatedUsers      User[]            @relation("UserDeactivations")
-  createdLeaveRequests  LeaveRequest[]    @relation("LeaveRequestCreator")
-  approvedLeaveRequests LeaveRequest[]    @relation("LeaveRequestReviewer")
-  announcements         Announcement[]    @relation("AnnouncementAuthor")
+  shareCode             ShareCode?           @relation("UserShareCode")
+  updatedShareCodes     ShareCode[]          @relation("ShareCodeUpdater")
+  deactivatedBy         User?                @relation("UserDeactivations", fields: [deactivatedById], references: [id])
+  deactivatedUsers      User[]               @relation("UserDeactivations")
+  createdLeaveRequests  LeaveRequest[]       @relation("LeaveRequestCreator")
+  approvedLeaveRequests LeaveRequest[]       @relation("LeaveRequestReviewer")
+  announcements         Announcement[]       @relation("AnnouncementAuthor")
   announcementReads     AnnouncementRead[]
   leaveAccrualProfile   LeaveAccrualProfile?
   leaveBalance          LeaveBalance?
@@ -211,13 +219,14 @@ model House {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  manager         User?             @relation("ManagerHouses", fields: [managerId], references: [id])
-  workers         HouseWorker[]
-  teamLeaders     HouseTeamLeader[]
-  shifts          Shift[]
-  clockEvents     ClockEvent[]
-  timesheets      Timesheet[]
-  supportedPeople SupportedPerson[]
+  manager            User?               @relation("ManagerHouses", fields: [managerId], references: [id])
+  workers            HouseWorker[]
+  teamLeaders        HouseTeamLeader[]
+  shifts             Shift[]
+  clockEvents        ClockEvent[]
+  attendanceMonitors AttendanceMonitor[]
+  timesheets         Timesheet[]
+  supportedPeople    SupportedPerson[]
 
   agency Agency @relation(fields: [agencyId], references: [id])
 
@@ -280,14 +289,15 @@ model Shift {
   cancellationReason String?
   createdAt          DateTime    @default(now())
 
-  house       House        @relation(fields: [houseId], references: [id])
-  worker      User?        @relation("ShiftWorker", fields: [workerId], references: [id])
-  createdBy   User         @relation("ShiftCreator", fields: [createdById], references: [id])
-  cancelledBy User?        @relation("ShiftCanceller", fields: [cancelledById], references: [id])
-  clockEvents ClockEvent[]
-  timesheet   Timesheet?
-  claims      ShiftClaim[]
-  agency      Agency       @relation(fields: [agencyId], references: [id])
+  house             House              @relation(fields: [houseId], references: [id])
+  worker            User?              @relation("ShiftWorker", fields: [workerId], references: [id])
+  createdBy         User               @relation("ShiftCreator", fields: [createdById], references: [id])
+  cancelledBy       User?              @relation("ShiftCanceller", fields: [cancelledById], references: [id])
+  clockEvents       ClockEvent[]
+  timesheet         Timesheet?
+  claims            ShiftClaim[]
+  attendanceMonitor AttendanceMonitor?
+  agency            Agency             @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
   @@index([shiftType])
@@ -323,12 +333,63 @@ model ClockEvent {
   gpsConfidence  GpsConfidence?
   locationSource LocationSource?
 
+  // Attendance evidence — captured once per discrete clock event, never a
+  // continuous breadcrumb trail. Distance is always computed on the server.
+  capturedAt            DateTime?
+  latitude              Float?
+  longitude             Float?
+  distanceMeters        Float?
+  geofenceRadius        Int?
+  withinGeofence        Boolean?
+  locationStatusResult  LocationStatus?
+  verification          String?
+  mockLocationSuspected Boolean         @default(false)
+
   worker User   @relation(fields: [workerId], references: [id])
   house  House  @relation(fields: [houseId], references: [id])
   shift  Shift  @relation(fields: [shiftId], references: [id])
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
+  @@index([shiftId, type])
+}
+
+// Live attendance-monitoring state for one clocked-in shift. Created on clock-in,
+// closed on clock-out. Holds only the CURRENT reading + debounce/grace state so
+// the shift-aware GPS lifecycle and the auto-clock-out grace machine have a
+// single source of truth — it is not a movement history.
+model AttendanceMonitor {
+  id                         String         @id @default(cuid())
+  agencyId                   String         @default("default-agency")
+  shiftId                    String         @unique
+  workerId                   String
+  houseId                    String
+  locationStatus             LocationStatus @default(UNKNOWN)
+  lastLatitude               Float?
+  lastLongitude              Float?
+  lastAccuracy               Float?
+  lastDistanceMeters         Float?
+  lastReadingAt              DateTime?
+  consecutiveOutsideCount    Int            @default(0)
+  geofenceExitConfirmedAt    DateTime?
+  stillWorkingConfirmedAt    DateTime?
+  exitPromptSnoozedUntil     DateTime?
+  shiftEndPromptedAt         DateTime?
+  shiftEndAckAt              DateTime?
+  autoClockOutGraceStartedAt DateTime?
+  autoClockOutReminderSentAt DateTime?
+  flaggedForReviewAt         DateTime?
+  closedAt                   DateTime?
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+
+  shift  Shift  @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  worker User   @relation(fields: [workerId], references: [id])
+  house  House  @relation(fields: [houseId], references: [id])
+  agency Agency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId])
+  @@index([closedAt])
 }
 
 model AuditLog {
@@ -364,13 +425,20 @@ model Timesheet {
   totalHours      Float?
   status          TimesheetStatus @default(PENDING)
   rejectionReason String?
-  confirmedById   String?
-  confirmedAt     DateTime?
-  reviewedById    String?
-  reviewedAt      DateTime?
-  autoConfirmed   Boolean         @default(false)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+
+  // Attendance outcome, for payroll / manager review.
+  clockInLocationStatus  LocationStatus?
+  clockOutLocationStatus LocationStatus?
+  clockOutMethod         ClockMethod?
+  needsReview            Boolean         @default(false)
+  reviewReason           String?
+  confirmedById          String?
+  confirmedAt            DateTime?
+  reviewedById           String?
+  reviewedAt             DateTime?
+  autoConfirmed          Boolean         @default(false)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
   worker      User   @relation("WorkerTimesheets", fields: [workerId], references: [id])
   house       House  @relation(fields: [houseId], references: [id])
@@ -438,17 +506,17 @@ model DbsCheck {
 /// UK Right-to-Work share code + proof document. "Stale" (needs re-submitting) is
 /// derived, not stored: no record, or `shareDate` older than 90 days.
 model ShareCode {
-  id           String    @id @default(cuid())
-  agencyId     String    @default("default-agency")
-  userId       String    @unique
+  id           String   @id @default(cuid())
+  agencyId     String   @default("default-agency")
+  userId       String   @unique
   code         String
   shareDate    DateTime
   documentPath String?
   documentName String?
   notes        String?
   updatedById  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user      User   @relation("UserShareCode", fields: [userId], references: [id], onDelete: Cascade)
   updatedBy User?  @relation("ShareCodeUpdater", fields: [updatedById], references: [id])
@@ -474,7 +542,7 @@ model LeaveRequest {
   // Hours this request consumes from the worker's balance. Derived from the
   // date range at creation (weekdays x daily contracted hours) so the PTO
   // engine can reason in hours regardless of how the range was picked.
-  totalHours      Float              @default(0)
+  totalHours Float @default(0)
 
   worker     User   @relation("LeaveRequestCreator", fields: [workerId], references: [id], onDelete: Cascade)
   reviewedBy User?  @relation("LeaveRequestReviewer", fields: [reviewedById], references: [id])
@@ -493,12 +561,12 @@ model LeaveAccrualProfile {
   userId               String        @unique
   method               AccrualMethod @default(FLAT_RATE)
   payPeriod            PayPeriod     @default(MONTHLY) // cadence for FLAT_RATE
-  flatRateHours        Float         @default(0)       // hours per completed pay period
-  hourlyAccrualRate    Float         @default(0)       // leave hours earned per hour worked
-  lumpSumHours         Float         @default(0)       // annual hours granted upfront
+  flatRateHours        Float         @default(0) // hours per completed pay period
+  hourlyAccrualRate    Float         @default(0) // leave hours earned per hour worked
+  lumpSumHours         Float         @default(0) // annual hours granted upfront
   accrualStartDate     DateTime      @default(now())
-  balanceCeilingHours  Float?                          // hard cap on Gross Available (null = uncapped)
-  carryOverCapHours    Float?                          // max hours that roll to next cycle (null = uncapped)
+  balanceCeilingHours  Float? // hard cap on Gross Available (null = uncapped)
+  carryOverCapHours    Float? // max hours that roll to next cycle (null = uncapped)
   allowNegativeBalance Boolean       @default(false)
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt

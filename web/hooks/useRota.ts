@@ -14,7 +14,7 @@ function toRotaWeek(startDate: string, items: RotaShiftSummary[]): RotaWeek {
   });
 
   for (const item of items) {
-    if (!item.worker || !item.house) continue;
+    if (!item.house) continue;
     const date = new Date(item.startTime).toISOString().split('T')[0];
     const day = days.find((d) => d.date === date);
     if (!day) continue;
@@ -22,13 +22,16 @@ function toRotaWeek(startDate: string, items: RotaShiftSummary[]): RotaWeek {
     day.shifts.push({
       id: item.shiftId,
       houseId: item.house.id,
-      workerId: item.worker.id,
+      workerId: item.worker?.id ?? null,
       createdById: '',
       startTime: item.startTime,
       endTime: item.endTime,
       date,
       shiftType: item.shiftType,
       status: item.status,
+      urgent: item.urgent,
+      eligibleRoles: item.eligibleRoles ?? [],
+      claimCount: item.claimCount,
       cancelledAt: null,
       cancelledById: null,
       cancellationReason: item.cancellationReason,

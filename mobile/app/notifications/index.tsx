@@ -1,44 +1,29 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable,
-  ActivityIndicator, RefreshControl,
+  View, Text, StyleSheet, ScrollView, Pressable, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import {
   ArrowLeft, Bell, CalendarCheck, CalendarX,
   Clock, Warning, CheckCircle, CheckFat,
 } from 'phosphor-react-native';
 import { getNotifications, markRead, markAllRead } from '../../services/notificationsService';
+import { Skeleton } from '../../components/Skeleton';
 import { AppNotification, NotificationType } from '../../types';
+import { D } from '../../constants/theme';
+import { timeAgo } from '../../lib/datetime';
 
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-  unreadBg: 'rgba(0,95,86,0.05)',
-  unreadDot: '#005F56',
-};
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 
 const typeConfig: Record<NotificationType, { icon: React.ReactNode; color: string; bg: string }> = {
   SHIFT_ASSIGNED:  { icon: <CalendarCheck size={18} color="#16A34A" weight="fill" />, color: '#16A34A', bg: 'rgba(22,163,74,0.10)' },
   SHIFT_REMOVED:   { icon: <CalendarX size={18} color="#EF4444" weight="fill" />, color: '#EF4444', bg: 'rgba(239,68,68,0.10)' },
   SHIFT_REMINDER:  { icon: <Clock size={18} color="#F59E0B" weight="fill" />, color: '#F59E0B', bg: 'rgba(245,158,11,0.10)' },
+  SHIFT_OPEN:          { icon: <CalendarCheck size={18} color="#D97706" weight="fill" />, color: '#D97706', bg: 'rgba(217,119,6,0.10)' },
+  SHIFT_DROPPED:       { icon: <CalendarX size={18} color="#D97706" weight="fill" />, color: '#D97706', bg: 'rgba(217,119,6,0.10)' },
+  SHIFT_CLAIMED_YOU:   { icon: <CalendarCheck size={18} color="#16A34A" weight="fill" />, color: '#16A34A', bg: 'rgba(22,163,74,0.10)' },
+  SHIFT_CLAIMED_OTHER: { icon: <CalendarX size={18} color={D.muted} weight="fill" />, color: D.muted, bg: 'rgba(96,115,112,0.10)' },
   MISSED_CLOCK_IN: { icon: <Warning size={18} color="#EF4444" weight="fill" />, color: '#EF4444', bg: 'rgba(239,68,68,0.10)' },
   CLOCK_OUT_PROMPT:{ icon: <Clock size={18} color="#F59E0B" weight="fill" />, color: '#F59E0B', bg: 'rgba(245,158,11,0.10)' },
   GENERAL:         { icon: <Bell size={18} color={D.emerald} weight="fill" />, color: D.emerald, bg: 'rgba(0,95,86,0.10)' },
@@ -84,16 +69,32 @@ export default function NotificationsScreen() {
   const { data = [], isLoading, refetch } = useQuery<AppNotification[]>({
     queryKey: ['notifications'],
     queryFn: getNotifications,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
+
+  // Pull fresh notifications every time this screen comes into focus.
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+      qc.invalidateQueries({ queryKey: ['notif-count'] });
+    }, [refetch, qc])
+  );
 
   const readMutation = useMutation({
     mutationFn: markRead,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+      qc.invalidateQueries({ queryKey: ['notif-count'] });
+    },
   });
 
   const readAllMutation = useMutation({
     mutationFn: markAllRead,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+      qc.invalidateQueries({ queryKey: ['notif-count'] });
+    },
   });
 
   const unread = data.filter((n) => !n.read).length;
@@ -104,6 +105,8 @@ export default function NotificationsScreen() {
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
           style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}
         >
           <ArrowLeft size={20} color={D.text} weight="bold" />
@@ -129,8 +132,16 @@ export default function NotificationsScreen() {
       </View>
 
       {isLoading ? (
-        <View style={s.loadWrap}>
-          <ActivityIndicator size="large" color={D.emerald} />
+        <View style={s.list}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <View key={i} style={ni.row}>
+              <Skeleton width={42} height={42} radius={13} />
+              <View style={ni.content}>
+                <Skeleton width="55%" height={13} />
+                <Skeleton width="85%" height={12} style={{ marginTop: 7 }} />
+              </View>
+            </View>
+          ))}
         </View>
       ) : (
         <ScrollView
@@ -154,6 +165,11 @@ export default function NotificationsScreen() {
                   notif={n}
                   onPress={() => {
                     if (!n.read) readMutation.mutate(n.id);
+                    if (n.type === 'SHIFT_OPEN') {
+                      router.push('/(tabs)/shifts' as any);
+                    } else if (n.data?.shiftId) {
+                      router.push(`/shift/${n.data.shiftId}`);
+                    }
                   }}
                 />
               ))}
@@ -168,7 +184,6 @@ export default function NotificationsScreen() {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: D.bg },
-  loadWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyScroll: { flex: 1 },
 
   header: {

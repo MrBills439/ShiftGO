@@ -12,22 +12,12 @@ import {
   NotePencil, Camera, Check,
 } from 'phosphor-react-native';
 import { getMe, updateMe, uploadAvatar } from '../../services/profileService';
+import { API_BASE_URL } from '../../services/api';
 import { UserProfile } from '../../types';
+import { D } from '../../constants/theme';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+const BASE_URL = API_BASE_URL;
 
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-  inputBg: '#F8FAFA',
-  inputBorder: '#DDE8E6',
-  inputFocus: '#005F56',
-};
 
 function Field({
   label, icon, value, onChangeText, placeholder, keyboardType, multiline, focused, onFocus, onBlur,
@@ -146,6 +136,8 @@ export default function PersonalInfoScreen() {
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
           style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}
         >
           <ArrowLeft size={20} color={D.text} weight="bold" />
@@ -268,7 +260,7 @@ const s = StyleSheet.create({
   avatarImg: { width: 96, height: 96, borderRadius: 30 },
   avatarFallback: { width: 96, height: 96, borderRadius: 30, backgroundColor: D.emerald, alignItems: 'center', justifyContent: 'center' },
   avatarTxt: { fontSize: 30, fontWeight: '700', color: '#fff' },
-  avatarLoading: { ...StyleSheet.absoluteFillObject, borderRadius: 30, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
+  avatarLoading: { ...StyleSheet.absoluteFill, borderRadius: 30, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
   changePhotoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: D.white, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1, borderColor: D.border },
   changePhotoTxt: { fontSize: 13, fontWeight: '600', color: D.emerald },
 

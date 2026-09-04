@@ -32,6 +32,30 @@ export function useCreateHouse() {
   });
 }
 
+export function useUpdateHouse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      api.patch(`/houses/${id}`, body),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['houses'] });
+      qc.invalidateQueries({ queryKey: ['houses', id] });
+    },
+  });
+}
+
+export function useUpdateHouseManager() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, managerId }: { id: string; managerId: string | null }) =>
+      api.patch(`/houses/${id}`, { managerId }),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['houses'] });
+      qc.invalidateQueries({ queryKey: ['houses', id] });
+    },
+  });
+}
+
 export function useUpdateGeofence() {
   const qc = useQueryClient();
   return useMutation({

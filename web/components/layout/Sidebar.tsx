@@ -3,10 +3,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   SquaresFourIcon, CalendarBlankIcon, BuildingsIcon, UsersIcon,
-  ListChecksIcon, SignOutIcon, ShieldCheckIcon, UserCircleIcon, SwatchesIcon,
+  ListChecksIcon, SignOutIcon, ShieldCheckIcon, UserCircleIcon, MegaphoneIcon,
 } from '@phosphor-icons/react';
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/store/authStore';
+import { ROLE_META, initials } from '@/lib/roles';
+import type { Role } from '@/types';
 
 interface NavItem {
   href: string;
@@ -16,18 +18,19 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: '/dashboard',                label: 'Today',       icon: SquaresFourIcon },
-  { href: '/dashboard/operations',     label: 'Operations',  icon: SquaresFourIcon, roles: ['HR', 'MANAGER'] },
-  { href: '/dashboard/rota',           label: 'Schedule',    icon: CalendarBlankIcon, roles: ['HR', 'MANAGER'] },
-  { href: '/dashboard/approvals',      label: 'Approvals',   icon: ListChecksIcon, roles: ['HR', 'MANAGER'] },
-  { href: '/dashboard/leave',          label: 'Leave',       icon: CalendarBlankIcon, roles: ['HR', 'MANAGER'] },
-  { href: '/dashboard/shifts',         label: 'Shifts',      icon: CalendarBlankIcon },
-  { href: '/dashboard/houses',         label: 'Locations',   icon: BuildingsIcon },
-  { href: '/dashboard/workers',        label: 'People',      icon: UsersIcon,       roles: ['HR', 'MANAGER'] },
-  { href: '/dashboard/timesheets',     label: 'Timesheets',  icon: ListChecksIcon },
-  { href: '/dashboard/profile',        label: 'Profile',     icon: UserCircleIcon },
-  { href: '/dashboard/design-system',  label: 'Design',      icon: SwatchesIcon, roles: ['HR', 'MANAGER'] },
-  { href: '/admin',                    label: 'Admin',       icon: ShieldCheckIcon, roles: ['HR'] },
+  { href: '/dashboard',                label: 'Today',         icon: SquaresFourIcon },
+  { href: '/dashboard/operations',     label: 'Operations',    icon: SquaresFourIcon, roles: ['HR', 'MANAGER'] },
+  { href: '/dashboard/rota',           label: 'Schedule',      icon: CalendarBlankIcon, roles: ['HR', 'MANAGER'] },
+  { href: '/dashboard/shifts',         label: 'Shifts',        icon: CalendarBlankIcon },
+  // Workers reach their own leave from the Profile page; managers/leads keep it in nav for approvals.
+  { href: '/dashboard/leave',          label: 'Leave',         icon: CalendarBlankIcon, roles: ['HR', 'MANAGER', 'TEAM_LEADER'] },
+  { href: '/dashboard/timesheets',     label: 'Timesheets',    icon: ListChecksIcon },
+  { href: '/dashboard/announcements',  label: 'Announcements', icon: MegaphoneIcon },
+  { href: '/dashboard/houses',         label: 'Services',      icon: BuildingsIcon, roles: ['HR', 'MANAGER', 'TEAM_LEADER'] },
+  { href: '/dashboard/workers',        label: 'Staff',         icon: UsersIcon,     roles: ['HR', 'MANAGER', 'TEAM_LEADER'] },
+  { href: '/dashboard/right-to-work',  label: 'Right to Work', icon: ShieldCheckIcon, roles: ['HR', 'MANAGER'] },
+  { href: '/dashboard/profile',        label: 'Profile',       icon: UserCircleIcon },
+  { href: '/admin',                    label: 'Admin',         icon: ShieldCheckIcon, roles: ['HR'] },
 ];
 
 export function Sidebar() {
@@ -77,27 +80,37 @@ export function Sidebar() {
         </p>
       </div>
 
-      <div className="px-3 py-4 border-t border-outline-variant/30 space-y-1">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-surface-low">
-          <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-primary">
-              {user?.name?.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
-            </span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-on-surface truncate">{user?.name}</p>
-            <p className="text-[11px] text-on-surface-variant font-inter truncate">
-              {user?.role?.replace('_', ' ')}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={logout}
-          className="sidebar-item w-full text-error-DEFAULT hover:bg-error-container/30"
-        >
-          <SignOutIcon size={18} weight="regular" />
-          <span>Sign out</span>
-        </button>
+      <div className="px-3 py-4 border-t border-outline-variant/30">
+        {(() => {
+          const role = (user?.role ?? 'WORKER') as Role;
+          const meta = ROLE_META[role] ?? ROLE_META.WORKER;
+          const displayName = user?.name && user.name !== user.email ? user.name : (user?.email?.split('@')[0] ?? 'Account');
+          return (
+            <div className="rounded-lg border border-outline-variant/40 bg-surface-low p-3">
+              <div className="flex items-center gap-3">
+                <div className={clsx('flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold', meta.avatarClass)}>
+                  {initials(displayName)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-on-surface">{displayName}</p>
+                  <p className="truncate text-[11px] text-on-surface-variant font-inter">{user?.email}</p>
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-center justify-between gap-2">
+                <span className={clsx('inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', meta.badgeClass)}>
+                  {meta.label}
+                </span>
+                <button
+                  onClick={logout}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-on-surface-variant transition-colors hover:bg-error-container/40 hover:text-error-DEFAULT"
+                >
+                  <SignOutIcon size={15} weight="regular" />
+                  Sign out
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </aside>
   );

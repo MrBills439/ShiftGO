@@ -12,6 +12,7 @@ import { useUsers } from '@/hooks/useWorkers';
 import { useHouses } from '@/hooks/useHouses';
 import { useLeaveRequests } from '@/hooks/useLeaveRequests';
 import { useAuthStore } from '@/store/authStore';
+import { useToast } from '@/hooks/useToast';
 
 interface KPIMetric {
   label: string;
@@ -73,6 +74,7 @@ function KPICard({ metric }: { metric: KPIMetric }) {
 
 export default function OperationsPage() {
   const router = useRouter();
+  const toast = useToast();
   const { user } = useAuthStore();
   const canViewOps = ['MANAGER', 'HR'].includes(user?.role ?? '');
 
@@ -118,7 +120,7 @@ export default function OperationsPage() {
       return now > start && s.status === 'SCHEDULED';
     });
 
-    const emergencyShifts = todayShifts.filter((s) => s.shiftType === 'EMERGENCY');
+    const emergencyShifts = todayShifts.filter((s) => s.urgent);
 
     const openIssues = lateShifts.length + (todayShifts.filter((s) => !s.workerId).length);
 
@@ -142,10 +144,10 @@ export default function OperationsPage() {
         context: lateShifts.length > 0 ? 'action needed' : 'on time',
       },
       {
-        label: 'Emergency Shifts',
+        label: 'Urgent Cover',
         value: emergencyShifts.length,
         status: emergencyShifts.length > 0 ? 'critical' : 'good',
-        context: emergencyShifts.length > 0 ? 'unfilled' : 'none',
+        context: emergencyShifts.length > 0 ? 'needs cover' : 'none',
       },
       {
         label: 'Open Issues',
@@ -203,12 +205,14 @@ export default function OperationsPage() {
     todayShifts.forEach((shift) => {
       const dueTime = new Date(shift.startTime);
       if (now > dueTime && shift.status === 'SCHEDULED') {
+        const phone = workers.find((w) => w.id === shift.worker?.id)?.phone;
         issueList.push({
           type: 'late',
           severity: 'critical',
           title: `${shift.worker?.name || 'Unknown'} is late`,
           context: `Expected at ${shift.house?.name || 'Unknown'} at ${formatTime(shift.startTime)}`,
           action: 'Call',
+          tel: phone || null,
         });
       }
     });
@@ -222,6 +226,7 @@ export default function OperationsPage() {
           title: `${shift.house?.name || 'Unknown'} has no worker`,
           context: `${formatTime(shift.startTime)} - ${formatTime(shift.endTime)}`,
           action: 'Assign',
+          href: '/dashboard/rota',
         });
       }
     });
@@ -235,12 +240,13 @@ export default function OperationsPage() {
           title: `Leave pending: ${leave.worker?.name || 'Unknown'}`,
           context: `Affects coverage today`,
           action: 'Review',
+          href: '/dashboard/leave',
         });
       }
     });
 
     return issueList.slice(0, 5);
-  }, [shifts, leaveRequests, todayString, now]);
+  }, [shifts, leaveRequests, workers, todayString, now]);
 
   // Health metrics
   const health = useMemo((): KPIMetric[] => {
@@ -384,7 +390,17 @@ export default function OperationsPage() {
                     <p className="font-semibold text-fg">{issue.title}</p>
                     <p className="text-sm text-fg-muted mt-1">{issue.context}</p>
                   </div>
-                  <Button size="sm" variant="primary">{issue.action}</Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => {
+                      if (issue.href) router.push(issue.href);
+                      else if (issue.tel) window.location.href = `tel:${issue.tel}`;
+                      else toast.error('No phone number on file for this worker');
+                    }}
+                  >
+                    {issue.action}
+                  </Button>
                 </div>
               </Card>
             ))
@@ -396,12 +412,12 @@ export default function OperationsPage() {
       <div>
         <h2 className="text-lg font-semibold text-fg mb-4">Quick Actions</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <Button variant="primary" icon={<WarningCircleIcon size={16} />} className="w-full">Emergency Shift</Button>
-          <Button variant="primary" icon={<PhoneIcon size={16} />} className="w-full">Call Worker</Button>
-          <Button variant="primary" icon={<PlusIcon size={16} />} className="w-full">Assign Worker</Button>
-          <Button variant="secondary" className="w-full">View Schedule</Button>
-          <Button variant="secondary" className="w-full">Create Staff</Button>
-          <Button variant="secondary" className="w-full">View Locations</Button>
+          <Button variant="primary" icon={<WarningCircleIcon size={16} />} className="w-full" onClick={() => router.push('/dashboard/rota')}>Emergency Shift</Button>
+          <Button variant="primary" icon={<PhoneIcon size={16} />} className="w-full" onClick={() => router.push('/dashboard/workers')}>Call Worker</Button>
+          <Button variant="primary" icon={<PlusIcon size={16} />} className="w-full" onClick={() => router.push('/dashboard/workers')}>Assign Worker</Button>
+          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/rota')}>View Schedule</Button>
+          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/workers')}>Create Staff</Button>
+          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/houses')}>View Services</Button>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated, ActivityIndicator, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -10,51 +10,19 @@ import {
   NavigationArrow, ShieldCheck, ArrowsClockwise, Cpu,
 } from 'phosphor-react-native';
 import { useUpcomingShifts } from '../../hooks/useShifts';
+import { RightToWorkBanner } from '../../components/RightToWorkBanner';
 import { getUnreadCount } from '../../services/notificationsService';
 import { useClockStatus } from '../../hooks/useClockStatus';
-import { startBackgroundLocation } from '../../tasks/locationTask';
 import { useAuthStore } from '../../store/authStore';
 import { Shift } from '../../types';
+import { D } from '../../constants/theme';
+import { fmtTime as fmt, relativeDayLabel as fmtDate, getGreeting } from '../../lib/datetime';
+import { shiftTypeLabel } from '../../lib/shiftTypes';
+import * as Haptics from 'expo-haptics';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  eDark: '#002E28',
-  eMid: '#004A42',
-  eLight: '#0A7060',
-  mint: '#52D6B5',
-  mintBg: 'rgba(82,214,181,0.14)',
-  mintBorder: 'rgba(82,214,181,0.30)',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-  amber: '#F59E0B',
-  error: '#EF4444',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const getGreeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
-const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening'; };
-const shiftTypeLabel = (type?: string) => {
-  switch (type) {
-    case 'DAY': return 'Day Shift';
-    case 'WAKE_NIGHT': return 'Wake Night Shift';
-    case 'SLEEP_IN': return 'Sleep In Shift';
-    case 'EMERGENCY': return 'Emergency Shift';
-    default: return 'Care Support Shift';
-  }
-};
-const fmt = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-const fmtDate = (iso: string) => {
-  const d = new Date(iso), today = new Date(), tmr = new Date();
-  tmr.setDate(today.getDate() + 1);
-  if (d.toDateString() === today.toDateString()) return 'Today';
-  if (d.toDateString() === tmr.toDateString()) return 'Tomorrow';
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-};
 const countdown = (iso: string) => {
   const diff = new Date(iso).getTime() - Date.now();
   if (diff <= 0) return 'Now';
@@ -114,8 +82,19 @@ function ClockBtn({ isClockedIn, isLoading, onPress }: { isClockedIn: boolean; i
     return () => { a1.stop(); a2.stop(); };
   }, [isClockedIn]);
 
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    onPress();
+  };
+
   return (
-    <Pressable onPress={onPress} disabled={isLoading} style={({ pressed }) => [cb.wrap, pressed && { transform: [{ scale: 0.95 }] }]}>
+    <Pressable
+      onPress={handlePress}
+      disabled={isLoading}
+      accessibilityRole="button"
+      accessibilityLabel={isClockedIn ? 'Clock out of your shift' : 'Clock in to your shift'}
+      style={({ pressed }) => [cb.wrap, pressed && { transform: [{ scale: 0.95 }] }]}
+    >
       <Animated.View style={[cb.r1, { borderColor: color, opacity: r1.interpolate({ inputRange: [0,1], outputRange: [0.07,0.22] }) }]} />
       <Animated.View style={[cb.r2, { borderColor: color, opacity: r2.interpolate({ inputRange: [0,1], outputRange: [0.11,0.28] }) }]} />
       <View style={[cb.btn, { backgroundColor: color, shadowColor: color }]}>
@@ -154,6 +133,9 @@ export default function ClockScreen() {
     error,
     syncMessage,
     queueSummary,
+    prompt,
+    confirmStillWorking,
+    dismissPrompt,
     clockIn,
     clockOut,
     retrySync,
@@ -164,15 +146,19 @@ export default function ClockScreen() {
   const { data: unreadCount = 0 } = useQuery<number>({
     queryKey: ['notif-count'],
     queryFn: getUnreadCount,
-    staleTime: 30_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
 
   useEffect(() => { const id = setInterval(() => tick(t => t + 1), 30_000); return () => clearInterval(id); }, []);
 
+  // Foreground GPS readout only. Background attendance monitoring is started by
+  // useClockStatus AFTER a successful clock-in and stopped on clock-out — it is
+  // never started here just because the screen mounted.
   useEffect(() => {
     (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.getForegroundPermissionsAsync();
         setGps(status === 'granted');
         if (status === 'granted') {
           try {
@@ -181,15 +167,50 @@ export default function ClockScreen() {
           } catch {
             setGpsAccuracy(null);
           }
-          try { await startBackgroundLocation(); } catch {}
         }
       } catch { setGps(false); }
     })();
   }, []);
 
+  // Server-driven prompts: "you've left the service" / "your shift has ended".
+  useEffect(() => {
+    if (!prompt || !activeShift) return;
+    const ended = prompt !== 'LEFT_GEOFENCE_STILL_WORKING';
+    Alert.alert(
+      ended ? 'Your scheduled shift has ended' : "You've left the service",
+      ended
+        ? `Your shift at ${activeShift.house.name} was due to finish. Are you still working?`
+        : `You seem to have left ${activeShift.house.name}. Are you still working?`,
+      [
+        { text: 'End shift', style: 'destructive', onPress: () => { dismissPrompt(); clockOut(); } },
+        { text: "Yes, still working", onPress: confirmStillWorking },
+      ],
+    );
+  }, [prompt, activeShift?.id]);
+
   const firstName = user?.name?.split(' ')[0] ?? 'there';
   const p2 = activeShift ? prog(activeShift) : null;
   const isLoading = shiftsLoading || statusLoading;
+
+  // Clock-in goes straight through. Clock-out after the scheduled end time asks
+  // for confirmation first — otherwise it clocks out immediately.
+  const handleClockPress = () => {
+    if (!activeShift) return;
+    if (!isClockedIn) { clockIn(); return; }
+    const shiftEnded = Date.now() > new Date(activeShift.endTime).getTime();
+    if (shiftEnded) {
+      Alert.alert(
+        'Shift has ended',
+        `Your shift at ${activeShift.house.name} was scheduled to finish at ${fmt(activeShift.endTime)}. Do you want to clock out now?`,
+        [
+          { text: 'Not yet', style: 'cancel' },
+          { text: 'Clock Out', style: 'destructive', onPress: clockOut },
+        ],
+      );
+      return;
+    }
+    clockOut();
+  };
 
   if (isLoading) {
     return (
@@ -212,7 +233,9 @@ export default function ClockScreen() {
           <View style={s.headerRight}>
             <Pressable
               style={s.iconBtn}
-              onPress={() => router.push('/notifications' as any)}
+              onPress={() => router.push('/notifications')}
+              accessibilityRole="button"
+              accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
             >
               <Bell size={18} color={D.muted} weight="regular" />
               {unreadCount > 0 && (
@@ -224,6 +247,8 @@ export default function ClockScreen() {
             <View style={s.avatar}><Text style={s.avatarTxt}>{firstName[0]?.toUpperCase() ?? 'U'}</Text></View>
           </View>
         </View>
+
+        <RightToWorkBanner />
 
         {/* ── Next Shift Slim Card ── */}
         {nextShift && (
@@ -295,8 +320,15 @@ export default function ClockScreen() {
 
         {/* ── Clock Button ── */}
         <View style={s.clockArea}>
-          <ClockBtn isClockedIn={isClockedIn} isLoading={isActing} onPress={isClockedIn ? clockOut : clockIn} />
-          {error && <Text style={s.errTxt}>{error}</Text>}
+          <ClockBtn isClockedIn={isClockedIn} isLoading={isActing} onPress={handleClockPress} />
+          {error && (
+            <Text style={s.errTxt}>
+              {error.message}
+              {error.code === 'OUTSIDE_GEOFENCE' && error.distanceMeters != null
+                ? `\nYou're about ${Math.round(error.distanceMeters)} m away (allowed: ${error.geofenceRadius ?? '?'} m).`
+                : ''}
+            </Text>
+          )}
           {syncMessage && (
             <View style={s.syncRow}>
               <Text style={[

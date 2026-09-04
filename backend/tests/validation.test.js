@@ -133,9 +133,9 @@ describe('Validation and auth middleware', () => {
 
   it('returns 400 for invalid GPS coordinates', async () => {
     const res = await request(app)
-      .post('/clock/auto-checkin')
+      .post('/clock/location')
       .set('Authorization', `Bearer ${tokenFor(worker)}`)
-      .send({ latitude: 91, longitude: 0, accuracy: 25 });
+      .send({ shiftId: 'shift-000000', latitude: 91, longitude: 0, accuracy: 25 });
 
     expect(res.status).toBe(400);
     expect(res.body.error.fields).toEqual(expect.objectContaining({

@@ -3,82 +3,141 @@ const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
 const { ok, fail } = require('../utils/response');
 
+const { REASONS } = clockService;
+
+// rejection code -> HTTP status
+const REJECT_STATUS = {
+  [REASONS.FORBIDDEN]: 403,
+  [REASONS.SHIFT_CANCELLED]: 409,
+  [REASONS.OUTSIDE_SHIFT_WINDOW]: 409,
+  [REASONS.LOCATION_REQUIRED]: 422,
+  [REASONS.INVALID_COORDINATES]: 422,
+  [REASONS.STALE_LOCATION]: 422,
+  [REASONS.GPS_ACCURACY_INSUFFICIENT]: 422,
+  [REASONS.OUTSIDE_GEOFENCE]: 422,
+};
+
+function sendRejection(res, result) {
+  const status = REJECT_STATUS[result.rejected] ?? 422;
+  const details = result.geo
+    ? {
+        distanceMeters: result.geo.distanceMeters,
+        geofenceRadius: result.geo.radiusM,
+        accuracySufficient: result.geo.accuracySufficient,
+      }
+    : undefined;
+  return fail(res, result.message, status, { code: result.rejected, ...(details ? { details } : {}) });
+}
+
+async function auditClockIn(req, result, code, extra = {}) {
+  await createAuditLog({
+    ...auditContext(req),
+    action: code,
+    entityType: result?.event ? 'ClockEvent' : 'Shift',
+    entityId: result?.event?.id || req.body.shiftId,
+    newValue: {
+      shiftId: req.body.shiftId,
+      distanceMeters: result?.geo?.distanceMeters ?? null,
+      geofenceRadius: result?.geo?.radiusM ?? null,
+      accuracy: req.body.accuracy ?? null,
+      ...extra,
+    },
+  });
+}
+
 async function manualClockIn(req, res) {
-  const { houseId, shiftId, timestamp, latitude, longitude, accuracy, reason, locationSource } = req.body;
+  const { houseId, shiftId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource } = req.body;
   if (!houseId || !shiftId) return fail(res, 'houseId and shiftId required');
 
   const result = await clockService.clockIn(req.user.id, houseId, shiftId, 'MANUAL', {
-    timestamp,
-    latitude,
-    longitude,
-    accuracy,
-    reason,
-    locationSource,
+    timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource,
     agencyId: agencyIdFor(req),
   });
-  if (result.forbidden) return fail(res, result.message, 403);
-  if (result.alreadyClockedIn) return fail(res, 'Already clocked in for this shift');
-  await createAuditLog({
-    ...auditContext(req),
-    action: 'MANUAL_CLOCK_IN',
-    entityType: 'ClockEvent',
-    entityId: result.event.id,
-    newValue: result.event,
+
+  if (result.rejected) {
+    const auditAction =
+      result.rejected === REASONS.OUTSIDE_GEOFENCE ? 'CLOCK_IN_OUTSIDE_GEOFENCE'
+        : result.rejected === REASONS.GPS_ACCURACY_INSUFFICIENT ? 'GPS_ACCURACY_INSUFFICIENT'
+          : result.rejected === REASONS.LOCATION_REQUIRED ? 'CLOCK_IN_LOCATION_UNAVAILABLE'
+            : null;
+    if (auditAction) await auditClockIn(req, result, auditAction, { reason: result.rejected });
+    return sendRejection(res, result);
+  }
+  if (result.alreadyClockedIn) return fail(res, 'Already clocked in for this shift', 409, { code: 'ALREADY_CLOCKED_IN' });
+
+  await auditClockIn(req, result, 'CLOCK_IN_GEOFENCE_VERIFIED', {
+    withinGeofence: true, mockLocationSuspected: !!mockLocationSuspected,
   });
   ok(res, result);
 }
 
 async function manualClockOut(req, res) {
-  const { houseId, shiftId, timestamp, latitude, longitude, accuracy, reason, locationSource } = req.body;
+  const { houseId, shiftId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource } = req.body;
   if (!houseId || !shiftId) return fail(res, 'houseId and shiftId required');
 
   const result = await clockService.clockOut(req.user.id, houseId, shiftId, 'MANUAL', {
-    timestamp,
-    latitude,
-    longitude,
-    accuracy,
-    reason,
-    locationSource,
+    timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource,
     agencyId: agencyIdFor(req),
   });
-  if (result.forbidden) return fail(res, result.message, 403);
-  if (result.notClockedIn) return fail(res, 'No active clock-in found for this shift', 409);
-  if (result.alreadyClockedOut) return fail(res, 'Already clocked out for this shift', 409);
+
+  if (result.rejected) return sendRejection(res, result);
+  if (result.notClockedIn) return fail(res, 'No active clock-in found for this shift', 409, { code: 'NOT_CLOCKED_IN' });
+  if (result.alreadyClockedOut) return fail(res, 'Already clocked out for this shift', 409, { code: 'ALREADY_CLOCKED_OUT' });
+
   await createAuditLog({
     ...auditContext(req),
-    action: 'MANUAL_CLOCK_OUT',
+    action: result.locationStatus === 'OFFSITE' ? 'MANUAL_OFFSITE_CLOCK_OUT' : 'MANUAL_ONSITE_CLOCK_OUT',
     entityType: 'ClockEvent',
     entityId: result.event.id,
-    newValue: result.event,
+    newValue: {
+      shiftId, locationStatus: result.locationStatus,
+      distanceMeters: result.event.distanceMeters, geofenceRadius: result.event.geofenceRadius,
+      verification: result.verification,
+    },
   });
   ok(res, result);
 }
 
-async function autoCheckin(req, res) {
-  const { latitude, longitude, accuracy } = req.body;
-  if (latitude == null || longitude == null) return fail(res, 'latitude and longitude required');
+async function reportLocation(req, res) {
+  const { shiftId, latitude, longitude, accuracy, capturedAt, mockLocationSuspected } = req.body;
+  const result = await clockService.reportLocation(req.user.id, shiftId, {
+    latitude, longitude, accuracy, capturedAt, mockLocationSuspected,
+  }, agencyIdFor(req));
 
-  const results = await clockService.autoCheckin(req.user.id, latitude, longitude, accuracy, agencyIdFor(req));
-  for (const result of results) {
-    if (result.event?.id) {
+  if (result.active && Array.isArray(result.audits) && result.audits.length) {
+    for (const action of result.audits) {
       await createAuditLog({
         ...auditContext(req),
-        action: 'AUTO_GPS_CLOCK_IN',
-        entityType: 'ClockEvent',
-        entityId: result.event.id,
-        newValue: result.event,
+        action,
+        entityType: 'Shift',
+        entityId: shiftId,
+        newValue: { locationStatus: result.locationStatus, distanceMeters: result.distanceMeters },
       });
     }
   }
-  ok(res, results);
+  ok(res, result);
 }
 
-async function geofenceExit(req, res) {
-  const { latitude, longitude, accuracy } = req.body;
-  if (latitude == null || longitude == null) return fail(res, 'latitude and longitude required');
-
-  const results = await clockService.geofenceExit(req.user.id, latitude, longitude, accuracy, agencyIdFor(req));
-  ok(res, results);
+async function confirmStillWorking(req, res) {
+  const { shiftId } = req.body;
+  const result = await clockService.confirmStillWorking(req.user.id, shiftId, agencyIdFor(req));
+  if (result.active) {
+    await createAuditLog({
+      ...auditContext(req),
+      action: 'WORKER_CONFIRMED_STILL_WORKING',
+      entityType: 'Shift',
+      entityId: shiftId,
+      newValue: { shiftEndedAcknowledged: !!result.shiftEndedAcknowledged },
+    });
+  }
+  ok(res, result);
 }
 
-module.exports = { manualClockIn, manualClockOut, autoCheckin, geofenceExit };
+async function getState(req, res) {
+  const shiftId = req.query.shiftId;
+  if (!shiftId) return fail(res, 'shiftId query parameter is required');
+  const state = await clockService.getAttendanceState(req.user.id, String(shiftId), agencyIdFor(req));
+  ok(res, state);
+}
+
+module.exports = { manualClockIn, manualClockOut, reportLocation, confirmStillWorking, getState };

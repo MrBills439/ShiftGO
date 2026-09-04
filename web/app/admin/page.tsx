@@ -9,7 +9,7 @@ import { useUsers } from '@/hooks/useWorkers';
 import { useToast } from '@/hooks/useToast';
 
 export default function AdminPage() {
-  const { user, isLoading, hydrate } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const { data: houses = [] } = useHouses();
   const { data: allUsers = [] } = useUsers();
@@ -18,7 +18,6 @@ export default function AdminPage() {
   const [globalRadius, setGlobalRadius] = useState('50');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { hydrate(); }, []);
   useEffect(() => {
     if (!isLoading && user && user.role !== 'HR') router.replace('/dashboard');
   }, [user, isLoading]);

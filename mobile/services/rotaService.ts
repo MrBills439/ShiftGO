@@ -16,6 +16,23 @@ export async function getMyShifts(): Promise<Shift[]> {
   return data.data;
 }
 
+export async function getOpenShifts(): Promise<Shift[]> {
+  const { data } = await api.get('/shifts/open');
+  return data.data;
+}
+
+export async function claimShift(id: string): Promise<{ shift: Shift; claim: unknown }> {
+  const { data } = await api.post(`/shifts/${id}/claim`);
+  return data.data;
+}
+
+/** Release a shift you're assigned to — it reopens for cover and your manager +
+ *  team leader are notified. */
+export async function dropShift(id: string, reason?: string): Promise<Shift> {
+  const { data } = await api.post(`/shifts/${id}/drop`, reason ? { reason } : {});
+  return data.data;
+}
+
 export async function getTodayShift(): Promise<Shift | null> {
   try {
     const shifts = await getMyShifts();

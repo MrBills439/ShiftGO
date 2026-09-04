@@ -79,6 +79,7 @@ describe('Clock-out duplicate prevention', () => {
 
   afterAll(async () => {
     if (agency) await prisma.auditLog.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.attendanceMonitor.deleteMany({ where: { workerId: worker?.id } });
     await prisma.timesheet.deleteMany({ where: { workerId: worker?.id } });
     await prisma.clockEvent.deleteMany({ where: { workerId: worker?.id } });
     await prisma.shift.deleteMany({ where: { houseId: house?.id } });
@@ -112,7 +113,14 @@ describe('Clock-out duplicate prevention', () => {
     const clockIn = await request(app)
       .post('/clock/in')
       .set('Authorization', auth)
-      .send({ houseId: house.id, shiftId: shift.id, timestamp: clockInTimestamp });
+      .send({
+        houseId: house.id,
+        shiftId: shift.id,
+        timestamp: clockInTimestamp,
+        latitude: house.latitude,
+        longitude: house.longitude,
+        accuracy: 12,
+      });
     expect(clockIn.status).toBe(200);
 
     const firstClockOut = await request(app)

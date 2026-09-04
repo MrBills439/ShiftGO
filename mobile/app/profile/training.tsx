@@ -10,21 +10,9 @@ import {
 } from 'phosphor-react-native';
 import { getMyTraining } from '../../services/profileService';
 import { Training, TrainingStatus } from '../../types';
+import { D } from '../../constants/theme';
+import { fmtDateOrDash as fmtDate } from '../../lib/datetime';
 
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-};
-
-function fmtDate(iso?: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
 
 function isExpiringSoon(iso?: string | null): boolean {
   if (!iso) return false;
@@ -107,6 +95,8 @@ export default function TrainingScreen() {
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
           style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}
         >
           <ArrowLeft size={20} color={D.text} weight="bold" />

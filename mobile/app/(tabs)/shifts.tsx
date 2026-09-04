@@ -1,72 +1,45 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable,
-  ActivityIndicator, RefreshControl, Alert,
+  View, Text, StyleSheet, FlatList, Pressable, TextInput,
+  ActivityIndicator, RefreshControl, Alert, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MapPin, Clock, CaretRight, CalendarBlank, Funnel, CheckCircle } from 'phosphor-react-native';
+import {
+  MapPin, Clock, CaretRight, CalendarBlank, CheckCircle, Users,
+  MagnifyingGlass, X,
+} from 'phosphor-react-native';
 import { useUpcomingShifts } from '../../hooks/useShifts';
+import { useOpenShifts, useClaimShift } from '../../hooks/useOpenShifts';
+import { apiErrorMessage } from '../../services/api';
+import { Skeleton } from '../../components/Skeleton';
 import { Shift } from '../../types';
+import { D } from '../../constants/theme';
+import { fmtTime, fmtDur as shiftDur, dateParts, fmtDurLong as fmtHours } from '../../lib/datetime';
+import { shiftTypeLabel } from '../../lib/shiftTypes';
 
-// ─── Tokens ───────────────────────────────────────────────────────────────────
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-  confirmedBg: 'rgba(22,163,74,0.11)',
-  confirmedTxt: '#16A34A',
-  activeBg: 'rgba(0,95,86,0.11)',
-  activeTxt: '#005F56',
-  completedBg: 'rgba(96,115,112,0.11)',
-  completedTxt: '#607370',
-};
-
-type Filter = 'upcoming' | 'past' | 'all';
+type Tab = 'available' | 'upcoming' | 'past';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
-
-function shiftDur(start: string, end: string) {
-  const h = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 3_600_000);
-  return `${h}h`;
-}
-
-function getStatus(shift: Shift): 'active' | 'upcoming' | 'completed' {
-  const now = new Date();
-  const start = new Date(shift.startTime);
-  const end = new Date(shift.endTime);
+function windowStatus(shift: Shift): 'active' | 'upcoming' | 'completed' {
+  const now = Date.now();
+  const start = new Date(shift.startTime).getTime();
+  const end = new Date(shift.endTime).getTime();
   if (now >= start && now <= end) return 'active';
   if (now < start) return 'upcoming';
   return 'completed';
 }
 
-function dateParts(iso: string) {
-  const d = new Date(iso);
-  return {
-    day: d.toLocaleDateString('en-GB', { weekday: 'short' }).toUpperCase(),
-    num: d.getDate(),
-    mon: d.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(),
-  };
-}
-
-function fmtHours(start: string, end: string) {
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
-  return m > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h 00m`;
+function matchesQuery(shift: Shift, q: string): boolean {
+  if (!q) return true;
+  const hay = `${shift.house?.name ?? ''} ${shift.house?.address ?? ''} ${shiftTypeLabel(shift.shiftType)}`.toLowerCase();
+  return hay.includes(q);
 }
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 function Badge({ status }: { status: 'active' | 'upcoming' | 'completed' }) {
   const map = {
-    active:    { bg: D.activeBg,    txt: D.activeTxt,    label: 'Active' },
+    active:    { bg: D.activeBg,    txt: D.activeTxt,    label: 'On shift' },
     upcoming:  { bg: D.confirmedBg, txt: D.confirmedTxt, label: 'Confirmed' },
     completed: { bg: D.completedBg, txt: D.completedTxt, label: 'Completed' },
   };
@@ -84,9 +57,9 @@ const b = StyleSheet.create({
   txt: { fontSize: 11, fontWeight: '700' },
 });
 
-// ─── Shift Card ───────────────────────────────────────────────────────────────
+// ─── Scheduled shift card ─────────────────────────────────────────────────────
 function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
-  const status = getStatus(shift);
+  const status = windowStatus(shift);
   const { day, num, mon } = dateParts(shift.startTime);
   const isActive = status === 'active';
   const isPast = status === 'completed';
@@ -95,21 +68,20 @@ function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [sc.card, isActive && sc.cardActive, pressed && { opacity: 0.85 }]}
+      accessibilityRole="button"
+      accessibilityLabel={`Shift at ${shift.house?.name}, ${day} ${num} ${mon}`}
     >
-      {/* Date Block */}
       <View style={[sc.dateBlock, isPast && sc.dateBlockOff]}>
         <Text style={[sc.dateDay, isPast && sc.dateFaint]}>{day}</Text>
         <Text style={[sc.dateNum, isPast && sc.dateFaint]}>{num}</Text>
         <Text style={[sc.dateMon, isPast && sc.dateFaint]}>{mon}</Text>
       </View>
 
-      {/* Divider */}
       <View style={[sc.divider, isPast && sc.dividerOff]} />
 
-      {/* Content */}
       <View style={sc.content}>
-        <Text style={sc.house}>{shift.house.name}</Text>
-        <Text style={sc.role}>Care Support Shift</Text>
+        <Text style={sc.house} numberOfLines={1}>{shift.house?.name}</Text>
+        <Text style={sc.role}>{shiftTypeLabel(shift.shiftType)}</Text>
 
         <View style={sc.timeRow}>
           <Clock size={12} color={isPast ? D.light : D.emerald} weight="regular" />
@@ -121,7 +93,7 @@ function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
 
         <View style={sc.addrRow}>
           <MapPin size={11} color={D.light} weight="regular" />
-          <Text style={sc.addr} numberOfLines={1}>{shift.house.address}</Text>
+          <Text style={sc.addr} numberOfLines={1}>{shift.house?.address}</Text>
         </View>
 
         {isPast && (
@@ -132,7 +104,6 @@ function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
         )}
       </View>
 
-      {/* Right */}
       <View style={sc.right}>
         <Badge status={status} />
         <CaretRight size={15} color={D.light} weight="bold" style={sc.caret} />
@@ -144,208 +115,317 @@ function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
 const sc = StyleSheet.create({
   card: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: D.white, borderRadius: 20, padding: 16,
-    marginBottom: 12, borderWidth: 1, borderColor: D.border,
-    shadowColor: '#00534810', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 16, elevation: 3,
+    backgroundColor: D.white, borderRadius: 18, padding: 14,
+    marginBottom: 10, borderWidth: 1, borderColor: D.border,
+    shadowColor: '#0053480d', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
   },
   cardActive: { borderColor: D.emerald, borderWidth: 1.5 },
-
-  dateBlock: { width: 48, alignItems: 'center', marginRight: 4 },
-  dateBlockOff: { opacity: 0.55 },
-  dateDay: { fontSize: 10, fontWeight: '700', color: D.emerald, letterSpacing: 0.6 },
-  dateNum: { fontSize: 28, fontWeight: '800', color: D.text, lineHeight: 32, letterSpacing: -0.5 },
-  dateMon: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 0.6 },
+  dateBlock: { width: 44, alignItems: 'center', marginRight: 2 },
+  dateBlockOff: { opacity: 0.5 },
+  dateDay: { fontSize: 10, fontWeight: '700', color: D.emerald, letterSpacing: 0.5 },
+  dateNum: { fontSize: 26, fontWeight: '800', color: D.text, lineHeight: 30, letterSpacing: -0.5 },
+  dateMon: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 0.5 },
   dateFaint: { color: D.light },
-
-  divider: { width: 1, height: 60, backgroundColor: D.border, marginHorizontal: 14 },
+  divider: { width: 1, height: 56, backgroundColor: D.border, marginHorizontal: 12 },
   dividerOff: { backgroundColor: '#EEF2F1' },
-
   content: { flex: 1 },
-  house: { fontSize: 15, fontWeight: '700', color: D.text, marginBottom: 2 },
-  role: { fontSize: 12, color: D.muted, marginBottom: 7 },
-
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  house: { fontSize: 15, fontWeight: '700', color: D.text, marginBottom: 1 },
+  role: { fontSize: 11.5, color: D.muted, marginBottom: 6 },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 },
   time: { fontSize: 12, fontWeight: '600', color: D.emerald },
   timeFaint: { color: D.muted },
   dur: { fontWeight: '500', color: D.light },
-
   addrRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   addr: { fontSize: 11, color: D.light, flex: 1 },
-
   hoursRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
   hoursLabel: { fontSize: 11, color: D.light, fontWeight: '500' },
-
-  right: { alignItems: 'flex-end', justifyContent: 'space-between', alignSelf: 'stretch', paddingLeft: 8 },
+  right: { alignItems: 'flex-end', justifyContent: 'space-between', alignSelf: 'stretch', paddingLeft: 6 },
   caret: { marginTop: 'auto' as any },
 });
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// ─── Open (claimable) shift card ─────────────────────────────────────────────
+function OpenShiftCard({ shift, onClaim, claiming }: { shift: Shift; onClaim: () => void; claiming: boolean }) {
+  const { day, num, mon } = dateParts(shift.startTime);
+  return (
+    <View style={osc.card}>
+      <View style={osc.topRow}>
+        <View style={osc.dateBlock}>
+          <Text style={osc.dateDay}>{day}</Text>
+          <Text style={osc.dateNum}>{num}</Text>
+          <Text style={osc.dateMon}>{mon}</Text>
+        </View>
+        <View style={osc.divider} />
+        <View style={osc.content}>
+          <Text style={osc.house} numberOfLines={1}>{shift.house?.name}</Text>
+          <Text style={osc.role}>{shiftTypeLabel(shift.shiftType)}</Text>
+          <View style={osc.timeRow}>
+            <Clock size={12} color={D.emerald} weight="regular" />
+            <Text style={osc.time}>
+              {fmtTime(shift.startTime)} – {fmtTime(shift.endTime)}
+              <Text style={osc.dur}> ({shiftDur(shift.startTime, shift.endTime)})</Text>
+            </Text>
+          </View>
+          <View style={osc.addrRow}>
+            <MapPin size={11} color={D.light} weight="regular" />
+            <Text style={osc.addr} numberOfLines={1}>{shift.house?.address}</Text>
+          </View>
+          <View style={osc.claimsRow}>
+            <Users size={12} color={D.openTxt} weight="regular" />
+            <Text style={osc.claimsTxt}>{shift.claimCount ?? 0} claimed so far</Text>
+          </View>
+        </View>
+      </View>
+      <Pressable
+        onPress={onClaim}
+        disabled={claiming}
+        style={({ pressed }) => [osc.claimBtn, pressed && { opacity: 0.85 }, claiming && { opacity: 0.6 }]}
+        accessibilityRole="button"
+        accessibilityLabel={`Claim shift at ${shift.house?.name}`}
+      >
+        {claiming
+          ? <ActivityIndicator color="#fff" size="small" />
+          : <Text style={osc.claimTxt}>Claim shift</Text>}
+      </Pressable>
+    </View>
+  );
+}
+const osc = StyleSheet.create({
+  card: { backgroundColor: D.white, borderRadius: 18, padding: 14, marginBottom: 10, borderWidth: 1.5, borderStyle: 'dashed', borderColor: D.openBorder },
+  topRow: { flexDirection: 'row', alignItems: 'center' },
+  dateBlock: { width: 44, alignItems: 'center', marginRight: 2 },
+  dateDay: { fontSize: 10, fontWeight: '700', color: D.emerald, letterSpacing: 0.5 },
+  dateNum: { fontSize: 26, fontWeight: '800', color: D.text, lineHeight: 30, letterSpacing: -0.5 },
+  dateMon: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 0.5 },
+  divider: { width: 1, height: 62, backgroundColor: D.border, marginHorizontal: 12 },
+  content: { flex: 1 },
+  house: { fontSize: 15, fontWeight: '700', color: D.text, marginBottom: 1 },
+  role: { fontSize: 11.5, color: D.muted, marginBottom: 5 },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  time: { fontSize: 12, fontWeight: '600', color: D.emerald },
+  dur: { fontWeight: '500', color: D.light },
+  addrRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
+  addr: { fontSize: 11, color: D.light, flex: 1 },
+  claimsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  claimsTxt: { fontSize: 11, fontWeight: '600', color: D.openTxt },
+  claimBtn: { marginTop: 12, backgroundColor: D.emerald, borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  claimTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
+});
+
+// ─── Loading skeleton ───────────────────────────────────────────────────────
+function ShiftSkeleton() {
+  return (
+    <View style={sc.card}>
+      <View style={sc.dateBlock}>
+        <Skeleton width={26} height={10} />
+        <Skeleton width={22} height={22} style={{ marginVertical: 3 }} />
+        <Skeleton width={24} height={10} />
+      </View>
+      <View style={sc.divider} />
+      <View style={sc.content}>
+        <Skeleton width="65%" height={14} />
+        <Skeleton width="38%" height={11} style={{ marginTop: 7 }} />
+        <Skeleton width="55%" height={11} style={{ marginTop: 8 }} />
+        <Skeleton width="60%" height={10} style={{ marginTop: 8 }} />
+      </View>
+      <View style={sc.right}>
+        <Skeleton width={62} height={22} radius={11} />
+      </View>
+    </View>
+  );
+}
+
+// ─── Empty state ────────────────────────────────────────────────────────────
+function Empty({ tab, searching }: { tab: Tab; searching: boolean }) {
+  const copy = searching
+    ? { title: 'No matches', sub: 'No shifts match your search. Try a different name or address.' }
+    : tab === 'available'
+    ? { title: 'No open shifts', sub: 'Open shifts you can pick up will show here.' }
+    : tab === 'upcoming'
+    ? { title: 'Nothing scheduled', sub: 'You have no upcoming shifts.' }
+    : { title: 'No past shifts', sub: 'Completed shifts will appear here.' };
+  return (
+    <View style={s.empty}>
+      <View style={s.emptyIcon}>
+        <CalendarBlank size={30} color={D.light} weight="thin" />
+      </View>
+      <Text style={s.emptyTitle}>{copy.title}</Text>
+      <Text style={s.emptySub}>{copy.sub}</Text>
+    </View>
+  );
+}
+
+// ─── Screen ─────────────────────────────────────────────────────────────────
 export default function ShiftsScreen() {
-  const [filter, setFilter] = useState<Filter>('upcoming');
-  const { upcoming, past, isLoading, refetch } = useUpcomingShifts();
   const router = useRouter();
+  const [tab, setTab] = useState<Tab>('available');
+  const [query, setQuery] = useState('');
 
-  const FILTERS: { key: Filter; label: string }[] = [
-    { key: 'upcoming', label: `Upcoming` },
-    { key: 'past',     label: `Past` },
-    { key: 'all',      label: 'All' },
-  ];
+  const { upcoming, past, isLoading: schedLoading, refetch: refetchSched } = useUpcomingShifts();
+  const { data: openShifts = [], isLoading: openLoading, refetch: refetchOpen } = useOpenShifts();
+  const claimShift = useClaimShift();
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const allShifts = [...upcoming, ...past].sort(
-    (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+  async function handleClaim(shift: Shift) {
+    setClaimingId(shift.id);
+    try {
+      await claimShift.mutateAsync(shift.id);
+      refetchOpen();
+      refetchSched();
+      Alert.alert('Shift claimed', `You're now on the schedule for ${shift.house?.name}.`);
+    } catch (err: any) {
+      if (err?.response?.status === 409) Alert.alert('Too late', 'Another worker claimed this shift.');
+      else if (err?.response?.status === 403) Alert.alert('Not eligible', "You're not eligible to claim this shift.");
+      else Alert.alert('Something went wrong', apiErrorMessage(err, 'Could not claim this shift. Please try again.'));
+    } finally {
+      setClaimingId(null);
+    }
+  }
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await Promise.all([refetchOpen(), refetchSched()]);
+    setRefreshing(false);
+  }
+
+  const sortedUpcoming = useMemo(
+    () => [...upcoming].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()),
+    [upcoming]
+  );
+  const sortedPast = useMemo(
+    () => [...past].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()),
+    [past]
   );
 
-  const displayUpcoming = filter === 'upcoming' || filter === 'all' ? upcoming : [];
-  const displayPast     = filter === 'past'     || filter === 'all' ? past     : [];
+  const counts = { available: openShifts.length, upcoming: upcoming.length, past: past.length };
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'available', label: 'Available' },
+    { key: 'upcoming', label: 'Upcoming' },
+    { key: 'past', label: 'Past' },
+  ];
+
+  const q = query.trim().toLowerCase();
+  const source = tab === 'available' ? openShifts : tab === 'upcoming' ? sortedUpcoming : sortedPast;
+  const data = useMemo(() => source.filter((sh) => matchesQuery(sh, q)), [source, q]);
+
+  const loading =
+    (tab === 'available' && openLoading && openShifts.length === 0) ||
+    (tab !== 'available' && schedLoading && upcoming.length === 0 && past.length === 0);
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={s.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={D.emerald} />}
-      >
+      {/* Header */}
+      <View style={s.header}>
+        <Text style={s.title}>Shifts</Text>
+        <Text style={s.subtitle}>Your available, upcoming and past shifts</Text>
+      </View>
 
-        {/* ── Header ── */}
-        <View style={s.header}>
-          <View>
-            <Text style={s.title}>Shifts</Text>
-            <Text style={s.subtitle}>View your upcoming and past shifts</Text>
-          </View>
-          <Pressable style={s.filterBtn}>
-            <Funnel size={18} color={D.muted} weight="regular" />
+      {/* Search */}
+      <View style={s.searchBar}>
+        <MagnifyingGlass size={17} color={D.light} weight="regular" />
+        <TextInput
+          style={s.searchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search by home or address"
+          placeholderTextColor={D.light}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          onSubmitEditing={Keyboard.dismiss}
+        />
+        {query.length > 0 && (
+          <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Clear search">
+            <X size={16} color={D.muted} weight="bold" />
           </Pressable>
-        </View>
-
-        {/* ── Filter Tabs ── */}
-        <View style={s.tabWrap}>
-          {FILTERS.map(f => (
-            <Pressable
-              key={f.key}
-              onPress={() => setFilter(f.key)}
-              style={[s.tab, filter === f.key && s.tabActive]}
-            >
-              <Text style={[s.tabTxt, filter === f.key && s.tabTxtActive]}>{f.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {isLoading ? (
-          <View style={s.loadWrap}><ActivityIndicator size="large" color={D.emerald} /></View>
-        ) : (
-          <>
-            {/* ── Upcoming Shifts ── */}
-            {displayUpcoming.length > 0 && (
-              <>
-                <Text style={s.sectionTitle}>Upcoming Shifts</Text>
-                {displayUpcoming.map(shift => <ShiftCard key={shift.id} shift={shift} onPress={() => router.push(`/shift/${shift.id}` as any)} />)}
-
-                {/* Weekly Rota */}
-                <Text style={[s.sectionTitle, { marginTop: 24 }]}>This Week's Shifts</Text>
-                {(() => {
-                  const grouped: Record<string, Shift[]> = {};
-                  displayUpcoming.forEach((shift) => {
-                    const date = new Date(shift.startTime).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-                    if (!grouped[date]) grouped[date] = [];
-                    grouped[date].push(shift);
-                  });
-
-                  const sortedDates = Object.keys(grouped).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-
-                  return sortedDates.length > 0 ? (
-                    sortedDates.map((date) => (
-                      <View key={date} style={s.rotaDay}>
-                        <Text style={s.rotaDayLabel}>{date}</Text>
-                        <View style={s.rotaDayShifts}>
-                          {grouped[date].map((shift) => (
-                            <View key={shift.id} style={s.rotaDayShift}>
-                              <View style={s.rotaShiftTime}>
-                                <Clock size={12} color={D.emerald} weight="bold" />
-                                <Text style={s.rotaShiftTimeText}>{fmtTime(shift.startTime)}–{fmtTime(shift.endTime)}</Text>
-                              </View>
-                              <Text style={s.rotaShiftHouse} numberOfLines={1}>{shift.house.name}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      </View>
-                    ))
-                  ) : (
-                    <View style={s.rotaEmpty}>
-                      <Text style={s.rotaEmptyTxt}>No shifts scheduled this week</Text>
-                    </View>
-                  );
-                })()}
-              </>
-            )}
-
-            {/* ── Past Shifts ── */}
-            {displayPast.length > 0 && (
-              <>
-                <Text style={[s.sectionTitle, displayUpcoming.length > 0 && { marginTop: 24 }]}>
-                  {filter === 'all' ? 'Recent Past Shifts' : 'Past Shifts'}
-                </Text>
-                {displayPast.map(shift => <ShiftCard key={shift.id} shift={shift} onPress={() => router.push(`/shift/${shift.id}` as any)} />)}
-              </>
-            )}
-
-            {/* ── Empty ── */}
-            {displayUpcoming.length === 0 && displayPast.length === 0 && (
-              <View style={s.empty}>
-                <View style={s.emptyIcon}>
-                  <CalendarBlank size={32} color={D.light} weight="thin" />
-                </View>
-                <Text style={s.emptyTitle}>No shifts found</Text>
-                <Text style={s.emptySub}>
-                  {filter === 'upcoming'
-                    ? 'You have no upcoming shifts scheduled.'
-                    : filter === 'past'
-                    ? 'No past shifts to display.'
-                    : 'No shifts found.'}
-                </Text>
-              </View>
-            )}
-          </>
         )}
+      </View>
 
-      </ScrollView>
+      {/* Tabs */}
+      <View style={s.tabWrap}>
+        {TABS.map((t) => {
+          const on = tab === t.key;
+          return (
+            <Pressable key={t.key} onPress={() => setTab(t.key)} style={[s.tab, on && s.tabActive]}>
+              <Text style={[s.tabTxt, on && s.tabTxtActive]}>{t.label}</Text>
+              {counts[t.key] > 0 && (
+                <View style={[s.tabCount, on && s.tabCountActive]}>
+                  <Text style={[s.tabCountTxt, on && s.tabCountTxtActive]}>{counts[t.key]}</Text>
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {loading ? (
+        <View style={s.skeletonWrap}>
+          {[0, 1, 2, 3, 4].map((i) => <ShiftSkeleton key={i} />)}
+        </View>
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={s.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={D.emerald} />}
+          ListEmptyComponent={<Empty tab={tab} searching={q.length > 0} />}
+          renderItem={({ item }) =>
+            tab === 'available' ? (
+              <OpenShiftCard
+                shift={item}
+                claiming={claimingId === item.id}
+                onClaim={() => handleClaim(item)}
+              />
+            ) : (
+              <ShiftCard shift={item} onPress={() => router.push(`/shift/${item.id}`)} />
+            )
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles ─────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: D.bg },
-  scroll: { paddingHorizontal: 18, paddingBottom: 110 },
-  loadWrap: { paddingTop: 80, alignItems: 'center' },
 
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingTop: 12, marginBottom: 16 },
-  title: { fontSize: 26, fontWeight: '700', color: D.text, letterSpacing: -0.4 },
+  header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14 },
+  title: { fontSize: 26, fontWeight: '800', color: D.text, letterSpacing: -0.5 },
   subtitle: { fontSize: 13, color: D.muted, marginTop: 3 },
-  filterBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: D.white, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: D.border, marginTop: 4 },
 
-  // Filter tabs — active uses solid emerald pill + white text
-  tabWrap: { flexDirection: 'row', backgroundColor: D.white, borderRadius: 14, padding: 4, marginBottom: 20, borderWidth: 1, borderColor: D.border, gap: 4 },
-  tab: { flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center' },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 18, marginBottom: 12,
+    backgroundColor: D.white, borderRadius: 13, borderWidth: 1, borderColor: D.border,
+    paddingHorizontal: 12, height: 44,
+  },
+  searchInput: { flex: 1, fontSize: 14, color: D.text, paddingVertical: 0 },
+
+  tabWrap: {
+    flexDirection: 'row', marginHorizontal: 18, marginBottom: 12,
+    backgroundColor: D.white, borderRadius: 13, padding: 4, borderWidth: 1, borderColor: D.border, gap: 4,
+  },
+  tab: {
+    flex: 1, flexDirection: 'row', gap: 5, paddingVertical: 9, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
   tabActive: { backgroundColor: D.emerald },
-  tabTxt: { fontSize: 13, fontWeight: '600', color: D.muted },
+  tabTxt: { fontSize: 13, fontWeight: '700', color: D.muted },
   tabTxtActive: { color: D.white },
+  tabCount: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: '#EEF2F1', alignItems: 'center', justifyContent: 'center' },
+  tabCountActive: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  tabCountTxt: { fontSize: 10, fontWeight: '800', color: D.muted },
+  tabCountTxtActive: { color: D.white },
 
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: D.muted, letterSpacing: 0.4, marginBottom: 12, textTransform: 'uppercase' },
+  listContent: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 120, flexGrow: 1 },
+  skeletonWrap: { paddingHorizontal: 18, paddingTop: 4 },
 
-  // Rota view
-  rotaDay: { marginBottom: 16 },
-  rotaDayLabel: { fontSize: 12, fontWeight: '700', color: D.muted, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 8 },
-  rotaDayShifts: { gap: 8 },
-  rotaDayShift: { backgroundColor: D.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: D.border },
-  rotaShiftTime: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  rotaShiftTimeText: { fontSize: 12, fontWeight: '600', color: D.text },
-  rotaShiftHouse: { fontSize: 13, color: D.muted },
-  rotaEmpty: { backgroundColor: D.white, borderRadius: 12, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: D.border, marginBottom: 16 },
-  rotaEmptyTxt: { fontSize: 13, color: D.muted },
-
-  // Empty state
-  empty: { alignItems: 'center', paddingTop: 60, paddingBottom: 40 },
-  emptyIcon: { width: 72, height: 72, borderRadius: 24, backgroundColor: D.white, alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1, borderColor: D.border },
-  emptyTitle: { fontSize: 17, fontWeight: '700', color: D.text, marginBottom: 8 },
-  emptySub: { fontSize: 14, color: D.muted, textAlign: 'center', lineHeight: 21, paddingHorizontal: 24 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 70, paddingHorizontal: 24 },
+  emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: D.white, alignItems: 'center', justifyContent: 'center', marginBottom: 14, borderWidth: 1, borderColor: D.border },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: D.text, marginBottom: 6 },
+  emptySub: { fontSize: 13.5, color: D.muted, textAlign: 'center', lineHeight: 20 },
 });

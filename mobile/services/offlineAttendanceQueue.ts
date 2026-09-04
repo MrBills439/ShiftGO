@@ -15,6 +15,7 @@ export interface OfflineAttendanceEvent {
   latitude?: number;
   longitude?: number;
   accuracy?: number;
+  capturedAt?: string;
   reason?: string;
   syncStatus: AttendanceSyncStatus;
   retryCount: number;
@@ -103,12 +104,13 @@ export async function captureAttendanceLocation() {
     const permission = await Location.getForegroundPermissionsAsync();
     if (permission.status !== 'granted') return {};
     const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.High,
     });
     return {
       latitude: location.coords.latitude,
       longitude: location.coords.longitude,
       accuracy: location.coords.accuracy ?? undefined,
+      capturedAt: new Date(location.timestamp || Date.now()).toISOString(),
     };
   } catch {
     return {};
@@ -123,6 +125,7 @@ export async function queueOfflineAttendanceEvent(input: {
   latitude?: number;
   longitude?: number;
   accuracy?: number;
+  capturedAt?: string;
   reason?: string;
 }): Promise<OfflineAttendanceEvent> {
   const queue = await loadAttendanceQueue();
@@ -135,7 +138,7 @@ export async function queueOfflineAttendanceEvent(input: {
   if (existing) return existing;
 
   const location = input.latitude != null && input.longitude != null
-    ? { latitude: input.latitude, longitude: input.longitude, accuracy: input.accuracy }
+    ? { latitude: input.latitude, longitude: input.longitude, accuracy: input.accuracy, capturedAt: input.capturedAt }
     : await captureAttendanceLocation();
   const event: OfflineAttendanceEvent = {
     localId: localId(),
@@ -162,6 +165,7 @@ async function postAttendanceEvent(event: OfflineAttendanceEvent) {
     latitude: event.latitude,
     longitude: event.longitude,
     accuracy: event.accuracy,
+    capturedAt: event.capturedAt,
     reason: event.reason,
     locationSource: 'OFFLINE_SYNC',
   });
@@ -174,7 +178,9 @@ export async function syncAttendanceQueue(): Promise<AttendanceQueueSummary> {
   try {
     let queue = sortByTimestamp(await loadAttendanceQueue());
     for (const event of queue) {
-      if (event.syncStatus === 'SYNCED' || event.syncStatus === 'SYNCING' || event.terminalFailure) continue;
+      // A leftover 'SYNCING' means a previous run died mid-flight — retry it,
+      // don't skip it (that used to strand events forever).
+      if (event.syncStatus === 'SYNCED' || event.terminalFailure) continue;
 
       queue = queue.map((item) => item.localId === event.localId
         ? { ...item, syncStatus: 'SYNCING', retryCount: item.retryCount + 1, lastError: undefined }
@@ -206,7 +212,12 @@ export async function syncAttendanceQueue(): Promise<AttendanceQueueSummary> {
                 terminalFailure: isTerminalHttpError(error),
               }
             : item);
-          if (isNetworkError(error)) break;
+          if (isNetworkError(error)) {
+            // Persist the FAILED state before bailing so the next sync retries
+            // it, then stop — the connection is down, no point trying the rest.
+            await saveAttendanceQueue(queue);
+            break;
+          }
         }
       }
 

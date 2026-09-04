@@ -1,19 +1,23 @@
 'use client';
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { PlusIcon, BuildingsIcon, MapPinIcon, UsersIcon, PencilIcon, MagnifyingGlassIcon } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { Modal } from '@/components/ui/Modal';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { useHouses, useCreateHouse, useUpdateGeofence } from '@/hooks/useHouses';
 import { useUsers } from '@/hooks/useWorkers';
 import { useShifts } from '@/hooks/useShifts';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
 
-export default function LocationsPage() {
+export default function ServicesPage() {
   const user = useAuthStore((s) => s.user);
+  const router = useRouter();
   const { data: houses = [], isLoading } = useHouses();
   const { data: managers = [] } = useUsers('MANAGER');
   const { data: shifts = [] } = useShifts();
@@ -24,11 +28,12 @@ export default function LocationsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [geofenceHouse, setGeofenceHouse] = useState<{ id: string; name: string; radius: number } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [form, setForm] = useState({ name: '', address: '', latitude: '', longitude: '', geofenceRadius: '50', managerId: '' });
+  const [form, setForm] = useState({ name: '', address: '', latitude: '', longitude: '', geofenceRadius: '50', managerId: '', assignedHours: '' });
   const [radius, setRadius] = useState('50');
   const [createError, setCreateError] = useState('');
 
   const isHR = user?.role === 'HR';
+  const canCreateService = ['HR', 'MANAGER'].includes(user?.role ?? '');
 
   // Calculate summary stats
   const stats = useMemo(() => {
@@ -45,7 +50,7 @@ export default function LocationsPage() {
   }, [houses, shifts]);
 
   // Filter locations by search
-  const filteredLocations = useMemo(() => {
+  const filteredServices = useMemo(() => {
     if (!searchTerm) return houses;
     const query = searchTerm.toLowerCase();
     return houses.filter((h) => h.name.toLowerCase().includes(query) || h.address.toLowerCase().includes(query));
@@ -67,19 +72,21 @@ export default function LocationsPage() {
         return;
       }
 
-      await createHouse.mutateAsync({
+      const res = await createHouse.mutateAsync({
         name: form.name.trim(),
         address: form.address.trim(),
         latitude: lat,
         longitude: lon,
         geofenceRadius: parseInt(form.geofenceRadius, 10),
         managerId: form.managerId || undefined,
+        assignedHours: form.assignedHours ? parseFloat(form.assignedHours) : undefined,
       });
       setCreateOpen(false);
-      setForm({ name: '', address: '', latitude: '', longitude: '', geofenceRadius: '50', managerId: '' });
-      toast.success('Location created successfully');
+      setForm({ name: '', address: '', latitude: '', longitude: '', geofenceRadius: '50', managerId: '', assignedHours: '' });
+      toast.success('Service created — add the people it supports next');
+      router.push(`/dashboard/houses/${res.data.data.id}`);
     } catch (e: any) {
-      setCreateError(e.response?.data?.message ?? 'Failed to create location');
+      setCreateError(e.response?.data?.message ?? 'Failed to create service');
     }
   }
 
@@ -103,11 +110,11 @@ export default function LocationsPage() {
   return (
     <div className="space-y-8">
       <Header
-        title="Locations"
-        subtitle="Manage care homes, sites, geofences, assigned teams, and coverage"
-        action={isHR && (
+        title="Services"
+        subtitle="Manage services, sites, geofences, assigned teams, and coverage"
+        action={canCreateService && (
           <Button variant="primary" icon={<PlusIcon size={16} />} onClick={() => setCreateOpen(true)}>
-            Add Location
+            Add Service
           </Button>
         )}
       />
@@ -115,11 +122,11 @@ export default function LocationsPage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-4">
-          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Total Locations</p>
+          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Total Services</p>
           <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.total}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Active Locations</p>
+          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Active Services</p>
           <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.active}</p>
         </Card>
         <Card className="p-4">
@@ -137,36 +144,37 @@ export default function LocationsPage() {
         <MagnifyingGlassIcon size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-muted" />
         <input
           type="text"
-          placeholder="Search by location name or address…"
+          placeholder="Search by service name or address…"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-10 pr-4 py-2.5 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </div>
 
-      {/* Locations Directory */}
+      {/* Services Directory */}
       {isLoading ? (
         <div className="p-8 text-center">
           <div className="w-8 h-8 rounded-full border-2 border-neutral-200 border-t-primary animate-spin mx-auto mb-3" />
           <p className="text-sm text-fg-muted">Loading locations…</p>
         </div>
-      ) : filteredLocations.length === 0 ? (
+      ) : filteredServices.length === 0 ? (
         <div className="text-center py-12">
           <BuildingsIcon size={48} className="mx-auto text-fg-muted/30 mb-4" />
-          <p className="text-fg font-medium">No locations found</p>
+          <p className="text-fg font-medium">No services found</p>
           <p className="text-sm text-fg-muted mt-1">
-            {searchTerm ? 'Try adjusting your search' : 'Create your first location to get started'}
+            {searchTerm ? 'Try adjusting your search' : 'Create your first service to get started'}
           </p>
         </div>
       ) : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredLocations.map((h) => {
-            const todayShiftsForLocation = shifts.filter(
+          {filteredServices.map((h) => {
+            const todayShiftsForService = shifts.filter(
               (s) => s.houseId === h.id && new Date(s.date).toDateString() === new Date().toDateString() && s.status !== 'CANCELLED'
             );
 
             return (
-              <Card key={h.id} className="p-5 flex flex-col gap-4 hover:shadow-md transition-shadow">
+              <Link key={h.id} href={`/dashboard/houses/${h.id}`}>
+              <Card className="p-5 flex flex-col gap-4 hover:shadow-md transition-shadow cursor-pointer">
                 {/* Header */}
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
@@ -178,12 +186,14 @@ export default function LocationsPage() {
                       {h.manager && <p className="text-xs text-fg-muted">{h.manager.name}</p>}
                     </div>
                   </div>
-                  {isHR && (
+                  {canCreateService && (
                     <Button
                       size="sm"
                       variant="ghost"
                       icon={<PencilIcon size={16} />}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setGeofenceHouse({ id: h.id, name: h.name, radius: h.geofenceRadius });
                         setRadius(String(h.geofenceRadius));
                       }}
@@ -202,7 +212,7 @@ export default function LocationsPage() {
                 <div className="h-px bg-neutral-200" />
 
                 {/* Stats */}
-                <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="grid grid-cols-4 gap-2 text-center">
                   <div className="bg-neutral-50 rounded-lg py-2 px-1">
                     <p className="text-sm font-bold text-fg">{h.geofenceRadius}m</p>
                     <p className="text-[10px] text-fg-muted mt-1">Geofence</p>
@@ -215,8 +225,12 @@ export default function LocationsPage() {
                     <p className="text-[10px] text-fg-muted mt-1">Staff</p>
                   </div>
                   <div className="bg-neutral-50 rounded-lg py-2 px-1">
-                    <p className="text-sm font-bold text-fg">{todayShiftsForLocation.length}</p>
+                    <p className="text-sm font-bold text-fg">{todayShiftsForService.length}</p>
                     <p className="text-[10px] text-fg-muted mt-1">Today</p>
+                  </div>
+                  <div className="bg-neutral-50 rounded-lg py-2 px-1">
+                    <p className="text-sm font-bold text-fg">{h.assignedHours != null ? `${h.assignedHours}h` : '—'}</p>
+                    <p className="text-[10px] text-fg-muted mt-1">Hrs/wk</p>
                   </div>
                 </div>
 
@@ -232,18 +246,20 @@ export default function LocationsPage() {
                   </span>
                 </div>
               </Card>
+              </Link>
             );
           })}
         </div>
       )}
 
-      {/* Create Location Modal */}
-      <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="Add Location">
+      {/* Create Service Modal */}
+      <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="Add Service">
         <form onSubmit={handleCreate} className="space-y-4">
-          <p className="text-sm text-fg-muted">Create a new care home or location. Set the geofence radius for automatic clock-in.</p>
+          <LoadingOverlay show={createHouse.isPending} label="Creating service…" />
+          <p className="text-sm text-fg-muted">Create a new service. Set the geofence radius for automatic clock-in.</p>
 
           <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Location Name *</label>
+            <label className="block text-sm font-medium text-fg mb-1.5">Service Name *</label>
             <input
               type="text"
               placeholder="Maple House"
@@ -308,18 +324,38 @@ export default function LocationsPage() {
               <p className="text-xs text-fg-muted mt-1">Workers within this radius trigger auto clock-in</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Location Manager</label>
-              <select
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                value={form.managerId}
-                onChange={(e) => setForm({ ...form, managerId: e.target.value })}
-              >
-                <option value="">No manager</option>
-                {managers.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
+              <label className="block text-sm font-medium text-fg mb-1.5">Service Manager</label>
+              {user?.role === 'MANAGER' ? (
+                <p className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm bg-neutral-50 text-fg-muted">
+                  You ({user.name}) — services you create are assigned to you
+                </p>
+              ) : (
+                <select
+                  className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={form.managerId}
+                  onChange={(e) => setForm({ ...form, managerId: e.target.value })}
+                >
+                  <option value="">No manager</option>
+                  {managers.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-fg mb-1.5">Assigned Hours (per week)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              placeholder="e.g. 336 for round-the-clock two-person cover"
+              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              value={form.assignedHours}
+              onChange={(e) => setForm({ ...form, assignedHours: e.target.value })}
+            />
+            <p className="text-xs text-fg-muted mt-1">Total staffing hours budgeted for this service each week</p>
           </div>
 
           {createError && (
@@ -340,7 +376,7 @@ export default function LocationsPage() {
               type="submit"
               disabled={createHouse.isPending}
             >
-              {createHouse.isPending ? 'Creating…' : 'Create Location'}
+              {createHouse.isPending ? 'Creating…' : 'Create Service'}
             </Button>
           </div>
         </form>
@@ -353,6 +389,7 @@ export default function LocationsPage() {
         title={`Edit Geofence — ${geofenceHouse?.name}`}
       >
         <form onSubmit={handleUpdateGeofence} className="space-y-4">
+          <LoadingOverlay show={updateGeofence.isPending} label="Saving…" />
           <p className="text-sm text-fg-muted">
             Set the radius in metres. Workers within this distance trigger automatic clock-in when they arrive at the location.
           </p>

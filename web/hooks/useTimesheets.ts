@@ -1,6 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Timesheet } from '@/types';
+import { AttendanceReviewItem, Timesheet } from '@/types';
+
+export function useMyTimesheets() {
+  return useQuery<Timesheet[]>({
+    queryKey: ['timesheets', 'me'],
+    queryFn: async () => {
+      const { data } = await api.get('/timesheets/me');
+      return data.data;
+    },
+    staleTime: 20_000,
+  });
+}
 
 export function useHouseTimesheets(houseId: string) {
   return useQuery<Timesheet[]>({
@@ -28,6 +39,32 @@ export function useRejectTimesheet() {
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post(`/timesheets/${id}/reject`, { reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['timesheets'] }),
+  });
+}
+
+/** Attendance records the GPS state machine flagged (needsReview=true) —
+ *  agency-wide, MANAGER/HR only. */
+export function useNeedsReview() {
+  return useQuery<AttendanceReviewItem[]>({
+    queryKey: ['timesheets', 'needs-review'],
+    queryFn: async () => {
+      const { data } = await api.get('/timesheets/needs-review');
+      return data.data;
+    },
+    staleTime: 15_000,
+  });
+}
+
+/** Resolve a flagged attendance record: confirm an open one's clock-out time,
+ *  or clear review on an already-closed one (omit clockOutTime). */
+export function useResolveReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, clockOutTime, reason }: { id: string; clockOutTime?: string; reason?: string }) =>
+      api.post(`/timesheets/${id}/resolve-review`, { clockOutTime, reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['timesheets'] });
+    },
   });
 }
 

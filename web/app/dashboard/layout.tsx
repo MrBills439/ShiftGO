@@ -1,18 +1,33 @@
 'use client';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { CommandPalette } from '@/components/operations/CommandPalette';
+import { AnnouncementsPopup } from '@/components/announcements/AnnouncementsPopup';
+import { ProfileSyncError } from '@/components/auth/ProfileSyncError';
 import { useAuthStore } from '@/store/authStore';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, hydrate } = useAuthStore();
+  const { user, isLoading, error } = useAuthStore();
+  const { isLoaded: clerkLoaded, isSignedIn } = useAuth();
   const router = useRouter();
 
-  useEffect(() => { hydrate(); }, []);
+  // Only bounce to /sign-in once Clerk itself confirms there's no session — not
+  // merely because our own `/users/me` sync hasn't resolved yet (or hiccuped).
+  const definitelySignedOut = clerkLoaded && !isSignedIn;
+
   useEffect(() => {
-    if (!isLoading && !user) router.replace('/login');
-  }, [user, isLoading]);
+    if (definitelySignedOut) router.replace('/sign-in');
+  }, [definitelySignedOut]);
+
+  if (definitelySignedOut) return null;
+
+  // Signed into Clerk, but the profile sync exhausted its retries. Show a real
+  // error with retry / sign-out instead of an infinite spinner.
+  if (clerkLoaded && isSignedIn && !isLoading && (error || !user)) {
+    return <ProfileSyncError />;
+  }
 
   if (isLoading || !user) {
     return (
@@ -26,9 +41,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen bg-surface">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-container mx-auto p-6 lg:p-8">{children}</div>
+        <div className="p-6 lg:p-8">{children}</div>
       </main>
       <CommandPalette />
+      <AnnouncementsPopup />
     </div>
   );
 }

@@ -13,4 +13,8 @@ router.post('/:id/confirm', validators.confirmTimesheet, atLeast('TEAM_LEADER'),
 router.post('/:id/reject', validators.rejectTimesheet, atLeast('MANAGER'), asyncHandler(ctrl.rejectTimesheet));
 router.get('/house/:houseId/export', validators.houseTimesheets, atLeast('MANAGER'), asyncHandler(ctrl.exportPDF));
 
+// Attendance the GPS state machine flagged for review (needsReview=true) — MANAGER/HR only.
+router.get('/needs-review', atLeast('MANAGER'), asyncHandler(ctrl.needsReview));
+router.post('/:id/resolve-review', validators.resolveTimesheetReview, atLeast('MANAGER'), asyncHandler(ctrl.resolveReview));
+
 module.exports = router;

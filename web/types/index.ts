@@ -2,9 +2,11 @@ export type Role = 'HR' | 'MANAGER' | 'TEAM_LEADER' | 'WORKER';
 
 export interface AuthUser {
   id: string;
+  agencyId: string;
   name: string;
   email: string;
   role: Role;
+  agency?: { name: string };
 }
 
 export interface House {
@@ -16,6 +18,7 @@ export interface House {
   geofenceRadius: number;
   autoConfirm: boolean;
   managerId: string | null;
+  assignedHours?: number | null;
   manager?: { id: string; name: string } | null;
   workers?: { worker: User }[];
   teamLeaders?: { teamLeader: User }[];
@@ -29,31 +32,46 @@ export interface User {
   role: Role;
   status?: 'ACTIVE' | 'DEACTIVATED';
   phone?: string | null;
+  contractedHours?: number | null;
   deactivatedAt?: string | null;
   deactivatedById?: string | null;
   deactivationReason?: string | null;
   createdAt: string;
 }
 
-export type ShiftType = 'DAY' | 'WAKE_NIGHT' | 'SLEEP_IN' | 'EMERGENCY';
+export type ShiftType = 'LONG_DAY' | 'MID_DAY' | 'WAKE_NIGHT' | 'SLEEP_IN';
+
+export type ShiftStatus = 'SCHEDULED' | 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
 export interface Shift {
   id: string;
   houseId: string;
-  workerId: string;
+  workerId: string | null;
   createdById: string;
   startTime: string;
   endTime: string;
   date: string;
   shiftType: ShiftType;
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: ShiftStatus;
+  urgent: boolean;
+  eligibleRoles: string[];
+  claimCount?: number;
   cancelledAt: string | null;
   cancelledById: string | null;
   cancellationReason: string | null;
   house: House;
-  worker: { id: string; name: string; email: string };
+  worker: { id: string; name: string; email: string } | null;
   cancelledBy?: { id: string; name: string; email: string } | null;
   timesheet?: Timesheet | null;
+}
+
+export interface ShiftClaim {
+  id: string;
+  shiftId: string;
+  workerId: string;
+  worker: { id: string; name: string; email: string };
+  claimedAt: string;
+  status: string;
 }
 
 export interface RotaShiftSummary {
@@ -63,7 +81,10 @@ export interface RotaShiftSummary {
   startTime: string;
   endTime: string;
   shiftType: ShiftType;
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: ShiftStatus;
+  urgent: boolean;
+  eligibleRoles: string[];
+  claimCount?: number;
   cancellationReason: string | null;
   timesheet?: {
     id: string;
@@ -74,6 +95,9 @@ export interface RotaShiftSummary {
     reviewedAt: string | null;
   } | null;
 }
+
+export type LocationStatus = 'ONSITE' | 'OFFSITE' | 'UNKNOWN';
+export type ClockMethod = 'AUTO' | 'MANUAL';
 
 export interface Timesheet {
   id: string;
@@ -90,10 +114,24 @@ export interface Timesheet {
   reviewedById: string | null;
   reviewedAt: string | null;
   autoConfirmed: boolean;
+  /** Set when the GPS attendance system could not safely auto-clock-out and
+   *  needs a manager to confirm or clear it. See reviewReason. */
+  needsReview: boolean;
+  reviewReason: string | null;
+  clockInLocationStatus: LocationStatus | null;
+  clockOutLocationStatus: LocationStatus | null;
+  clockOutMethod: ClockMethod | null;
   worker: { id: string; name: string; email: string };
   reviewedBy?: { id: string; name: string; email: string } | null;
   shift: Shift;
   house: House;
+}
+
+/** GET /timesheets/needs-review — agency-wide, so the shift/house are a small
+ *  fixed subset rather than the full nested Shift/House shapes. */
+export interface AttendanceReviewItem extends Omit<Timesheet, 'shift' | 'house'> {
+  shift: { id: string; startTime: string; endTime: string; shiftType: ShiftType; status: ShiftStatus };
+  house: { id: string; name: string; address: string };
 }
 
 export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -104,8 +142,9 @@ export interface LeaveRequest {
   workerId: string;
   startDate: string;
   endDate: string;
-  reason: string;
+  reason: string | null;
   status: LeaveStatus;
+  totalHours: number;
   rejectionReason: string | null;
   reviewedById: string | null;
   reviewedAt: string | null;
@@ -113,6 +152,71 @@ export interface LeaveRequest {
   updatedAt: string;
   worker: User;
   reviewedBy?: { id: string; name: string; email: string } | null;
+}
+
+export type RightToWorkStatus = 'MISSING' | 'CURRENT' | 'STALE';
+
+export interface ShareCode {
+  id?: string;
+  userId: string;
+  code: string | null;
+  shareDate: string | null;
+  notes: string | null;
+  hasDocument: boolean;
+  documentName?: string | null;
+  documentUrl?: string | null;
+  updatedAt?: string;
+  updatedBy?: { id: string; name: string } | null;
+  status: RightToWorkStatus;
+  daysUntilStale?: number;
+  staleAfterDays: number;
+}
+
+export interface RightToWorkRow {
+  user: { id: string; name: string; email: string; role: Role };
+  shareCode: ShareCode | null;
+  status: RightToWorkStatus;
+}
+
+export interface RightToWorkList {
+  staleAfterDays: number;
+  counts: { total: number; current: number; stale: number; missing: number };
+  rows: RightToWorkRow[];
+}
+
+export type AccrualMethod = 'FLAT_RATE' | 'HOURLY' | 'LUMP_SUM';
+
+/** GET /leave-requests/balance — the PTO Net Usable Balance breakdown, in hours. */
+export interface LeaveBalanceSummary {
+  method: AccrualMethod;
+  asOf: string;
+  carriedOverHours: number;
+  accruedToDate: number;
+  grossAvailableRaw: number;
+  grossAvailable: number;
+  ceilingApplied: boolean;
+  balanceCeilingHours: number | null;
+  approvedTaken: number;
+  pendingScheduled: number;
+  netUsableBalance: number;
+  allowNegativeBalance: boolean;
+  cycleStartDate: string;
+  totalWorkedHours: number;
+  dailyHours: number;
+  hasConfiguredProfile: boolean;
+}
+
+export interface Announcement {
+  id: string;
+  agencyId: string;
+  authorId: string;
+  title: string;
+  body: string;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+  author: { id: string; name: string; role: Role };
+  read?: boolean;
 }
 
 export interface RotaDay {

@@ -80,24 +80,6 @@ const gps = [
     .withMessage('Accuracy must be between 0 and 5000 metres'),
 ];
 
-const requiredGps = [
-  body('latitude')
-    .notEmpty()
-    .withMessage('Latitude is required')
-    .isFloat({ min: -90, max: 90 })
-    .withMessage('Latitude must be between -90 and 90'),
-  body('longitude')
-    .notEmpty()
-    .withMessage('Longitude is required')
-    .isFloat({ min: -180, max: 180 })
-    .withMessage('Longitude must be between -180 and 180'),
-  body('accuracy')
-    .notEmpty()
-    .withMessage('Accuracy is required')
-    .bail()
-    .isFloat({ min: 0, max: 5000 })
-    .withMessage('Accuracy must be between 0 and 5000 metres'),
-];
 
 const validators = {
   login: [
@@ -492,6 +474,11 @@ const validators = {
       .optional()
       .isFloat({ min: 0, max: 5000 })
       .withMessage('Accuracy must be between 0 and 5000 metres'),
+    optionalIsoDate('capturedAt', 'Location capture time'),
+    body('mockLocationSuspected')
+      .optional()
+      .isBoolean()
+      .withMessage('mockLocationSuspected must be a boolean'),
     body('reason')
       .optional({ nullable: true, checkFalsy: true })
       .trim()
@@ -504,13 +491,19 @@ const validators = {
     handleValidationErrors,
   ],
 
-  autoCheckin: [
-    ...requiredGps,
+  reportLocation: [
+    requiredIdBody('shiftId', 'Shift ID'),
+    ...gps,
+    optionalIsoDate('capturedAt', 'Location capture time'),
+    body('mockLocationSuspected')
+      .optional()
+      .isBoolean()
+      .withMessage('mockLocationSuspected must be a boolean'),
     handleValidationErrors,
   ],
 
-  geofenceExit: [
-    ...requiredGps,
+  attendanceAction: [
+    requiredIdBody('shiftId', 'Shift ID'),
     handleValidationErrors,
   ],
 
@@ -735,6 +728,20 @@ const validators = {
       .bail()
       .isLength({ min: 3, max: 500 })
       .withMessage('Rejection reason must be between 3 and 500 characters'),
+    handleValidationErrors,
+  ],
+
+  resolveTimesheetReview: [
+    ...idParam('id', 'Timesheet ID'),
+    body('clockOutTime')
+      .optional({ nullable: true, checkFalsy: true })
+      .isISO8601()
+      .withMessage('Clock-out time must be a valid date/time'),
+    body('reason')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Resolution reason must be 500 characters or fewer'),
     handleValidationErrors,
   ],
 

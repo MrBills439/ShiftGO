@@ -1,55 +1,80 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PlusIcon, MagnifyingGlassIcon } from '@phosphor-icons/react';
+import {
+  PlusIcon, MagnifyingGlassIcon, UsersThreeIcon, UserCircleMinusIcon,
+  ClockIcon, ShieldCheckIcon, PencilSimpleIcon,
+  BuildingsIcon, UserMinusIcon as DeactivateIcon,
+} from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useUsers, useCreateUser, useAssignWorker, useDeactivateUser, type UserStatus } from '@/hooks/useWorkers';
+import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
+import { DataTable } from '@/components/ui/DataTable';
+import { FilterBar } from '@/components/ui/FilterBar';
+import { FieldShell, Select as UiSelect, Input as UiInput } from '@/components/ui/Input';
+import { useUsers, useCreateUser, useAssignWorker, useDeactivateUser, useUpdateUser, type UserStatus } from '@/hooks/useWorkers';
 import { useHouses } from '@/hooks/useHouses';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
-import type { Role } from '@/types';
+import { ROLE_LABELS, ROLE_META, initials } from '@/lib/roles';
+import { clsx } from 'clsx';
+import type { Role, User } from '@/types';
 
 const ROLE_OPTIONS: Role[] = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
-const ROLE_LABELS: Record<Role, string> = {
-  WORKER: 'Worker',
-  TEAM_LEADER: 'Team Lead',
-  MANAGER: 'Manager',
-  HR: 'HR',
-};
 
-export default function PeoplePage() {
+export default function StaffPage() {
   const user = useAuthStore((s) => s.user);
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<UserStatus>('ACTIVE');
   const [roleFilter, setRoleFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const { data: users = [], isLoading } = useUsers(undefined, statusFilter);
+  // Team leaders can only ever list workers (matches the backend's restriction) —
+  // force that filter for them; HR/Manager keep fetching the full roster as before.
+  const isTeamLeader = user?.role === 'TEAM_LEADER';
+  const { data: users = [], isLoading } = useUsers(isTeamLeader ? 'WORKER' : undefined, statusFilter);
   const { data: houses = [] } = useHouses();
   const createUser = useCreateUser();
   const assignWorker = useAssignWorker();
   const deactivateUser = useDeactivateUser();
+  const updateUser = useUpdateUser();
   const toast = useToast();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState<{ id: string; name: string } | null>(null);
   const [deactivateOpen, setDeactivateOpen] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [hoursOpen, setHoursOpen] = useState<{ id: string; name: string; contractedHours: number | null } | null>(null);
+  const [hoursValue, setHoursValue] = useState('');
   const [form, setForm] = useState({ name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER' as Role });
   const [assignHouseId, setAssignHouseId] = useState('');
   const [deactivationReason, setDeactivationReason] = useState('');
   const [deactivationError, setDeactivationError] = useState('');
   const [createError, setCreateError] = useState('');
 
+  async function handleUpdateHours(e: React.FormEvent) {
+    e.preventDefault();
+    if (!hoursOpen) return;
+    try {
+      await updateUser.mutateAsync({ id: hoursOpen.id, contractedHours: hoursValue ? parseFloat(hoursValue) : null });
+      setHoursOpen(null);
+      toast.success('Contracted hours updated');
+    } catch {
+      toast.error('Failed to update contracted hours');
+    }
+  }
+
+  const canViewStaff = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
   const canManageStaff = ['HR', 'MANAGER'].includes(user?.role ?? '');
-  const isHR = user?.role === 'HR';
+  const canAssignWorker = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
+  // Managers can create staff, but not HR accounts — that stays HR-only.
+  const creatableRoles = user?.role === 'MANAGER' ? ROLE_OPTIONS.filter((r) => r !== 'HR') : ROLE_OPTIONS;
 
   useEffect(() => {
-    if (user && !canManageStaff) router.replace('/dashboard');
-  }, [user, canManageStaff, router]);
+    if (user && !canViewStaff) router.replace('/dashboard');
+  }, [user, canViewStaff, router]);
 
   // Calculate summary stats
   const stats = useMemo(() => {
@@ -77,7 +102,9 @@ export default function PeoplePage() {
     return items;
   }, [users, roleFilter, searchTerm]);
 
-  if (user && !canManageStaff) return null;
+  const activeFilterCount = (roleFilter ? 1 : 0) + (searchTerm ? 1 : 0);
+
+  if (user && !canViewStaff) return null;
 
   function errorMessage(e: any) {
     const fields = e.response?.data?.error?.fields;
@@ -153,7 +180,7 @@ export default function PeoplePage() {
   return (
     <div className="space-y-8">
       <Header
-        title="People"
+        title="Staff"
         subtitle="Manage workers, managers, HR, availability, status, and staff records"
         action={canManageStaff && (
           <Button variant="primary" icon={<PlusIcon size={16} />} onClick={() => setCreateOpen(true)}>
@@ -165,210 +192,277 @@ export default function PeoplePage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card
-          className={`p-4 cursor-pointer transition-all ${statusFilter === 'ACTIVE' ? 'ring-2 ring-primary' : ''}`}
+          className={clsx('p-4 cursor-pointer transition-all', statusFilter === 'ACTIVE' && 'ring-2 ring-primary')}
           onClick={() => { setStatusFilter('ACTIVE'); setSearchTerm(''); }}
         >
-          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Active Staff</p>
-          <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.active}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Active Staff</p>
+              <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.active}</p>
+            </div>
+            <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">
+              <UsersThreeIcon size={20} className="text-success" />
+            </div>
+          </div>
         </Card>
         <Card
-          className={`p-4 cursor-pointer transition-all ${statusFilter === 'DEACTIVATED' ? 'ring-2 ring-primary' : ''}`}
+          className={clsx('p-4 cursor-pointer transition-all', statusFilter === 'DEACTIVATED' && 'ring-2 ring-primary')}
           onClick={() => { setStatusFilter('DEACTIVATED'); setSearchTerm(''); }}
         >
-          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Deactivated</p>
-          <p className="text-3xl font-bold text-danger font-inter mt-2">{stats.deactivated}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Deactivated</p>
+              <p className="text-3xl font-bold text-danger font-inter mt-2">{stats.deactivated}</p>
+            </div>
+            <div className="w-10 h-10 rounded-lg bg-danger/10 flex items-center justify-center">
+              <UserCircleMinusIcon size={20} className="text-danger" />
+            </div>
+          </div>
         </Card>
         <Card className="p-4">
-          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Workers</p>
-          <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.workers}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Workers</p>
+              <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.workers}</p>
+            </div>
+            <div className={clsx('w-10 h-10 rounded-lg flex items-center justify-center', ROLE_META.WORKER.avatarClass)}>
+              <ClockIcon size={20} />
+            </div>
+          </div>
         </Card>
         <Card className="p-4">
-          <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Managers/HR</p>
-          <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.managers}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Managers/HR</p>
+              <p className="text-3xl font-bold text-fg font-inter mt-2">{stats.managers}</p>
+            </div>
+            <div className={clsx('w-10 h-10 rounded-lg flex items-center justify-center', ROLE_META.MANAGER.avatarClass)}>
+              <ShieldCheckIcon size={20} />
+            </div>
+          </div>
         </Card>
       </div>
 
-      {/* Status & Role Filters */}
-      <div className="flex flex-wrap gap-2">
+      {/* Status tabs */}
+      <div className="inline-flex rounded-lg border border-border bg-surface p-1">
         {(['ACTIVE', 'DEACTIVATED'] as UserStatus[]).map((status) => (
-          <Button
+          <button
             key={status}
-            variant={statusFilter === status ? 'primary' : 'secondary'}
-            size="sm"
             onClick={() => setStatusFilter(status)}
+            className={clsx(
+              'rounded-md px-4 py-1.5 text-sm font-semibold transition-colors',
+              statusFilter === status ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
+            )}
           >
             {status === 'ACTIVE' ? 'Active' : 'Deactivated'}
-          </Button>
-        ))}
-        <div className="w-px bg-neutral-200" />
-        {['', ...ROLE_OPTIONS].map((r) => (
-          <Button
-            key={r || 'all'}
-            variant={roleFilter === r ? 'primary' : 'secondary'}
-            size="sm"
-            onClick={() => setRoleFilter(r)}
-          >
-            {r ? ROLE_LABELS[r as Role] : 'All Roles'}
-          </Button>
+          </button>
         ))}
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <MagnifyingGlassIcon size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-muted" />
-        <input
-          type="text"
-          placeholder="Search by name or email…"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-        />
-      </div>
+      {/* Filters */}
+      <FilterBar activeCount={activeFilterCount} onClear={() => { setRoleFilter(''); setSearchTerm(''); }}>
+        <FieldShell label="Search">
+          <div className="relative">
+            <MagnifyingGlassIcon size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+            <UiInput
+              type="text"
+              placeholder="Name or email…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+        </FieldShell>
+        {!isTeamLeader && (
+          <FieldShell label="Role">
+            <UiSelect value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+              <option value="">All roles</option>
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+              ))}
+            </UiSelect>
+          </FieldShell>
+        )}
+      </FilterBar>
 
-      {/* People Directory */}
-      <Card className="overflow-hidden">
-        {isLoading ? (
-          <div className="p-8 text-center">
-            <div className="w-8 h-8 rounded-full border-2 border-neutral-200 border-t-primary animate-spin mx-auto mb-3" />
-            <p className="text-sm text-fg-muted">Loading staff…</p>
-          </div>
-        ) : filteredUsers.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-fg font-medium">No staff found</p>
-            <p className="text-sm text-fg-muted mt-1">
-              {searchTerm ? 'Try adjusting your search' : 'Create a new staff member to get started'}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-neutral-200">
-            {filteredUsers.map((u) => (
-              <div key={u.id} className="p-4 hover:bg-neutral-50 transition-colors">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-semibold text-primary">
-                          {u.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-fg">{u.name}</p>
-                        <p className="text-sm text-fg-muted truncate">{u.email}</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <Badge variant="info" label={ROLE_LABELS[u.role]} dot={false} />
-                      <Badge
-                        variant={u.status === 'DEACTIVATED' ? 'danger' : 'success'}
-                        label={u.status === 'DEACTIVATED' ? 'Deactivated' : 'Active'}
-                        dot={false}
-                      />
-                      {u.phone && <span className="text-xs text-fg-muted">{u.phone}</span>}
-                      <span className="text-xs text-fg-muted">
-                        Since {new Date(u.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
-                      </span>
-                    </div>
-                    {u.status === 'DEACTIVATED' && u.deactivationReason && (
-                      <p className="mt-2 text-sm text-danger">Reason: {u.deactivationReason}</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    {isHR && u.role === 'WORKER' && u.status !== 'DEACTIVATED' && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setAssignOpen({ id: u.id, name: u.name })}
-                      >
-                        Assign House
-                      </Button>
-                    )}
-                    {canManageStaff && u.id !== user?.id && u.status !== 'DEACTIVATED' && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setDeactivateOpen({ id: u.id, name: u.name, email: u.email });
-                          setDeactivationReason('');
-                          setDeactivationError('');
-                        }}
-                      >
-                        Deactivate
-                      </Button>
-                    )}
-                  </div>
+      {/* Staff Directory */}
+      <DataTable<User>
+        rows={filteredUsers}
+        getRowId={(u) => u.id}
+        loading={isLoading}
+        emptyTitle={searchTerm || roleFilter ? 'No staff match your filters' : 'No staff found'}
+        emptyIcon={UsersThreeIcon}
+        rowClassName={(u) => (u.status === 'DEACTIVATED' ? 'opacity-60' : undefined)}
+        columns={[
+          {
+            id: 'name',
+            header: 'Staff',
+            sortValue: (u) => u.name,
+            className: 'min-w-[220px]',
+            accessor: (u) => (
+              <div className="flex items-center gap-3">
+                <div className={clsx('w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold', ROLE_META[u.role].avatarClass)}>
+                  {initials(u.name)}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-fg truncate">{u.name}</p>
+                  <p className="text-xs text-fg-muted truncate">{u.email}</p>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
+            ),
+          },
+          {
+            id: 'role',
+            header: 'Role',
+            sortValue: (u) => u.role,
+            accessor: (u) => (
+              <span className={clsx('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold', ROLE_META[u.role].badgeClass)}>
+                {ROLE_LABELS[u.role]}
+              </span>
+            ),
+          },
+          {
+            id: 'contact',
+            header: 'Contact',
+            accessor: (u) => <span className="text-fg-muted">{u.phone || '—'}</span>,
+          },
+          {
+            id: 'hours',
+            header: 'Hours/wk',
+            sortValue: (u) => u.contractedHours ?? -1,
+            accessor: (u) => <span className="tabular-nums text-fg-muted">{u.contractedHours != null ? u.contractedHours : '—'}</span>,
+          },
+          {
+            id: 'since',
+            header: 'Since',
+            sortValue: (u) => u.createdAt,
+            accessor: (u) => (
+              <span className="text-fg-muted whitespace-nowrap">
+                {new Date(u.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
+              </span>
+            ),
+          },
+          {
+            id: 'status',
+            header: 'Status',
+            accessor: (u) => (
+              <div>
+                <Badge
+                  variant={u.status === 'DEACTIVATED' ? 'danger' : 'success'}
+                  label={u.status === 'DEACTIVATED' ? 'Deactivated' : 'Active'}
+                  dot={false}
+                />
+                {u.status === 'DEACTIVATED' && u.deactivationReason && (
+                  <p className="mt-1 max-w-[180px] text-[11px] text-danger">{u.deactivationReason}</p>
+                )}
+              </div>
+            ),
+          },
+          {
+            id: 'actions',
+            header: '',
+            className: 'text-right',
+            accessor: (u) => (
+              <div className="flex items-center justify-end gap-1">
+                {canManageStaff && u.status !== 'DEACTIVATED' && (
+                  <button
+                    onClick={() => {
+                      setHoursOpen({ id: u.id, name: u.name, contractedHours: u.contractedHours ?? null });
+                      setHoursValue(u.contractedHours != null ? String(u.contractedHours) : '');
+                    }}
+                    className="p-1.5 rounded text-fg-muted hover:text-primary hover:bg-primary/10 transition-colors"
+                    aria-label={`Edit hours for ${u.name}`}
+                    title="Edit contracted hours"
+                  >
+                    <PencilSimpleIcon size={15} />
+                  </button>
+                )}
+                {canAssignWorker && u.role === 'WORKER' && u.status !== 'DEACTIVATED' && (
+                  <button
+                    onClick={() => setAssignOpen({ id: u.id, name: u.name })}
+                    className="p-1.5 rounded text-fg-muted hover:text-primary hover:bg-primary/10 transition-colors"
+                    aria-label={`Assign house to ${u.name}`}
+                    title="Assign to a service"
+                  >
+                    <BuildingsIcon size={15} />
+                  </button>
+                )}
+                {canManageStaff && u.id !== user?.id && u.status !== 'DEACTIVATED' && (
+                  <button
+                    onClick={() => {
+                      setDeactivateOpen({ id: u.id, name: u.name, email: u.email });
+                      setDeactivationReason('');
+                      setDeactivationError('');
+                    }}
+                    className="p-1.5 rounded text-fg-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                    aria-label={`Deactivate ${u.name}`}
+                    title="Deactivate"
+                  >
+                    <DeactivateIcon size={15} />
+                  </button>
+                )}
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {/* Create Modal */}
       <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="Add Staff Member">
         <form onSubmit={handleCreate} className="space-y-4">
+          <LoadingOverlay show={createUser.isPending} label="Creating staff member…" />
           <p className="text-sm text-fg-muted">Create a new staff member account. They will receive login details via email.</p>
 
-          <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Full Name *</label>
-            <input
+          <FieldShell label="Full Name *">
+            <UiInput
               type="text"
               placeholder="Jane Smith"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
             />
-          </div>
+          </FieldShell>
 
-          <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Email *</label>
-            <input
+          <FieldShell label="Email *">
+            <UiInput
               type="email"
               placeholder="jane@company.com"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
             />
-          </div>
+          </FieldShell>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Phone (optional)</label>
-              <input
+            <FieldShell label="Phone (optional)">
+              <UiInput
                 type="tel"
                 placeholder="+44 7700 900123"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Role *</label>
-              <select
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            </FieldShell>
+            <FieldShell label="Role *">
+              <UiSelect
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
               >
-                {ROLE_OPTIONS.map((r) => (
+                {creatableRoles.map((r) => (
                   <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                 ))}
-              </select>
-            </div>
+              </UiSelect>
+            </FieldShell>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Temporary Password *</label>
-            <input
+          <FieldShell label="Temporary Password *" hint="They must change this password on first login.">
+            <UiInput
               type="password"
               placeholder="Must be at least 8 characters"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.temporaryPassword}
               onChange={(e) => setForm({ ...form, temporaryPassword: e.target.value })}
               required
             />
-            <p className="text-xs text-fg-muted mt-1">They must change this password on first login.</p>
-          </div>
+          </FieldShell>
 
           {createError && (
             <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
@@ -401,10 +495,9 @@ export default function PeoplePage() {
         title={`Assign ${assignOpen?.name} to House`}
       >
         <form onSubmit={handleAssign} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">House *</label>
-            <select
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          <LoadingOverlay show={assignWorker.isPending} label="Assigning…" />
+          <FieldShell label="House *">
+            <UiSelect
               value={assignHouseId}
               onChange={(e) => setAssignHouseId(e.target.value)}
               required
@@ -413,8 +506,8 @@ export default function PeoplePage() {
               {houses.map((h) => (
                 <option key={h.id} value={h.id}>{h.name}</option>
               ))}
-            </select>
-          </div>
+            </UiSelect>
+          </FieldShell>
           <div className="flex gap-2 justify-end pt-4">
             <Button variant="secondary" onClick={() => setAssignOpen(null)}>
               Cancel
@@ -437,6 +530,7 @@ export default function PeoplePage() {
         title={`Deactivate ${deactivateOpen?.name}`}
       >
         <form onSubmit={handleDeactivate} className="space-y-4">
+          <LoadingOverlay show={deactivateUser.isPending} label="Deactivating…" />
           <div className="bg-warning/10 border border-warning/20 rounded-lg p-4 text-sm">
             <p className="font-medium text-warning mb-1">Account will be blocked</p>
             <p className="text-fg-muted">
@@ -444,10 +538,9 @@ export default function PeoplePage() {
             </p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Reason for Deactivation *</label>
+          <FieldShell label="Reason for Deactivation *">
             <textarea
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-4 focus:ring-brand-600/20 focus:border-brand-600"
               value={deactivationReason}
               onChange={(e) => {
                 setDeactivationReason(e.target.value);
@@ -458,7 +551,7 @@ export default function PeoplePage() {
               required
             />
             <p className="text-xs text-fg-muted mt-1">{deactivationReason.length}/500</p>
-          </div>
+          </FieldShell>
 
           {deactivationError && (
             <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
@@ -476,6 +569,32 @@ export default function PeoplePage() {
               disabled={deactivateUser.isPending}
             >
               {deactivateUser.isPending ? 'Deactivating…' : 'Deactivate'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Hours Modal */}
+      <Modal open={!!hoursOpen} onClose={() => setHoursOpen(null)} title={`Contracted Hours — ${hoursOpen?.name}`}>
+        <form onSubmit={handleUpdateHours} className="space-y-4">
+          <LoadingOverlay show={updateUser.isPending} label="Saving…" />
+          <FieldShell label="Contracted hours per week" hint="Leave blank to clear">
+            <UiInput
+              type="number"
+              min="0"
+              max="168"
+              step="0.5"
+              placeholder="e.g. 37.5"
+              value={hoursValue}
+              onChange={(e) => setHoursValue(e.target.value)}
+            />
+          </FieldShell>
+          <div className="flex gap-2 justify-end pt-4">
+            <Button variant="secondary" onClick={() => setHoursOpen(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={updateUser.isPending}>
+              {updateUser.isPending ? 'Saving…' : 'Save'}
             </Button>
           </div>
         </form>

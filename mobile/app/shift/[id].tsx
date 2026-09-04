@@ -5,45 +5,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, MapPin, Clock, Calendar, HouseLine,
-  NavigationArrow, CheckCircle, Timer,
+  NavigationArrow, CheckCircle, Timer, SignOut,
 } from 'phosphor-react-native';
 import { getShiftById } from '../../services/profileService';
+import { dropShift } from '../../services/rotaService';
+import { useAuthStore } from '../../store/authStore';
 import { Shift } from '../../types';
+import { D } from '../../constants/theme';
+import { fmtTime, fmtDateLong as fmtDate, fmtDurCompact as fmtDuration } from '../../lib/datetime';
 
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  emeraldDark: '#003D35',
-  emeraldLight: '#0A7060',
-  mint: '#52D6B5',
-  mintBg: 'rgba(82,214,181,0.12)',
-  mintBorder: 'rgba(82,214,181,0.25)',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-};
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  });
-}
-
-function fmtDuration(start: string, end: string) {
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
-  return m > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
-}
 
 function getStatus(shift: Shift): 'active' | 'upcoming' | 'completed' {
   const now = new Date();
@@ -102,6 +75,8 @@ const ir = StyleSheet.create({
 export default function ShiftDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const qc = useQueryClient();
+  const userId = useAuthStore((s) => s.user?.id);
 
   const { data: shift, isLoading } = useQuery<Shift>({
     queryKey: ['shift', id],
@@ -110,6 +85,31 @@ export default function ShiftDetailScreen() {
   });
 
   const status = shift ? getStatus(shift) : null;
+  const canDrop = !!shift && status === 'upcoming' && shift.workerId === userId && shift.status === 'SCHEDULED';
+
+  const drop = useMutation({
+    mutationFn: () => dropShift(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shift', id] });
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['open-shifts'] });
+      Alert.alert('Shift dropped', 'Your manager and team leader have been notified, and the shift is open for cover.');
+      router.back();
+    },
+    onError: (e: any) => Alert.alert('Could not drop shift', e.response?.data?.message ?? 'Please try again.'),
+  });
+
+  function confirmDrop() {
+    if (!shift) return;
+    Alert.alert(
+      'Drop this shift?',
+      `Your shift at ${shift.house.name} will be released for cover, and your manager and team leader will be notified.`,
+      [
+        { text: 'Keep shift', style: 'cancel' },
+        { text: 'Drop shift', style: 'destructive', onPress: () => drop.mutate() },
+      ],
+    );
+  }
 
   const statusMap = {
     active:    { label: 'Active Now', bg: 'rgba(0,95,86,0.11)',    txt: D.emerald },
@@ -123,6 +123,8 @@ export default function ShiftDetailScreen() {
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
           style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}
         >
           <ArrowLeft size={20} color={D.text} weight="bold" />
@@ -221,6 +223,17 @@ export default function ShiftDetailScreen() {
             ))}
           </View>
 
+          {canDrop && (
+            <Pressable
+              onPress={confirmDrop}
+              disabled={drop.isPending}
+              style={({ pressed }) => [s.dropBtn, (drop.isPending || pressed) && { opacity: 0.6 }]}
+            >
+              <SignOut size={17} color={D.error} weight="bold" />
+              <Text style={s.dropTxt}>{drop.isPending ? 'Dropping…' : 'Drop this shift'}</Text>
+            </Pressable>
+          )}
+
         </ScrollView>
       )}
     </SafeAreaView>
@@ -276,4 +289,11 @@ const s = StyleSheet.create({
 
   reqRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#EEF2F1' },
   reqTxt: { fontSize: 14, color: D.text, fontWeight: '500' },
+
+  dropBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: D.errorBg, borderWidth: 1, borderColor: D.errorBorder,
+    borderRadius: 14, paddingVertical: 14, marginTop: 4,
+  },
+  dropTxt: { fontSize: 15, fontWeight: '700', color: D.error },
 });

@@ -2,6 +2,65 @@ import { shiftGoTokens } from '../../design-system/tokens';
 
 const { color, radius } = shiftGoTokens;
 
+/**
+ * Flat palette used by the screen StyleSheets. Every screen previously declared
+ * its own local `const D = { … }`; this is the single source of truth. Both the
+ * `eDark/eMid/eLight` and `emeraldDark/emeraldLight` names are kept because
+ * different screens reference each.
+ */
+export const D = {
+  bg: '#F4F6F5',
+  emerald: '#005F56',
+  eDark: '#002E28',
+  eMid: '#004A42',
+  eLight: '#0A7060',
+  emeraldDark: '#003D35',
+  emeraldLight: '#0A7060',
+  mint: '#52D6B5',
+  mintBg: 'rgba(82,214,181,0.13)',
+  mintBorder: 'rgba(82,214,181,0.28)',
+  white: '#FFFFFF',
+  text: '#0D1514',
+  muted: '#607370',
+  light: '#96AEAB',
+  border: '#E2EDEB',
+
+  // Status
+  error: '#EF4444',
+  errorBg: '#FEF2F2',
+  errorBorder: '#FECACA',
+  success: '#10B981',
+  successBg: '#ECFDF5',
+  successBorder: '#A7F3D0',
+  successText: '#065F46',
+  warning: '#F59E0B',
+  amber: '#F59E0B',
+
+  // Inputs
+  inputBg: '#F8FAFA',
+  inputBorder: '#DDE8E6',
+  inputFocus: '#005F56',
+
+  // Per-screen accents (badges, pills, list states)
+  confirmedBg: 'rgba(22,163,74,0.11)',
+  confirmedTxt: '#16A34A',
+  activeBg: 'rgba(0,95,86,0.11)',
+  activeTxt: '#005F56',
+  completedBg: 'rgba(96,115,112,0.11)',
+  completedTxt: '#607370',
+  activeTabBg: 'rgba(0,95,86,0.10)',
+  greenBadgeBg: '#DCFCE7',
+  greenBadgeTxt: '#16A34A',
+  verifiedBg: 'rgba(0,95,86,0.10)',
+  openBorder: '#D97706',
+  openBg: 'rgba(217,119,6,0.08)',
+  openTxt: '#B45309',
+  pinnedBg: 'rgba(0,95,86,0.05)',
+  pinnedBorder: 'rgba(0,95,86,0.25)',
+  unreadBg: 'rgba(0,95,86,0.05)',
+  unreadDot: '#005F56',
+} as const;
+
 export const Colors = {
   primary: color.brand[600],
   primaryContainer: color.brand[50],

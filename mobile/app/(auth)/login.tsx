@@ -2,37 +2,31 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, Pressable, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView,
-  ActivityIndicator, Image, Alert,
+  ActivityIndicator, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Envelope, Lock, Eye, EyeSlash, ArrowRight,
-  ShieldCheck, GoogleLogo, AppleLogo, CheckSquare, Square,
+  Envelope, Lock, Eye, EyeSlash, ArrowRight, ArrowLeft,
+  ShieldCheck, CheckSquare, Square,
 } from 'phosphor-react-native';
-import { useAuthStore } from '../../store/authStore';
-import { registerForPushNotifications } from '../../services/notificationService';
+import { useSignIn } from '@clerk/clerk-expo';
+import { registerForPushNotifications } from '../../services/pushNotifications';
+import { D } from '../../constants/theme';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
-const D = {
-  bg: '#F4F6F5',
-  emerald: '#005F56',
-  emeraldDark: '#003D35',
-  emeraldLight: '#0A7060',
-  mint: '#52D6B5',
-  mintBg: 'rgba(82,214,181,0.12)',
-  mintBorder: 'rgba(82,214,181,0.25)',
-  white: '#FFFFFF',
-  text: '#0D1514',
-  muted: '#607370',
-  light: '#96AEAB',
-  border: '#E2EDEB',
-  inputBg: '#F8FAFA',
-  inputBorder: '#DDE8E6',
-  inputFocus: '#005F56',
-  error: '#EF4444',
-  errorBg: '#FEF2F2',
-  errorBorder: '#FECACA',
-};
+
+// Clerk instance password policy minimum (User & Authentication → Password).
+const MIN_PASSWORD_LENGTH = 8;
+
+type Step = 'credentials' | 'code' | 'forgot' | 'reset';
+type FocusField = 'email' | 'pw' | 'code' | 'newPw' | null;
+type PendingFactor =
+  | 'first-email'
+  | 'second-email'
+  | 'second-phone'
+  | 'second-totp'
+  | 'second-backup'
+  | null;
 
 // ─── Input Field ──────────────────────────────────────────────────────────────
 function Field({
@@ -101,42 +95,280 @@ const f = StyleSheet.create({
   toggle: { paddingHorizontal: 14, paddingVertical: 14 },
 });
 
+const CARD_COPY: Record<Step, { title: string; sub: (email: string) => string }> = {
+  credentials: { title: 'Welcome back', sub: () => 'Sign in to your account' },
+  code: { title: 'Check your email', sub: (e) => `Enter the code we sent to ${e || 'your email'}` },
+  forgot: { title: 'Reset your password', sub: () => "Enter your email and we'll send a reset code" },
+  reset: { title: 'Set a new password', sub: (e) => `Enter the code sent to ${e || 'your email'} and choose a new password` },
+};
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function LoginScreen() {
-  const [email, setEmail]         = useState('');
-  const [password, setPassword]   = useState('');
-  const [error, setError]         = useState<string | null>(null);
-  const [loading, setLoading]     = useState(false);
-  const [pwVisible, setPwVisible] = useState(false);
-  const [remember, setRemember]   = useState(false);
-  const [focusedField, setFocusedField] = useState<'email' | 'pw' | null>(null);
-  const login = useAuthStore((s) => s.login);
+  const [email, setEmail]             = useState('');
+  const [password, setPassword]       = useState('');
+  const [code, setCode]               = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [step, setStep]               = useState<Step>('credentials');
+  const [error, setError]             = useState<string | null>(null);
+  const [notice, setNotice]           = useState<string | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [pwVisible, setPwVisible]     = useState(false);
+  const [newPwVisible, setNewPwVisible] = useState(false);
+  const [remember, setRemember]       = useState(false);
+  const [focusedField, setFocusedField] = useState<FocusField>(null);
+  const [pendingFactor, setPendingFactor] = useState<PendingFactor>(null);
+  const { signIn, setActive, isLoaded } = useSignIn();
+
+  async function completeSignIn(sessionId: string) {
+    await setActive!({ session: sessionId });
+    try { await registerForPushNotifications(); } catch { /* non-critical */ }
+  }
+
+  function clearBanners() {
+    setError(null);
+    setNotice(null);
+  }
+
+  /**
+   * After a correct password, Clerk may still require a first- or second-factor
+   * step (new device, "verify at sign-in" instance setting, or real MFA).
+   * Prepares whichever factor is available and returns which one is pending,
+   * or null if this app can't complete it.
+   */
+  async function beginChallenge(result: Awaited<ReturnType<NonNullable<typeof signIn>['create']>>): Promise<PendingFactor> {
+    if (!signIn) return null;
+    const targetEmail = email.trim().toLowerCase();
+
+    if (result.status === 'needs_first_factor') {
+      const f = result.supportedFirstFactors?.find((x) => x.strategy === 'email_code');
+      if (!f) return null;
+      await signIn.prepareFirstFactor({ strategy: 'email_code', emailAddressId: (f as { emailAddressId: string }).emailAddressId });
+      setNotice(`We've emailed a verification code to ${targetEmail}.`);
+      return 'first-email';
+    }
+
+    if (result.status === 'needs_second_factor') {
+      const factors = result.supportedSecondFactors ?? [];
+      const emailF = factors.find((x) => x.strategy === 'email_code');
+      const phoneF = factors.find((x) => x.strategy === 'phone_code');
+      const totpF = factors.find((x) => x.strategy === 'totp');
+      const backupF = factors.find((x) => x.strategy === 'backup_code');
+
+      if (emailF) {
+        await signIn.prepareSecondFactor({ strategy: 'email_code', emailAddressId: (emailF as { emailAddressId?: string }).emailAddressId });
+        setNotice(`We've emailed a verification code to ${targetEmail}.`);
+        return 'second-email';
+      }
+      if (phoneF) {
+        await signIn.prepareSecondFactor({ strategy: 'phone_code', phoneNumberId: (phoneF as { phoneNumberId?: string }).phoneNumberId });
+        setNotice("We've texted a verification code to your phone.");
+        return 'second-phone';
+      }
+      if (totpF) {
+        setNotice('Enter the 6-digit code from your authenticator app.');
+        return 'second-totp';
+      }
+      if (backupF) {
+        setNotice('Enter one of your backup codes.');
+        return 'second-backup';
+      }
+      return null;
+    }
+
+    return null;
+  }
 
   async function handleLogin() {
+    if (!isLoaded) return;
     if (!email || !password) {
       setError('Please enter your email and password.');
       return;
     }
     setLoading(true);
-    setError(null);
+    clearBanners();
     try {
-      await login(email.trim().toLowerCase(), password);
+      const result = await signIn.create({ identifier: email.trim().toLowerCase(), password });
+
+      if (result.status === 'complete' && result.createdSessionId) {
+        await completeSignIn(result.createdSessionId);
+        return;
+      }
+
+      const pending = await beginChallenge(result);
+      if (pending) {
+        setPendingFactor(pending);
+        setCode('');
+        setStep('code');
+      } else {
+        setError(`This account needs a verification step this app can't complete yet (${result.status}). Please sign in on the web.`);
+      }
     } catch (e: any) {
-      setError(e.response?.data?.message ?? 'Login failed. Check your credentials.');
+      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? 'Login failed. Check your credentials.');
+    } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResendLoginCode() {
+    if (!isLoaded || !signIn || loading) return;
+    setLoading(true);
+    clearBanners();
+    try {
+      const f = signIn.supportedFirstFactors?.find((x) => x.strategy === 'email_code');
+      if (pendingFactor === 'first-email' && f) {
+        await signIn.prepareFirstFactor({ strategy: 'email_code', emailAddressId: (f as { emailAddressId: string }).emailAddressId });
+        setNotice('A new code is on its way.');
+      } else if (pendingFactor === 'second-email') {
+        await signIn.prepareSecondFactor({ strategy: 'email_code' });
+        setNotice('A new code is on its way.');
+      } else if (pendingFactor === 'second-phone') {
+        await signIn.prepareSecondFactor({ strategy: 'phone_code' });
+        setNotice('A new code has been texted to you.');
+      } else {
+        setNotice('This method has no code to resend.');
+      }
+    } catch (e: any) {
+      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? "Couldn't resend the code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyCode() {
+    if (!isLoaded || !signIn || !code.trim()) return;
+    setLoading(true);
+    clearBanners();
+    const c = code.trim();
+    try {
+      let result;
+      switch (pendingFactor) {
+        case 'second-email':
+          result = await signIn.attemptSecondFactor({ strategy: 'email_code', code: c });
+          break;
+        case 'second-phone':
+          result = await signIn.attemptSecondFactor({ strategy: 'phone_code', code: c });
+          break;
+        case 'second-totp':
+          result = await signIn.attemptSecondFactor({ strategy: 'totp', code: c });
+          break;
+        case 'second-backup':
+          result = await signIn.attemptSecondFactor({ strategy: 'backup_code', code: c });
+          break;
+        case 'first-email':
+        default:
+          result = await signIn.attemptFirstFactor({ strategy: 'email_code', code: c });
+      }
+      if (result.status === 'complete' && result.createdSessionId) {
+        await completeSignIn(result.createdSessionId);
+      } else {
+        setError('Verification incomplete. Please try again.');
+      }
+    } catch (e: any) {
+      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? 'Invalid or expired code.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Password reset ──────────────────────────────────────────────────────────
+  function openForgotPassword() {
+    clearBanners();
+    setCode('');
+    setNewPassword('');
+    setStep('forgot');
+  }
+
+  async function handleSendResetCode() {
+    if (!isLoaded) return;
+    const identifier = email.trim().toLowerCase();
+    if (!identifier) {
+      setError('Enter the email address for your account.');
       return;
     }
-    try { await registerForPushNotifications(); } catch { /* non-critical */ }
-    setLoading(false);
+    setLoading(true);
+    clearBanners();
+    try {
+      await signIn.create({ strategy: 'reset_password_email_code', identifier });
+      setNotice(`We've emailed a reset code to ${identifier}.`);
+      setStep('reset');
+    } catch (e: any) {
+      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? "Couldn't send a reset code. Check the email address.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleForgotPassword() {
-    Alert.alert('Forgot Password', 'Please contact your administrator to reset your password.');
+  async function handleResetPassword() {
+    if (!isLoaded) return;
+    if (!code.trim()) {
+      setError('Enter the code from your email.');
+      return;
+    }
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      setError(`Your new password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      return;
+    }
+    setLoading(true);
+    clearBanners();
+    try {
+      const result = await signIn.attemptFirstFactor({
+        strategy: 'reset_password_email_code',
+        code: code.trim(),
+        password: newPassword,
+      });
+      if (result.status === 'complete' && result.createdSessionId) {
+        await completeSignIn(result.createdSessionId);
+      } else if (result.status === 'needs_second_factor') {
+        setNotice('Password updated. Enter your two-factor code to finish.');
+        setStep('code');
+      } else {
+        setError('Password reset incomplete. Please try again.');
+      }
+    } catch (e: any) {
+      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? 'Invalid or expired code.');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleSocial(provider: string) {
-    Alert.alert(`${provider} Login`, `${provider} sign-in is coming soon.`);
+  async function handleResendResetCode() {
+    if (!isLoaded || loading) return;
+    setLoading(true);
+    clearBanners();
+    try {
+      await signIn.create({ strategy: 'reset_password_email_code', identifier: email.trim().toLowerCase() });
+      setNotice('A new reset code is on its way.');
+    } catch (e: any) {
+      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? "Couldn't resend the code.");
+    } finally {
+      setLoading(false);
+    }
   }
+
+  function backToSignIn() {
+    clearBanners();
+    setCode('');
+    setNewPassword('');
+    setPendingFactor(null);
+    setStep('credentials');
+  }
+
+  const codeCopy =
+    pendingFactor === 'second-totp'
+      ? { label: 'Authenticator code', placeholder: '6-digit code from your app' }
+      : pendingFactor === 'second-backup'
+      ? { label: 'Backup code', placeholder: 'One of your saved backup codes' }
+      : pendingFactor === 'second-phone'
+      ? { label: 'Verification code', placeholder: 'Code we texted you' }
+      : { label: 'Verification code', placeholder: 'Code we emailed you' };
+
+  const primary: Record<Step, { label: string; action: () => void }> = {
+    credentials: { label: 'Sign In', action: handleLogin },
+    code: { label: 'Verify', action: handleVerifyCode },
+    forgot: { label: 'Send reset code', action: handleSendResetCode },
+    reset: { label: 'Reset password & sign in', action: handleResetPassword },
+  };
+  const copy = CARD_COPY[step];
 
   return (
     <View style={s.root}>
@@ -174,8 +406,23 @@ export default function LoginScreen() {
           {/* ── Login Card ── */}
           <View style={s.card}>
 
-            <Text style={s.cardTitle}>Welcome back</Text>
-            <Text style={s.cardSub}>Sign in to your account</Text>
+            {step !== 'credentials' && (
+              <Pressable onPress={backToSignIn} style={s.backRow} hitSlop={8}>
+                <ArrowLeft size={15} color={D.emerald} weight="bold" />
+                <Text style={s.backTxt}>Back to sign in</Text>
+              </Pressable>
+            )}
+
+            <Text style={s.cardTitle}>{copy.title}</Text>
+            <Text style={s.cardSub}>{copy.sub(email)}</Text>
+
+            {/* Notice */}
+            {notice && !error && (
+              <View style={s.noticeBox}>
+                <ShieldCheck size={14} color={D.successText} weight="fill" />
+                <Text style={s.noticeTxt}>{notice}</Text>
+              </View>
+            )}
 
             {/* Error */}
             {error && (
@@ -185,55 +432,131 @@ export default function LoginScreen() {
               </View>
             )}
 
-            {/* Fields */}
-            <Field
-              label="Email"
-              icon={<Envelope size={18} color={focusedField === 'email' ? D.emerald : D.light} weight="regular" />}
-              placeholder="you@company.com"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              returnKeyType="next"
-              focused={focusedField === 'email'}
-              onFocus={() => setFocusedField('email')}
-              onBlur={() => setFocusedField(null)}
-            />
+            {/* ── Fields per step ── */}
+            {step === 'credentials' && (
+              <>
+                <Field
+                  label="Email"
+                  icon={<Envelope size={18} color={focusedField === 'email' ? D.emerald : D.light} weight="regular" />}
+                  placeholder="you@company.com"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  returnKeyType="next"
+                  focused={focusedField === 'email'}
+                  onFocus={() => setFocusedField('email')}
+                  onBlur={() => setFocusedField(null)}
+                />
 
-            <Field
-              label="Password"
-              icon={<Lock size={18} color={focusedField === 'pw' ? D.emerald : D.light} weight="regular" />}
-              placeholder="Enter your password"
-              value={password}
-              onChangeText={setPassword}
-              secure
-              showToggle
-              shown={pwVisible}
-              onToggle={() => setPwVisible(v => !v)}
-              returnKeyType="done"
-              onSubmitEditing={handleLogin}
-              focused={focusedField === 'pw'}
-              onFocus={() => setFocusedField('pw')}
-              onBlur={() => setFocusedField(null)}
-            />
+                <Field
+                  label="Password"
+                  icon={<Lock size={18} color={focusedField === 'pw' ? D.emerald : D.light} weight="regular" />}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secure
+                  showToggle
+                  shown={pwVisible}
+                  onToggle={() => setPwVisible(v => !v)}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                  focused={focusedField === 'pw'}
+                  onFocus={() => setFocusedField('pw')}
+                  onBlur={() => setFocusedField(null)}
+                />
 
-            {/* Remember me + Forgot password */}
-            <View style={s.optionsRow}>
-              <Pressable style={s.rememberRow} onPress={() => setRemember(r => !r)}>
-                {remember
-                  ? <CheckSquare size={18} color={D.emerald} weight="fill" />
-                  : <Square size={18} color={D.light} weight="regular" />}
-                <Text style={s.rememberTxt}>Remember me</Text>
-              </Pressable>
-              <Pressable onPress={handleForgotPassword}>
-                <Text style={s.forgotTxt}>Forgot password?</Text>
-              </Pressable>
-            </View>
+                <View style={s.optionsRow}>
+                  <Pressable style={s.rememberRow} onPress={() => setRemember(r => !r)}>
+                    {remember
+                      ? <CheckSquare size={18} color={D.emerald} weight="fill" />
+                      : <Square size={18} color={D.light} weight="regular" />}
+                    <Text style={s.rememberTxt}>Remember me</Text>
+                  </Pressable>
+                  <Pressable onPress={openForgotPassword} hitSlop={8}>
+                    <Text style={s.forgotTxt}>Forgot password?</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
 
-            {/* Sign In Button */}
+            {step === 'code' && (
+              <>
+                <Field
+                  label={codeCopy.label}
+                  icon={<ShieldCheck size={18} color={focusedField === 'code' ? D.emerald : D.light} weight="regular" />}
+                  placeholder={codeCopy.placeholder}
+                  value={code}
+                  onChangeText={setCode}
+                  keyboardType={pendingFactor === 'second-backup' ? 'default' : 'number-pad'}
+                  returnKeyType="done"
+                  onSubmitEditing={handleVerifyCode}
+                  focused={focusedField === 'code'}
+                  onFocus={() => setFocusedField('code')}
+                  onBlur={() => setFocusedField(null)}
+                />
+                <Pressable onPress={handleResendLoginCode} disabled={loading} hitSlop={8} style={s.resendRow}>
+                  <Text style={s.resendTxt}>Didn&apos;t get a code? Resend</Text>
+                </Pressable>
+              </>
+            )}
+
+            {step === 'forgot' && (
+              <Field
+                label="Email"
+                icon={<Envelope size={18} color={focusedField === 'email' ? D.emerald : D.light} weight="regular" />}
+                placeholder="you@company.com"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                returnKeyType="send"
+                onSubmitEditing={handleSendResetCode}
+                focused={focusedField === 'email'}
+                onFocus={() => setFocusedField('email')}
+                onBlur={() => setFocusedField(null)}
+              />
+            )}
+
+            {step === 'reset' && (
+              <>
+                <Field
+                  label="Reset code"
+                  icon={<ShieldCheck size={18} color={focusedField === 'code' ? D.emerald : D.light} weight="regular" />}
+                  placeholder="6-digit code from your email"
+                  value={code}
+                  onChangeText={setCode}
+                  keyboardType="number-pad"
+                  returnKeyType="next"
+                  focused={focusedField === 'code'}
+                  onFocus={() => setFocusedField('code')}
+                  onBlur={() => setFocusedField(null)}
+                />
+                <Field
+                  label="New password"
+                  icon={<Lock size={18} color={focusedField === 'newPw' ? D.emerald : D.light} weight="regular" />}
+                  placeholder="Choose a strong password"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secure
+                  showToggle
+                  shown={newPwVisible}
+                  onToggle={() => setNewPwVisible(v => !v)}
+                  returnKeyType="done"
+                  onSubmitEditing={handleResetPassword}
+                  focused={focusedField === 'newPw'}
+                  onFocus={() => setFocusedField('newPw')}
+                  onBlur={() => setFocusedField(null)}
+                />
+                <Pressable onPress={handleResendResetCode} disabled={loading} hitSlop={8} style={s.resendRow}>
+                  <Text style={s.resendTxt}>Didn't get a code? Resend</Text>
+                </Pressable>
+              </>
+            )}
+
+            {/* Primary Button */}
             <Pressable
-              onPress={handleLogin}
-              disabled={loading}
-              style={({ pressed }) => [s.signInBtn, pressed && { opacity: 0.88 }, loading && { opacity: 0.7 }]}
+              onPress={primary[step].action}
+              disabled={loading || !isLoaded}
+              style={({ pressed }) => [s.signInBtn, pressed && { opacity: 0.88 }, (loading || !isLoaded) && { opacity: 0.7 }]}
             >
               <LinearGradient
                 colors={[D.emerald, D.emeraldLight]}
@@ -244,36 +567,11 @@ export default function LoginScreen() {
                 {loading
                   ? <ActivityIndicator color="#fff" />
                   : <>
-                      <Text style={s.signInTxt}>Sign In</Text>
+                      <Text style={s.signInTxt}>{primary[step].label}</Text>
                       <ArrowRight size={18} color="#fff" weight="bold" />
                     </>}
               </LinearGradient>
             </Pressable>
-
-            {/* Divider */}
-            <View style={s.dividerRow}>
-              <View style={s.dividerLine} />
-              <Text style={s.dividerTxt}>or continue with</Text>
-              <View style={s.dividerLine} />
-            </View>
-
-            {/* Social Buttons */}
-            <View style={s.socialRow}>
-              <Pressable
-                style={({ pressed }) => [s.socialBtn, pressed && { opacity: 0.75 }]}
-                onPress={() => handleSocial('Google')}
-              >
-                <GoogleLogo size={20} color="#4285F4" weight="bold" />
-                <Text style={s.socialTxt}>Google</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [s.socialBtn, pressed && { opacity: 0.75 }]}
-                onPress={() => handleSocial('Apple')}
-              >
-                <AppleLogo size={20} color={D.text} weight="fill" />
-                <Text style={s.socialTxt}>Apple</Text>
-              </Pressable>
-            </View>
 
           </View>
 
@@ -341,6 +639,10 @@ const s = StyleSheet.create({
   cardTitle: { fontSize: 22, fontWeight: '700', color: D.text, letterSpacing: -0.3, marginBottom: 4 },
   cardSub: { fontSize: 14, color: D.muted, marginBottom: 22 },
 
+  // Back link
+  backRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
+  backTxt: { fontSize: 13, fontWeight: '600', color: D.emerald },
+
   // Error
   errorBox: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -349,11 +651,23 @@ const s = StyleSheet.create({
   },
   errorTxt: { fontSize: 13, color: D.error, fontWeight: '500', flex: 1 },
 
+  // Notice
+  noticeBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: D.successBg, borderRadius: 12, padding: 12,
+    marginBottom: 16, borderWidth: 1, borderColor: D.successBorder,
+  },
+  noticeTxt: { fontSize: 13, color: D.successText, fontWeight: '500', flex: 1 },
+
   // Options row
   optionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
   rememberRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rememberTxt: { fontSize: 13, color: D.muted, fontWeight: '500' },
   forgotTxt: { fontSize: 13, color: D.emerald, fontWeight: '600' },
+
+  // Resend
+  resendRow: { alignSelf: 'flex-start', marginTop: -4, marginBottom: 18 },
+  resendTxt: { fontSize: 13, color: D.emerald, fontWeight: '600' },
 
   // Sign In
   signInBtn: { borderRadius: 14, overflow: 'hidden', marginBottom: 22, shadowColor: D.emerald, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 8 },

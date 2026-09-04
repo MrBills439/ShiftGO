@@ -7,22 +7,15 @@
     "icon": "./assets/icon.png",
     "scheme": "shiftgo",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#005f55"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.shiftgo.app",
       "infoPlist": {
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "ShiftGO uses your location to automatically clock you in and out when you arrive at or leave a care house.",
-        "NSLocationAlwaysUsageDescription": "ShiftGO uses your location in the background to track shift attendance.",
-        "NSLocationWhenInUseUsageDescription": "ShiftGO uses your location to detect when you arrive at your shift location.",
+        "NSLocationWhenInUseUsageDescription": "ShiftGO checks your location when you clock in or out to confirm you are at the service.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "While you are clocked in, ShiftGO checks your location in the background to confirm you are still at the service and to end your shift correctly. Monitoring stops the moment you clock out.",
         "NSPhotoLibraryUsageDescription": "ShiftGO needs access to your photo library to update your profile picture.",
         "UIBackgroundModes": [
-          "location",
-          "fetch"
+          "location"
         ]
       }
     },
@@ -34,12 +27,11 @@
       "package": "com.shiftgo.app",
       "googleServicesFile": "./google-services.json",
       "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "plugins": [
@@ -47,7 +39,11 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "ShiftGO uses your location to auto clock-in when you arrive at a care house."
+          "locationWhenInUsePermission": "ShiftGO checks your location when you clock in or out to confirm you are at the service.",
+          "locationAlwaysAndWhenInUsePermission": "While you are clocked in, ShiftGO checks your location to confirm you are still at the service. It stops when you clock out.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ],
       [
@@ -63,7 +59,18 @@
           "photosPermission": "ShiftGO needs access to your photos to update your profile picture."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#005f55"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

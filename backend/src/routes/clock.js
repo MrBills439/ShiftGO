@@ -10,7 +10,14 @@ router.use(allow('WORKER'));
 
 router.post('/in', validators.manualClockIn, asyncHandler(ctrl.manualClockIn));
 router.post('/out', validators.manualClockIn, asyncHandler(ctrl.manualClockOut));
-router.post('/auto-checkin', validators.autoCheckin, asyncHandler(ctrl.autoCheckin));
-router.post('/geofence-exit', validators.geofenceExit, asyncHandler(ctrl.geofenceExit));
+
+// Periodic location report while clocked in (shift-aware background monitoring).
+router.post('/location', validators.reportLocation, asyncHandler(ctrl.reportLocation));
+
+// "Yes, I'm still working" — from the geofence-exit / shift-end prompts.
+router.post('/still-working', validators.attendanceAction, asyncHandler(ctrl.confirmStillWorking));
+
+// Snapshot for the app to reconcile monitoring on launch / resume.
+router.get('/state', asyncHandler(ctrl.getState));
 
 module.exports = router;

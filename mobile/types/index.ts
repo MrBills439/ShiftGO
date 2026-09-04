@@ -5,6 +5,8 @@ export interface AuthUser {
   name: string;
   email: string;
   role: Role;
+  phone?: string | null;
+  onboardedAt?: string | null;
 }
 
 export interface AuthTokens {
@@ -22,26 +24,52 @@ export interface House {
   autoConfirm: boolean;
 }
 
-export type ShiftType = 'DAY' | 'WAKE_NIGHT' | 'SLEEP_IN' | 'EMERGENCY';
-export type ShiftStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type ShiftType = 'LONG_DAY' | 'MID_DAY' | 'WAKE_NIGHT' | 'SLEEP_IN';
+export type ShiftStatus = 'SCHEDULED' | 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
 export interface Shift {
   id: string;
   houseId: string;
-  workerId: string;
+  workerId: string | null;
   startTime: string;
   endTime: string;
   date: string;
   shiftType: ShiftType;
   status: ShiftStatus;
+  eligibleRoles: string[];
+  claimCount?: number;
   cancelledAt: string | null;
   cancelledById: string | null;
   cancellationReason: string | null;
   house: House;
+  worker?: { id: string; name: string; email: string } | null;
+}
+
+export interface ShiftClaim {
+  id: string;
+  shiftId: string;
+  workerId: string;
+  worker: { id: string; name: string; email: string };
+  claimedAt: string;
+  status: string;
+}
+
+export interface Announcement {
+  id: string;
+  agencyId: string;
+  authorId: string;
+  title: string;
+  body: string;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+  author: { id: string; name: string; role: Role };
+  read?: boolean;
 }
 
 export type NotificationType =
   | 'SHIFT_ASSIGNED' | 'SHIFT_REMOVED' | 'SHIFT_REMINDER'
+  | 'SHIFT_OPEN' | 'SHIFT_DROPPED' | 'SHIFT_CLAIMED_YOU' | 'SHIFT_CLAIMED_OTHER'
   | 'MISSED_CLOCK_IN' | 'CLOCK_OUT_PROMPT' | 'GENERAL';
 
 export interface AppNotification {
@@ -90,6 +118,7 @@ export interface UserProfile {
   bio?: string | null;
   profilePicture?: string | null;
   address?: string | null;
+  onboardedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -139,11 +168,53 @@ export interface LeaveRequest {
   workerId: string;
   startDate: string;
   endDate: string;
-  reason: string;
+  reason: string | null;
   status: LeaveRequestStatus;
+  totalHours: number;
   reviewedById: string | null;
   reviewedAt: string | null;
   rejectionReason: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RightToWorkStatus = 'MISSING' | 'CURRENT' | 'STALE';
+
+/** GET /right-to-work/me — UK Right-to-Work share code + proof document. */
+export interface ShareCode {
+  id?: string;
+  userId: string;
+  code: string | null;
+  shareDate: string | null;
+  notes: string | null;
+  hasDocument: boolean;
+  documentName?: string | null;
+  documentUrl?: string | null;
+  updatedAt?: string;
+  updatedBy?: { id: string; name: string } | null;
+  status: RightToWorkStatus;
+  daysUntilStale?: number;
+  staleAfterDays: number;
+}
+
+export type AccrualMethod = 'FLAT_RATE' | 'HOURLY' | 'LUMP_SUM';
+
+/** GET /leave-requests/balance — PTO Net Usable Balance breakdown, in hours. */
+export interface LeaveBalanceSummary {
+  method: AccrualMethod;
+  asOf: string;
+  carriedOverHours: number;
+  accruedToDate: number;
+  grossAvailableRaw: number;
+  grossAvailable: number;
+  ceilingApplied: boolean;
+  balanceCeilingHours: number | null;
+  approvedTaken: number;
+  pendingScheduled: number;
+  netUsableBalance: number;
+  allowNegativeBalance: boolean;
+  cycleStartDate: string;
+  totalWorkedHours: number;
+  dailyHours: number;
+  hasConfiguredProfile: boolean;
 }

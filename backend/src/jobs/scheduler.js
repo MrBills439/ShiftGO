@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const { missedClockInJob } = require('./missedClockInJob');
-const { autoClockOutJob }  = require('./autoClockOutJob');
+const { attendanceJob } = require('./attendanceJob');
 
 function startScheduler() {
   // Every 5 minutes — missed clock-in alerts
@@ -9,13 +9,13 @@ function startScheduler() {
     catch (err) { console.error('[Scheduler] missedClockInJob error', err.message); }
   });
 
-  // Every minute — auto clock-out at shift end
+  // Every minute — shift-end prompts + auto-clock-out grace machine
   cron.schedule('* * * * *', async () => {
-    try { await autoClockOutJob(); }
-    catch (err) { console.error('[Scheduler] autoClockOutJob error', err.message); }
+    try { await attendanceJob(); }
+    catch (err) { console.error('[Scheduler] attendanceJob error', err.message); }
   });
 
-  console.log('[Scheduler] Started — missedClockIn (5min), autoClockOut (1min)');
+  console.log('[Scheduler] Started — missedClockIn (5min), attendance grace machine (1min)');
 }
 
 module.exports = { startScheduler };

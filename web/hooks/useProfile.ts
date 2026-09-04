@@ -51,6 +51,20 @@ export function useUpdateProfile() {
   });
 }
 
+export function useUploadAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('avatar', file);
+      return api.post('/users/me/avatar', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+  });
+}
+
 export function useMyTraining() {
   return useQuery<Training[]>({
     queryKey: ['training'],

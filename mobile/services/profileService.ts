@@ -15,6 +15,12 @@ export async function updateMe(payload: {
   return data.data;
 }
 
+/** First-run onboarding — saves name/phone and stamps onboardedAt. */
+export async function completeOnboarding(payload: { name: string; phone?: string }) {
+  const { data } = await api.post('/users/me/onboarding', payload);
+  return data.data;
+}
+
 export async function uploadAvatar(uri: string) {
   const formData = new FormData();
   const filename = uri.split('/').pop() ?? 'avatar.jpg';

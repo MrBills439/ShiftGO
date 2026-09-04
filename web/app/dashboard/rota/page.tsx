@@ -4,14 +4,21 @@ import { useRouter } from 'next/navigation';
 import { CaretLeftIcon, CaretRightIcon, CalendarBlankIcon } from '@phosphor-icons/react';
 import { useRotaWeek, useWorkers } from '@/hooks/useRota';
 import { useHouses } from '@/hooks/useHouses';
+import { useOpenShift } from '@/hooks/useShifts';
 import { RotaWeekView } from './components/RotaWeekView';
 import { ShiftModal } from './components/ShiftModal';
+import { OpenShiftModal } from './components/OpenShiftModal';
 import { useAuthStore } from '@/store/authStore';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { FieldShell, Select } from '@/components/ui/Input';
-import type { User } from '@/types';
+import { useToast } from '@/hooks/useToast';
+import { SHIFT_TYPE_OPTIONS, SHIFT_TYPE_META } from '@/lib/shiftTypes';
+import { COVER_ROLE_GROUPS, isGroupSelected, toggleGroupRoles } from '@/lib/coverRoles';
+import type { User, Shift, Role } from '@/types';
 
 function mondayOfWeek(date: Date) {
   const next = new Date(date);
@@ -41,12 +48,38 @@ export default function RotaPage() {
   const canManageRota = user?.role === 'MANAGER' || user?.role === 'HR';
   const [currentDate, setCurrentDate] = useState(() => mondayOfWeek(new Date()));
   const [filters, setFilters] = useState<Record<string, string>>({});
-  const [selectedShift, setSelectedShift] = useState<{ date: string; workerId?: string; houseId?: string } | null>(null);
+  const [selectedShift, setSelectedShift] = useState<{
+    date: string;
+    workerId?: string;
+    houseId?: string;
+    shiftType?: Shift['shiftType'];
+    startTime?: string;
+    endTime?: string;
+  } | null>(null);
+  const [mode, setMode] = useState<'assign' | 'open'>('assign');
+  const [openShiftTarget, setOpenShiftTarget] = useState<{ date: string; houseId: string } | null>(null);
+  const [coverTarget, setCoverTarget] = useState<Shift | null>(null);
+  const [editTarget, setEditTarget] = useState<Shift | null>(null);
+  const [coverRoles, setCoverRoles] = useState<Role[]>(['WORKER']);
+  const [coverUrgent, setCoverUrgent] = useState(false);
+  const toast = useToast();
+  const openShift = useOpenShift();
 
   const startDateStr = toDateInput(currentDate);
   const { data: rota, isLoading, error } = useRotaWeek(startDateStr, filters);
   const { data: houses = [] } = useHouses();
   const { data: workers = [] } = useWorkers('WORKER');
+
+  async function handleRequestCover() {
+    if (!coverTarget) return;
+    try {
+      await openShift.mutateAsync({ id: coverTarget.id, eligibleRoles: coverRoles, urgent: coverUrgent });
+      toast.success('Shift opened for cover — the previous worker has been unassigned');
+      setCoverTarget(null);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to request cover');
+    }
+  }
 
   useEffect(() => {
     if (!canManageRota) router.replace('/dashboard');
@@ -84,8 +117,42 @@ export default function RotaPage() {
     <div className="space-y-8">
       <Header
         title="Schedule"
-        subtitle="Plan, review, and manage weekly shift coverage across all locations"
-        action={<Button variant="primary" icon={<CalendarBlankIcon size={16} />} onClick={() => setSelectedShift({ date: startDateStr })}>Create shift</Button>}
+        subtitle="Plan, review, and manage weekly shift coverage across all services"
+        action={
+          <div className="flex items-center gap-3">
+            <div className="flex rounded-md border border-border bg-surface p-1">
+              <button
+                type="button"
+                onClick={() => setMode('assign')}
+                className={`rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  mode === 'assign' ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
+                }`}
+              >
+                Assign Worker
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('open')}
+                className={`rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  mode === 'open' ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
+                }`}
+              >
+                Post Open Shift
+              </button>
+            </div>
+            <Button
+              variant="primary"
+              icon={<CalendarBlankIcon size={16} />}
+              onClick={() =>
+                mode === 'assign'
+                  ? setSelectedShift({ date: startDateStr })
+                  : setOpenShiftTarget({ date: startDateStr, houseId: houses[0]?.id ?? '' })
+              }
+            >
+              {mode === 'assign' ? 'Create shift' : 'Post open shift'}
+            </Button>
+          </div>
+        }
       />
 
       <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
@@ -152,10 +219,9 @@ export default function RotaPage() {
         <FieldShell label="Shift type">
           <Select value={filters.shiftType || ''} onChange={(e) => handleFilterChange('shiftType', e.target.value)}>
             <option value="">All types</option>
-            <option value="DAY">Day</option>
-            <option value="WAKE_NIGHT">Wake night</option>
-            <option value="SLEEP_IN">Sleep-in</option>
-            <option value="EMERGENCY">Emergency</option>
+            {SHIFT_TYPE_OPTIONS.map((type) => (
+              <option key={type} value={type}>{SHIFT_TYPE_META[type].label}</option>
+            ))}
           </Select>
         </FieldShell>
         <FieldShell label="Status">
@@ -193,19 +259,115 @@ export default function RotaPage() {
           rota={rota}
           houses={houses}
           workers={workers}
+          mode={mode}
           onAddShift={(date, workerId, houseId) => setSelectedShift({ date, workerId, houseId })}
+          onOpenShift={(date, houseId) => setOpenShiftTarget({ date, houseId })}
+          onRequestCover={(shift) => {
+            setCoverTarget(shift);
+            setCoverRoles(shift.eligibleRoles?.length ? (shift.eligibleRoles as Role[]) : ['WORKER']);
+            setCoverUrgent(shift.urgent ?? false);
+          }}
+          onCopyShift={(shift) => {
+            setSelectedShift({
+              date: shift.date,
+              workerId: shift.workerId ?? undefined,
+              houseId: shift.houseId,
+              shiftType: shift.shiftType,
+              startTime: shift.startTime,
+              endTime: shift.endTime,
+            });
+          }}
+          onEditShift={(shift) => setEditTarget(shift)}
         />
       ) : null}
+
+      {openShiftTarget && (
+        <OpenShiftModal
+          defaultDate={openShiftTarget.date}
+          defaultHouseId={openShiftTarget.houseId}
+          onClose={() => setOpenShiftTarget(null)}
+          onSuccess={() => setOpenShiftTarget(null)}
+        />
+      )}
 
       {selectedShift && (
         <ShiftModal
           defaultDate={selectedShift.date}
           defaultWorkerId={selectedShift.workerId}
           defaultHouseId={selectedShift.houseId}
+          defaultShiftType={selectedShift.shiftType}
+          defaultStartTime={selectedShift.startTime}
+          defaultEndTime={selectedShift.endTime}
           onClose={() => setSelectedShift(null)}
           onSuccess={() => setSelectedShift(null)}
         />
       )}
+
+      {editTarget && (
+        <ShiftModal
+          editingShift={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSuccess={() => setEditTarget(null)}
+        />
+      )}
+
+      <Modal open={!!coverTarget} onClose={() => setCoverTarget(null)} title="Request Cover">
+        <div className="space-y-4">
+          <LoadingOverlay show={openShift.isPending} label="Opening for cover…" />
+          {coverTarget && (
+            <p className="text-sm text-fg-muted">
+              This unassigns <span className="font-semibold text-fg">{coverTarget.worker?.name ?? 'the current worker'}</span> from
+              the {coverTarget.house.name} shift and opens it so eligible staff can claim it.
+            </p>
+          )}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-fg-muted">Who can claim this shift? *</label>
+            <div className="flex flex-wrap gap-2">
+              {COVER_ROLE_GROUPS.map((group) => (
+                <button
+                  key={group.key}
+                  type="button"
+                  onClick={() => setCoverRoles((prev) => toggleGroupRoles(prev, group))}
+                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    isGroupSelected(group, coverRoles)
+                      ? 'border-brand-500 bg-brand-50 text-brand-700'
+                      : 'border-border bg-surface text-fg-muted hover:border-brand-200'
+                  }`}
+                >
+                  {group.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-fg-muted">Urgency</label>
+            <button
+              type="button"
+              onClick={() => setCoverUrgent((v) => !v)}
+              className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                coverUrgent
+                  ? 'border-danger-solid bg-danger-bg text-danger-text'
+                  : 'border-border bg-surface text-fg-muted hover:border-danger-border'
+              }`}
+            >
+              <span>{coverUrgent ? 'Urgent — needs cover ASAP' : 'Not urgent'}</span>
+              <span className={`h-2.5 w-2.5 rounded-full ${coverUrgent ? 'bg-danger-solid' : 'bg-neutral-300'}`} />
+            </button>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setCoverTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleRequestCover}
+              disabled={openShift.isPending || coverRoles.length === 0}
+            >
+              {openShift.isPending ? 'Opening…' : 'Open for Cover'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

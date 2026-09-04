@@ -13,7 +13,7 @@ export type CreateUserInput = {
   temporaryPassword?: string;
 };
 
-export function useUsers(role?: string, status: UserStatus = 'ACTIVE') {
+export function useUsers(role?: string, status: UserStatus = 'ACTIVE', enabled = true) {
   return useQuery<User[]>({
     queryKey: ['users', role, status],
     queryFn: async () => {
@@ -21,6 +21,8 @@ export function useUsers(role?: string, status: UserStatus = 'ACTIVE') {
       return data.data;
     },
     staleTime: 60_000,
+    // Workers get a 403 from GET /users — callers pass enabled:false for them.
+    enabled,
   });
 }
 
@@ -28,6 +30,15 @@ export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: CreateUserInput) => api.post('/users', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, contractedHours }: { id: string; contractedHours: number | null }) =>
+      api.patch(`/users/${id}`, { contractedHours }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
 }

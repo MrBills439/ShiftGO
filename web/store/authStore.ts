@@ -1,33 +1,28 @@
 'use client';
 import { create } from 'zustand';
 import { AuthUser } from '@/types';
-import { loginRequest, logoutClear, getStoredUser } from '@/lib/auth';
+
+export type AuthSyncError = 'profile_sync_failed' | null;
 
 interface AuthState {
   user: AuthUser | null;
   isLoading: boolean;
-  hydrate: () => void;
-  login: (email: string, password: string) => Promise<void>;
+  error: AuthSyncError;
+  /** Bumped by retrySync() to re-trigger ClerkAuthSync's effect. */
+  syncNonce: number;
+  retrySync: () => void;
   logout: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
+  error: null,
+  syncNonce: 0,
 
-  hydrate: () => {
-    const user = getStoredUser();
-    set({ user, isLoading: false });
-  },
-
-  login: async (email, password) => {
-    const user = await loginRequest(email, password);
-    set({ user });
-  },
+  retrySync: () => set((s) => ({ syncNonce: s.syncNonce + 1, isLoading: true, error: null })),
 
   logout: () => {
-    logoutClear();
-    set({ user: null });
-    window.location.href = '/login';
+    window.Clerk?.signOut({ redirectUrl: '/sign-in' });
   },
 }));

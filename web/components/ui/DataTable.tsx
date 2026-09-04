@@ -24,6 +24,7 @@ interface DataTableProps<T> {
   emptyIcon: React.ComponentType<any>;
   bulkSelectable?: boolean;
   actions?: React.ReactNode;
+  rowClassName?: (row: T) => string | undefined;
 }
 
 type Density = 'compact' | 'comfortable';
@@ -38,6 +39,7 @@ export function DataTable<T>({
   emptyIcon,
   bulkSelectable = false,
   actions,
+  rowClassName,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<{ id: string; dir: 'asc' | 'desc' } | null>(null);
   const [density, setDensity] = useState<Density>('compact');
@@ -126,7 +128,7 @@ export function DataTable<T>({
             {sortedRows.map((row) => {
               const rowId = getRowId(row);
               return (
-                <tr key={rowId} className="hover:bg-surface-subtle/70">
+                <tr key={rowId} className={clsx('hover:bg-surface-subtle/70', rowClassName?.(row))}>
                   {bulkSelectable && (
                     <td className={clsx('border-b border-border px-3', density === 'compact' ? 'py-2' : 'py-3.5')}>
                       <input
