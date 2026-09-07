@@ -2,6 +2,7 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
+const prisma = require('./lib/prisma');
 const { AVATARS_DIR } = require('./lib/storage');
 
 const webhookRoutes = require('./routes/webhooks');
@@ -57,8 +58,33 @@ app.use(morgan('dev'));
 // checks. `dotfiles: 'deny'` and helmet's nosniff header harden the mount.
 app.use('/uploads/avatars', express.static(AVATARS_DIR, { dotfiles: 'deny', index: false }));
 
-// Health check
-app.get('/health', (_, res) => res.json({ status: 'ok', app: 'ShiftGO', timestamp: new Date().toISOString() }));
+// Health check — Railway readiness endpoint. Lightweight `SELECT 1` so a dead
+// database surfaces as 503 instead of a falsely-healthy 200. Never exposes DB
+// details; a short timeout keeps it from hanging on an unresponsive database.
+app.get('/health', async (_req, res) => {
+  let db = 'down';
+  let timer;
+  try {
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('health-db-timeout')), 2000);
+      }),
+    ]);
+    db = 'ok';
+  } catch {
+    db = 'down';
+  } finally {
+    clearTimeout(timer);
+  }
+  const healthy = db === 'ok';
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'degraded',
+    app: 'ShiftGO',
+    db,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // General API limiter. Health checks are intentionally outside this limiter.
 app.use(apiLimiter);
