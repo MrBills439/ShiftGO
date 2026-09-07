@@ -100,7 +100,7 @@ export default function NotificationsScreen() {
   const unread = data.filter((n) => !n.read).length;
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={s.header}>
         <Pressable

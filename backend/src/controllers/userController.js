@@ -16,6 +16,7 @@ const userSelect = {
   role: true,
   status: true,
   phone: true,
+  profilePicture: true,
   contractedHours: true,
   deactivatedAt: true,
   deactivatedById: true,
@@ -25,7 +26,7 @@ const userSelect = {
 
 const meSelect = {
   id: true, agencyId: true, clerkUserId: true, name: true, email: true, role: true, status: true,
-  phone: true, bio: true, profilePicture: true, address: true,
+  phone: true, bio: true, profilePicture: true, address: true, contractedHours: true,
   onboardedAt: true, createdAt: true, updatedAt: true,
   agency: { select: { name: true } },
 };

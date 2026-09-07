@@ -91,7 +91,7 @@ export default function TrainingScreen() {
   const completed = data.filter((t) => t.status === 'COMPLETED').length;
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}

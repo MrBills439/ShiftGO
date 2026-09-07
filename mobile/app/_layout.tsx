@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments, type Href } from 'expo-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
@@ -27,6 +27,7 @@ function AuthGate() {
   const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const segments = useSegments();
+  const qc = useQueryClient();
   const syncError = useAuthStore((s) => s.error);
   const syncLoading = useAuthStore((s) => s.isLoading);
   const user = useAuthStore((s) => s.user);
@@ -60,7 +61,9 @@ function AuthGate() {
         | { type?: string; shiftId?: string; kind?: string }
         | undefined;
       if (!data) return;
-      if (data.type === 'SHIFT_OPEN') {
+      if (data.kind === 'ANNOUNCEMENT') {
+        router.push('/announcements' as Href);
+      } else if (data.type === 'SHIFT_OPEN') {
         router.push('/(tabs)/shifts' as Href);
       } else if (data.shiftId) {
         router.push(`/shift/${data.shiftId}` as Href);
@@ -70,6 +73,20 @@ function AuthGate() {
     });
     return () => sub.remove();
   }, [router]);
+
+  // A push that arrives while the app is open should refresh the lists it
+  // affects, so the user never has to pull-to-refresh or restart.
+  useEffect(() => {
+    const sub = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request.content.data as { kind?: string } | undefined;
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+      if (data?.kind === 'ANNOUNCEMENT') {
+        qc.invalidateQueries({ queryKey: ['announcements'] });
+        qc.invalidateQueries({ queryKey: ['announcements', 'unread'] });
+      }
+    });
+    return () => sub.remove();
+  }, [qc]);
 
   // Signed into Clerk, but the profile sync exhausted its retries — show a real
   // error instead of empty tab screens behind the UI. (After all hooks.)

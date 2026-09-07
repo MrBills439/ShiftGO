@@ -83,7 +83,7 @@ export default function DbsScreen() {
   const days = dbs ? daysUntil(dbs.expiresAt) : null;
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}

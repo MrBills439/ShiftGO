@@ -37,9 +37,13 @@ function decorate(record) {
   };
 }
 
-/** Normalised 9-char share code, or throws a 400-flavoured error. */
+/**
+ * Normalised 9-char share code, or throws a 400-flavoured error.
+ * Accepts any separators the user might type ("WE4 PWW 7D6", "WE4-PWW-7D6",
+ * "we4pww7d6") — everything non-alphanumeric is stripped before validation.
+ */
 function normaliseCode(raw) {
-  const code = String(raw || '').replace(/[\s-]+/g, '').toUpperCase();
+  const code = String(raw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   if (!/^[A-Z0-9]{9}$/.test(code)) {
     const err = new Error('Share code must be 9 letters and numbers (e.g. W3E W7A 5X2).');
     err.statusCode = 400;

@@ -39,7 +39,10 @@ export function useCreateAnnouncement() {
   return useMutation({
     mutationFn: (body: { title: string; body: string; pinned?: boolean }) =>
       api.post('/announcements', body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['announcements'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['announcements'] });
+      qc.invalidateQueries({ queryKey: ['announcements', 'unread'] });
+    },
   });
 }
 

@@ -91,7 +91,7 @@ export default function AnnouncementsScreen() {
   const unread = data.filter((n) => n.read === false).length;
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}

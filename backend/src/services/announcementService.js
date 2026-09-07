@@ -1,8 +1,56 @@
 const prisma = require('../lib/prisma');
+const notificationService = require('./notificationService');
 
 const announcementInclude = {
   author: { select: { id: true, name: true, role: true } },
 };
+
+/**
+ * Best-effort fan-out of a freshly-created announcement to every active member
+ * of the agency (except the author): an in-app Notification row + a push
+ * attempt, via the shared createAndSend. Runs AFTER the announcement row is
+ * committed and never throws — a notification or push failure must not roll
+ * back or hide the announcement. Idempotent per (user, announcement) so a
+ * retry cannot double-notify for the same announcement.
+ */
+async function notifyAgencyOfAnnouncement(announcement, agencyId) {
+  let recipients = [];
+  try {
+    recipients = await prisma.user.findMany({
+      where: { agencyId, status: 'ACTIVE', id: { not: announcement.authorId } },
+      select: { id: true },
+    });
+  } catch (err) {
+    console.error('[Announcement] could not load recipients:', err.message);
+    return;
+  }
+
+  await Promise.allSettled(
+    recipients.map(async (r) => {
+      const existing = await prisma.notification.findFirst({
+        where: {
+          userId: r.id,
+          type: 'GENERAL',
+          data: { path: ['announcementId'], equals: announcement.id },
+        },
+        select: { id: true },
+      });
+      if (existing) return;
+      await notificationService.createAndSend(
+        r.id,
+        'GENERAL',
+        announcement.title,
+        announcement.body,
+        { kind: 'ANNOUNCEMENT', announcementId: announcement.id },
+      );
+    }),
+  ).then((results) => {
+    const failed = results.filter((x) => x.status === 'rejected');
+    if (failed.length) {
+      console.error(`[Announcement] ${failed.length}/${recipients.length} notifications failed:`, failed[0].reason?.message);
+    }
+  });
+}
 
 function withReadFlag(announcement) {
   const { reads, ...rest } = announcement;
@@ -38,6 +86,10 @@ async function createAnnouncement(data, authorId, agencyId) {
     },
     include: announcementInclude,
   });
+
+  // Row is committed — fan-out is best-effort and cannot undo it.
+  await notifyAgencyOfAnnouncement(announcement, agencyId);
+
   return { ...announcement, read: false };
 }
 
@@ -67,4 +119,5 @@ async function deleteAnnouncement(id, agencyId) {
 
 module.exports = {
   listAnnouncements, listUnreadAnnouncements, createAnnouncement, markAnnouncementRead, deleteAnnouncement,
+  notifyAgencyOfAnnouncement,
 };

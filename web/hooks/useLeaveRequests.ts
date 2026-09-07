@@ -53,6 +53,7 @@ export function useCreateLeaveRequest() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leave-requests'] });
       qc.invalidateQueries({ queryKey: ['leave-balance'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }
@@ -76,6 +77,7 @@ export function useRejectLeaveRequest() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leave-requests'] });
       qc.invalidateQueries({ queryKey: ['leave-balance'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }

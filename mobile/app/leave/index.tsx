@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView,
   Modal, RefreshControl, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, X, CalendarBlank, CheckCircle, XCircle, Clock, ArrowLeft, CalendarDots } from 'phosphor-react-native';
@@ -159,6 +159,7 @@ const bs = StyleSheet.create({
 export default function LeaveScreen() {
   const router = useRouter();
   const qc = useQueryClient();
+  const insets = useSafeAreaInsets();
 
   const { data: requests = [], isLoading, error, refetch } = useQuery<LeaveRequest[]>({
     queryKey: ['leave-requests'],
@@ -250,7 +251,7 @@ export default function LeaveScreen() {
     !createMutation.isPending;
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={s.header}>
         <Pressable
@@ -443,7 +444,7 @@ export default function LeaveScreen() {
               ) : null}
             </ScrollView>
 
-            <View style={s.sheetFooter}>
+            <View style={[s.sheetFooter, { paddingBottom: Math.max(26, insets.bottom + 14) }]}>
               <Pressable style={s.secondaryBtn} onPress={closeModal}>
                 <Text style={s.secondaryBtnTxt}>Cancel</Text>
               </Pressable>
@@ -515,7 +516,7 @@ const s = StyleSheet.create({
   sheetTitle: { fontSize: 18, fontWeight: '800', color: D.text, letterSpacing: -0.3 },
   sheetBody: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 8 },
   sheetFooter: {
-    flexDirection: 'row', gap: 12, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 26,
+    flexDirection: 'row', gap: 12, paddingHorizontal: 18, paddingTop: 12,
     borderTopWidth: 1, borderTopColor: '#EEF2F1',
   },
 

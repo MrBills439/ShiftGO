@@ -20,6 +20,7 @@ export function useCreateShift() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shifts'] });
       qc.invalidateQueries({ queryKey: ['rota-week'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }
@@ -32,6 +33,7 @@ export function useUpdateShift() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shifts'] });
       qc.invalidateQueries({ queryKey: ['rota-week'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }
@@ -41,7 +43,10 @@ export function useDeleteShift() {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.delete(`/shifts/${id}`, { data: { reason } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['shifts'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
 }
 
@@ -53,6 +58,7 @@ export function useOpenShift() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shifts'] });
       qc.invalidateQueries({ queryKey: ['rota-week'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }
@@ -76,6 +82,7 @@ export function useClaimShift() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shifts'] });
       qc.invalidateQueries({ queryKey: ['rota-week'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }
@@ -90,6 +97,7 @@ export function useDropShift() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shifts'] });
       qc.invalidateQueries({ queryKey: ['rota-week'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }

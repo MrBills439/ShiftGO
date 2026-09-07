@@ -44,6 +44,15 @@ export function useClockStatus(activeShift: Shift | null) {
   const reportTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const promptCooldownRef = useRef(0);
 
+  // Clock actions change a shift's attendance state, so every list that
+  // categorises shifts by it must refetch — otherwise the Shifts tab keeps
+  // showing a clocked-in shift under "Upcoming" until the app restarts.
+  const refreshShiftState = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['timesheets'] });
+    queryClient.invalidateQueries({ queryKey: ['shifts'] });
+    queryClient.invalidateQueries({ queryKey: ['open-shifts'] });
+  }, [queryClient]);
+
   const { data: timesheets, isLoading } = useQuery<Timesheet[]>({
     queryKey: ['timesheets'],
     queryFn: getMyTimesheets,
@@ -84,8 +93,8 @@ export function useClockStatus(activeShift: Shift | null) {
     const summary = await syncAttendanceQueue();
     setQueueSummary(summary);
     setSyncMessage(summary.lastMessage);
-    queryClient.invalidateQueries({ queryKey: ['timesheets'] });
-  }, [queryClient]);
+    refreshShiftState();
+  }, [refreshShiftState]);
 
   useEffect(() => {
     refreshQueueSummary();
@@ -114,7 +123,7 @@ export function useClockStatus(activeShift: Shift | null) {
         await stopAttendanceMonitoring();
         setIsClockedIn(false);
         optimisticRef.current = null;
-        queryClient.invalidateQueries({ queryKey: ['timesheets'] });
+        refreshShiftState();
         return;
       }
       if (res.prompt && Date.now() > promptCooldownRef.current) {
@@ -123,7 +132,7 @@ export function useClockStatus(activeShift: Shift | null) {
     } catch {
       /* offline — try again next tick */
     }
-  }, [activeShift, queryClient]);
+  }, [activeShift, queryClient, refreshShiftState]);
 
   useEffect(() => {
     if (reportTimer.current) { clearInterval(reportTimer.current); reportTimer.current = null; }
@@ -157,7 +166,7 @@ export function useClockStatus(activeShift: Shift | null) {
       optimisticRef.current = { shiftId: activeShift.id, state: 'in' };
       setIsClockedIn(true);
       setSyncMessage('Clocked in');
-      queryClient.invalidateQueries({ queryKey: ['timesheets'] });
+      refreshShiftState();
       await startAttendanceMonitoring(activeShift.id);
     } catch (e: unknown) {
       if (isNetworkError(e)) {
@@ -177,7 +186,7 @@ export function useClockStatus(activeShift: Shift | null) {
     } finally {
       setIsActing(false);
     }
-  }, [activeShift, queryClient]);
+  }, [activeShift, queryClient, refreshShiftState]);
 
   // ── clock out (never blocked by geofence) ────────────────────────────────
   const clockOut = useCallback(async () => {
@@ -199,7 +208,7 @@ export function useClockStatus(activeShift: Shift | null) {
       setIsClockedIn(false);
       setPrompt(null);
       setSyncMessage('Clocked out');
-      queryClient.invalidateQueries({ queryKey: ['timesheets'] });
+      refreshShiftState();
       await stopAttendanceMonitoring();
     } catch (e: unknown) {
       if (isNetworkError(e)) {
@@ -224,7 +233,7 @@ export function useClockStatus(activeShift: Shift | null) {
     } finally {
       setIsActing(false);
     }
-  }, [activeShift, queryClient, refreshQueueSummary]);
+  }, [activeShift, queryClient, refreshQueueSummary, refreshShiftState]);
 
   // ── "Yes, still working" from a prompt ──────────────────────────────────
   const confirmStillWorking = useCallback(async () => {

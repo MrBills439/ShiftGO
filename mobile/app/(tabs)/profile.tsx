@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, Alert, Image, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTabBarHeight } from '../../lib/useTabBarHeight';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -68,6 +69,7 @@ export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
   const router = useRouter();
   const qc = useQueryClient();
+  const tabBarHeight = useTabBarHeight();
   const [refreshing, setRefreshing] = useState(false);
 
   async function onRefresh() {
@@ -151,7 +153,7 @@ export default function ProfileScreen() {
     <SafeAreaView style={s.safe} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.scroll}
+        contentContainerStyle={[s.scroll, { paddingBottom: tabBarHeight + 24 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={D.emerald} />}
       >
 
@@ -350,7 +352,7 @@ export default function ProfileScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: D.bg },
-  scroll: { paddingHorizontal: 18, paddingBottom: 110 },
+  scroll: { paddingHorizontal: 18 },
 
   header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingTop: 12, marginBottom: 18 },
   title: { fontSize: 24, fontWeight: '700', color: D.text, letterSpacing: -0.4 },

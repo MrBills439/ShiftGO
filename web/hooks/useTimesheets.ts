@@ -29,7 +29,10 @@ export function useConfirmTimesheet() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.post(`/timesheets/${id}/confirm`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['timesheets'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['timesheets'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
 }
 
@@ -38,7 +41,10 @@ export function useRejectTimesheet() {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post(`/timesheets/${id}/reject`, { reason }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['timesheets'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['timesheets'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
 }
 
@@ -64,6 +70,7 @@ export function useResolveReview() {
       api.post(`/timesheets/${id}/resolve-review`, { clockOutTime, reason }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['timesheets'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }

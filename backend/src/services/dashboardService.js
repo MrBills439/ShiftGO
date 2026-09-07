@@ -70,15 +70,45 @@ async function getTodaySummary(user, agencyId, now = new Date()) {
 
   const isManagerPlus = MANAGER_PLUS.includes(user.role);
 
-  // Role-scoped, bounded to a 2-day window so the query never grows with history.
-  const windowShifts = await shiftService.listShiftsForUser(user, agencyId, {
-    startDate: dayStart.toISOString(),
-    endDate: twoDaysOut.toISOString(),
-  });
+  // Two-week horizon for the "open shifts needing cover" list — every OPEN /
+  // unassigned shift HR (or a manager/lead within their scope) still has to
+  // fill, not only today's. Uses the same role-scoped shiftService.
+  const coverHorizonEnd = agencyDayRange(agency?.timezone, now, 14).end;
+
+  // Role-scoped. Bounded windows so the queries never grow with history.
+  const [windowShifts, openShiftsRaw] = await Promise.all([
+    shiftService.listShiftsForUser(user, agencyId, {
+      startDate: dayStart.toISOString(),
+      endDate: twoDaysOut.toISOString(),
+    }),
+    shiftService.listShiftsForUser(user, agencyId, {
+      status: 'OPEN',
+      startDate: dayStart.toISOString(),
+      endDate: coverHorizonEnd.toISOString(),
+    }),
+  ]);
 
   const inDay = (s, from, to) => new Date(s.startTime) >= from && new Date(s.startTime) < to;
   const todayAll = windowShifts.filter((s) => inDay(s, dayStart, dayEnd));
   const tomorrowAll = windowShifts.filter((s) => inDay(s, dayEnd, twoDaysOut));
+
+  const openShifts = openShiftsRaw
+    .filter((s) => s.status === 'OPEN')
+    .slice()
+    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+    .slice(0, 25)
+    .map((s) => ({
+      id: s.id,
+      house: s.house ? { id: s.house.id, name: s.house.name, address: s.house.address } : null,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      shiftType: s.shiftType,
+      status: s.status,
+      urgent: !!s.urgent,
+      eligibleRoles: s.eligibleRoles?.length ? s.eligibleRoles : ['WORKER'],
+      claimCount: s.claims?.length ?? 0,
+      href: '/dashboard/rota',
+    }));
 
   const scheduled = todayAll.filter((s) => s.status !== 'CANCELLED');
   const covered = scheduled.filter((s) => s.workerId && s.status !== 'OPEN');
@@ -267,6 +297,10 @@ async function getTodaySummary(user, agencyId, now = new Date()) {
         .slice(0, 5)
         .map((s) => shiftSummary(s, now, needsReviewShiftIds)),
     },
+    // Every OPEN / cover shift still needing a worker over the next two weeks,
+    // within this role's scope. `openToday` is the subset that starts today.
+    openShifts,
+    openShiftsToday: openShifts.filter((s) => inDay(s, dayStart, dayEnd)).length,
     staff: { total: staffTotal },
   };
 }

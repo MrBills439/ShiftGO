@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, Pressable, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTabBarHeight } from '../../lib/useTabBarHeight';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ClockCountdown, CalendarBlank, CalendarCheck, CheckCircle,
@@ -69,6 +70,7 @@ const dr = StyleSheet.create({
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function TimesheetsScreen() {
   const { data, isLoading, refetch } = useTimesheets();
+  const tabBarHeight = useTabBarHeight();
   const [filter, setFilter] = useState<Filter>('week');
 
   const now = new Date();
@@ -123,7 +125,7 @@ export default function TimesheetsScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <ScrollView
-        contentContainerStyle={s.scroll}
+        contentContainerStyle={[s.scroll, { paddingBottom: tabBarHeight + 24 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={D.emerald} />}
       >
@@ -237,7 +239,7 @@ export default function TimesheetsScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: D.bg },
-  scroll: { paddingHorizontal: 18, paddingBottom: 110 },
+  scroll: { paddingHorizontal: 18 },
 
   header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingTop: 12, marginBottom: 16 },
   title: { fontSize: 26, fontWeight: '700', color: D.text, letterSpacing: -0.4 },

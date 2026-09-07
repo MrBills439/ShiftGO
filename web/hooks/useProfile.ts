@@ -61,7 +61,10 @@ export function useUploadAvatar() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me'] });
+      qc.invalidateQueries({ queryKey: ['users'] }); // staff directory shows avatars too
+    },
   });
 }
 

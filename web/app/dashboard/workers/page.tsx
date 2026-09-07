@@ -15,6 +15,7 @@ import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { DataTable } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { FieldShell, Select as UiSelect, Input as UiInput } from '@/components/ui/Input';
+import { API_BASE } from '@/lib/api';
 import { useUsers, useCreateUser, useAssignWorker, useDeactivateUser, useUpdateUser, type UserStatus } from '@/hooks/useWorkers';
 import { useHouses } from '@/hooks/useHouses';
 import { useAuthStore } from '@/store/authStore';
@@ -301,9 +302,18 @@ export default function StaffPage() {
             className: 'min-w-[220px]',
             accessor: (u) => (
               <div className="flex items-center gap-3">
-                <div className={clsx('w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold', ROLE_META[u.role].avatarClass)}>
-                  {initials(u.name)}
-                </div>
+                {u.profilePicture ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`${API_BASE}${u.profilePicture}`}
+                    alt=""
+                    className="w-9 h-9 rounded-full object-cover flex-shrink-0 bg-surface-muted"
+                  />
+                ) : (
+                  <div className={clsx('w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold', ROLE_META[u.role].avatarClass)}>
+                    {initials(u.name)}
+                  </div>
+                )}
                 <div className="min-w-0">
                   <p className="font-semibold text-fg truncate">{u.name}</p>
                   <p className="text-xs text-fg-muted truncate">{u.email}</p>

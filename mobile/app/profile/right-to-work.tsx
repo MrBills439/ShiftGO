@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator,
-  TextInput, Linking, Platform, Alert,
+  TextInput, Linking, Platform, Alert, KeyboardAvoidingView, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,12 +16,23 @@ import {
 import {
   getMyShareCode, updateMyShareCode, uploadShareCodeDocument, RIGHT_TO_WORK_URL,
 } from '../../services/rightToWorkService';
+import { apiErrorMessage } from '../../services/api';
 import { ShareCode, RightToWorkStatus } from '../../types';
 import { D } from '../../constants/theme';
 
 function fmtDate(iso?: string | null) {
   if (!iso) return 'Select date';
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/** Strip everything but letters/digits and uppercase — the value we send/store. */
+export function normaliseShareCode(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+}
+
+/** Readable "WE4 PWW 7D6" grouping for display, from any input. */
+export function formatShareCode(raw: string): string {
+  return (normaliseShareCode(raw).match(/.{1,3}/g) ?? []).join(' ');
 }
 
 const STATUS_META: Record<RightToWorkStatus, {
@@ -66,24 +77,29 @@ export default function RightToWorkScreen() {
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  // Seed the form from the server record once it loads.
+  // Seed the form from the server record once it loads (readable grouping).
   React.useEffect(() => {
     if (data && !dirty) {
-      setCode(data.code ?? '');
+      setCode(data.code ? formatShareCode(data.code) : '');
       setShareDate(data.shareDate ? new Date(data.shareDate) : null);
     }
   }, [data]);
 
   const save = useMutation({
     mutationFn: () =>
-      updateMyShareCode({ code, shareDate: (shareDate as Date).toISOString() }),
+      updateMyShareCode({
+        code: normaliseShareCode(code),
+        shareDate: (shareDate as Date).toISOString(),
+      }),
     onSuccess: (updated) => {
       qc.setQueryData(['right-to-work'], updated);
       qc.invalidateQueries({ queryKey: ['right-to-work'] });
+      setCode(updated.code ? formatShareCode(updated.code) : '');
       setDirty(false);
       setError(null);
     },
-    onError: (e: any) => setError(e.response?.data?.message ?? 'Could not save your share code.'),
+    // Surface the real reason (format / date / server), never a blanket message.
+    onError: (e: any) => setError(apiErrorMessage(e, 'Could not save your share code.')),
   });
 
   const upload = useMutation({
@@ -111,8 +127,9 @@ export default function RightToWorkScreen() {
   }
 
   function onSave() {
+    Keyboard.dismiss();
     setError(null);
-    const cleaned = code.replace(/[\s-]+/g, '').toUpperCase();
+    const cleaned = normaliseShareCode(code);
     if (!/^[A-Z0-9]{9}$/.test(cleaned)) {
       setError('Share code must be 9 letters and numbers (e.g. W3E W7A 5X2).');
       return;
@@ -126,7 +143,7 @@ export default function RightToWorkScreen() {
 
   if (isLoading || !data) {
     return (
-      <SafeAreaView style={s.safe} edges={['top']}>
+      <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
         <View style={s.center}><ActivityIndicator size="large" color={D.emerald} /></View>
       </SafeAreaView>
     );
@@ -136,7 +153,7 @@ export default function RightToWorkScreen() {
   const canSave = !save.isPending && (dirty || data.status === 'MISSING');
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
         <Pressable
           onPress={() => router.back()}
@@ -150,7 +167,16 @@ export default function RightToWorkScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
         {/* Status hero */}
         <LinearGradient colors={meta.grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.hero}>
           {meta.icon}
@@ -176,15 +202,19 @@ export default function RightToWorkScreen() {
         {/* Form */}
         <Text style={s.sectionLabel}>SHARE CODE</Text>
         <View style={s.card}>
-          <Text style={s.fieldLabel}>9-character code</Text>
+          <Text style={s.fieldLabel}>9-character share code — spaces optional</Text>
           <TextInput
             style={s.input}
             value={code}
             onChangeText={(t) => { setCode(t.toUpperCase()); setDirty(true); }}
-            placeholder="e.g. W3E W7A 5X2"
+            onBlur={() => setCode((c) => (c.trim() ? formatShareCode(c) : c))}
+            placeholder="e.g. WE4 PWW 7D6"
             placeholderTextColor={D.light}
             autoCapitalize="characters"
             autoCorrect={false}
+            autoComplete="off"
+            returnKeyType="done"
+            onSubmitEditing={onSave}
             maxLength={13}
           />
 
@@ -257,6 +287,7 @@ export default function RightToWorkScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

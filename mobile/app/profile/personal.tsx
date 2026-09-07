@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   Pressable, ActivityIndicator, Alert, Image,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +10,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import {
   ArrowLeft, User, Envelope, Phone, MapPin,
-  NotePencil, Camera, Check,
+  Clock, Camera, Check, Lock,
 } from 'phosphor-react-native';
 import { getMe, updateMe, uploadAvatar } from '../../services/profileService';
 import { API_BASE_URL } from '../../services/api';
@@ -67,6 +68,35 @@ const fi = StyleSheet.create({
   inputMulti: { minHeight: 80, textAlignVertical: 'top' },
 });
 
+/** Non-editable account field — value comes from the User record and is
+ *  managed elsewhere (identity / HR), so it is shown, not edited, here. */
+function ReadonlyRow({
+  label, icon, value, hint,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <View style={fi.wrap}>
+      <Text style={fi.label}>{label}</Text>
+      <View style={ro.row}>
+        <View style={fi.iconBox}>{icon}</View>
+        <Text style={ro.value} numberOfLines={1}>{value || '—'}</Text>
+        <Lock size={13} color={D.light} weight="regular" style={{ marginRight: 14 }} />
+      </View>
+      {hint ? <Text style={ro.hint}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+const ro = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: D.bg, borderWidth: 1.5, borderColor: D.border, borderRadius: 14, overflow: 'hidden' },
+  value: { flex: 1, paddingVertical: 14, paddingHorizontal: 10, fontSize: 15, color: D.muted },
+  hint: { fontSize: 11, color: D.light, marginTop: 6, marginLeft: 2 },
+});
+
 export default function PersonalInfoScreen() {
   const router = useRouter();
   const qc = useQueryClient();
@@ -77,24 +107,26 @@ export default function PersonalInfoScreen() {
     queryFn: getMe,
   });
 
-  const [form, setForm] = useState({ name: '', phone: '', bio: '', address: '' });
+  // Only phone + address are editable here. Name and email are account identity
+  // (managed via Clerk / HR); contracted hours are set by a manager.
+  const [form, setForm] = useState({ phone: '', address: '' });
 
   useEffect(() => {
     if (profile) {
-      setForm({
-        name: profile.name ?? '',
-        phone: profile.phone ?? '',
-        bio: profile.bio ?? '',
-        address: profile.address ?? '',
-      });
+      setForm({ phone: profile.phone ?? '', address: profile.address ?? '' });
     }
   }, [profile]);
 
+  const dirty =
+    !!profile &&
+    (form.phone !== (profile.phone ?? '') || form.address !== (profile.address ?? ''));
+
   const saveMutation = useMutation({
-    mutationFn: () => updateMe(form),
+    mutationFn: () => updateMe({ phone: form.phone.trim(), address: form.address.trim() }),
     onSuccess: (updated) => {
       qc.setQueryData(['me'], updated);
-      Alert.alert('Saved', 'Your profile has been updated.');
+      qc.invalidateQueries({ queryKey: ['me'] }); // outer Profile tab reads ['me'] too
+      Alert.alert('Saved', 'Your contact details have been updated.');
     },
     onError: () => Alert.alert('Error', 'Could not save changes. Please try again.'),
   });
@@ -131,7 +163,7 @@ export default function PersonalInfoScreen() {
   const initials = profile?.name?.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() ?? 'U';
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={s.header}>
         <Pressable
@@ -145,8 +177,8 @@ export default function PersonalInfoScreen() {
         <Text style={s.title}>Personal Information</Text>
         <Pressable
           onPress={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-          style={({ pressed }) => [s.saveBtn, pressed && { opacity: 0.65 }]}
+          disabled={saveMutation.isPending || !dirty}
+          style={({ pressed }) => [s.saveBtn, (saveMutation.isPending || !dirty) && { opacity: 0.4 }, pressed && { opacity: 0.65 }]}
         >
           {saveMutation.isPending
             ? <ActivityIndicator size="small" color={D.white} />
@@ -157,6 +189,10 @@ export default function PersonalInfoScreen() {
       {isLoading ? (
         <View style={s.loadWrap}><ActivityIndicator size="large" color={D.emerald} /></View>
       ) : (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
           {/* Avatar */}
@@ -184,25 +220,28 @@ export default function PersonalInfoScreen() {
             </Pressable>
           </View>
 
-          {/* Form */}
+          {/* Account identity — read-only */}
           <View style={s.card}>
-            <Field
+            <ReadonlyRow
               label="FULL NAME"
-              icon={<User size={17} color={focused === 'name' ? D.emerald : D.light} weight="regular" />}
-              value={form.name}
-              onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
-              placeholder="Your full name"
-              focused={focused === 'name'}
-              onFocus={() => setFocused('name')}
-              onBlur={() => setFocused(null)}
+              icon={<User size={17} color={D.light} weight="regular" />}
+              value={profile?.name ?? ''}
             />
-            <Field
+            <ReadonlyRow
               label="EMAIL"
               icon={<Envelope size={17} color={D.light} weight="regular" />}
               value={profile?.email ?? ''}
-              onChangeText={() => {}}
-              placeholder="Email address"
             />
+            <ReadonlyRow
+              label="CONTRACTED HOURS"
+              icon={<Clock size={17} color={D.light} weight="regular" />}
+              value={profile?.contractedHours != null ? `${profile.contractedHours} hrs / week` : 'Not set'}
+              hint="Set by your manager or HR."
+            />
+          </View>
+
+          {/* Editable contact details */}
+          <View style={s.card}>
             <Field
               label="PHONE"
               icon={<Phone size={17} color={focused === 'phone' ? D.emerald : D.light} weight="regular" />}
@@ -224,22 +263,15 @@ export default function PersonalInfoScreen() {
               onFocus={() => setFocused('address')}
               onBlur={() => setFocused(null)}
             />
-            <Field
-              label="BIO"
-              icon={<NotePencil size={17} color={focused === 'bio' ? D.emerald : D.light} weight="regular" />}
-              value={form.bio}
-              onChangeText={(v) => setForm((f) => ({ ...f, bio: v }))}
-              placeholder="A short bio about yourself..."
-              multiline
-              focused={focused === 'bio'}
-              onFocus={() => setFocused('bio')}
-              onBlur={() => setFocused(null)}
-            />
           </View>
 
-          <Text style={s.note}>Email address cannot be changed. Contact your administrator for email updates.</Text>
+          <Text style={s.note}>
+            Name, email and contracted hours are managed by your agency. You can update your phone
+            number and address here.
+          </Text>
 
         </ScrollView>
+        </KeyboardAvoidingView>
       )}
     </SafeAreaView>
   );

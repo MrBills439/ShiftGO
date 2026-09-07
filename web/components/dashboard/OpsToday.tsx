@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StatsSkeleton } from '@/components/ui/Skeleton';
 import { ActivityFeed } from '@/components/operations/ActivityFeed';
-import type { DashboardIssue, DashboardShift } from '@/types';
+import type { DashboardIssue, DashboardShift, DashboardOpenShift } from '@/types';
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -161,7 +161,7 @@ export function OpsToday() {
     );
   }
 
-  const { coverage, pendingApprovals, issues, todayShifts, tomorrow, permissions, staff } = data;
+  const { coverage, pendingApprovals, issues, todayShifts, tomorrow, permissions, staff, openShifts } = data;
   const agencyName = user?.agency?.name ?? '';
 
   const statusPill =
@@ -296,6 +296,54 @@ export function OpsToday() {
                     {shift.shiftType?.replace(/_/g, ' ') || 'Standard'}
                   </span>
                 </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </section>
+
+      {/* ─── Open / cover shifts needing a worker ───────────────── */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-fg">Open shifts needing cover</h2>
+          {openShifts.length > 0 && (
+            <button onClick={() => router.push('/dashboard/rota')} className="text-sm font-medium text-brand-700 hover:underline">
+              Manage rota
+            </button>
+          )}
+        </div>
+        <Card className="overflow-hidden">
+          {openShifts.length === 0 ? (
+            <div className="p-8 text-center">
+              <CheckCircleIcon size={32} className="mx-auto text-success mb-3" weight="regular" />
+              <p className="text-fg font-medium">No open shifts</p>
+              <p className="text-sm text-fg-muted mt-1">Every shift in the next two weeks has a worker.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-neutral-200">
+              {openShifts.map((s: DashboardOpenShift) => (
+                <button
+                  key={s.id}
+                  onClick={() => router.push(s.href)}
+                  className="w-full p-4 flex items-center justify-between gap-4 text-left hover:bg-neutral-50 transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <p className="font-semibold text-fg">{s.house?.name ?? 'Unassigned service'}</p>
+                      {s.urgent && <Badge variant="danger" label="Urgent" dot={false} />}
+                      <Badge variant="warning" label={`${s.claimCount} claim${s.claimCount === 1 ? '' : 's'}`} dot={false} />
+                    </div>
+                    <p className="text-sm text-fg-muted">
+                      {new Date(s.startTime).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      {' • '}{formatTime(s.startTime)} – {formatTime(s.endTime)}
+                      {' • '}{(s.eligibleRoles[0] ?? 'WORKER').replace(/_/g, ' ').toLowerCase()}
+                    </p>
+                  </div>
+                  <span className="flex items-center gap-2 text-xs font-medium text-fg-muted flex-shrink-0">
+                    {s.shiftType?.replace(/_/g, ' ') || 'Standard'}
+                    <ArrowRightIcon size={16} weight="bold" />
+                  </span>
+                </button>
               ))}
             </div>
           )}

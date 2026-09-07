@@ -5,11 +5,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useTabBarHeight } from '../../lib/useTabBarHeight';
 import {
   MapPin, Clock, CaretRight, CalendarBlank, CheckCircle, Users,
   MagnifyingGlass, X,
 } from 'phosphor-react-native';
-import { useUpcomingShifts } from '../../hooks/useShifts';
+import { useUpcomingShifts, categorizeShift } from '../../hooks/useShifts';
 import { useOpenShifts, useClaimShift } from '../../hooks/useOpenShifts';
 import { apiErrorMessage } from '../../services/api';
 import { Skeleton } from '../../components/Skeleton';
@@ -21,13 +22,10 @@ import { shiftTypeLabel } from '../../lib/shiftTypes';
 type Tab = 'available' | 'upcoming' | 'past';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function windowStatus(shift: Shift): 'active' | 'upcoming' | 'completed' {
-  const now = Date.now();
-  const start = new Date(shift.startTime).getTime();
-  const end = new Date(shift.endTime).getTime();
-  if (now >= start && now <= end) return 'active';
-  if (now < start) return 'upcoming';
-  return 'completed';
+// Badge status from the shift's real attendance/shift state, not device time.
+function cardStatus(shift: Shift): 'active' | 'upcoming' | 'completed' {
+  const c = categorizeShift(shift);
+  return c === 'past' ? 'completed' : c === 'active' ? 'active' : 'upcoming';
 }
 
 function matchesQuery(shift: Shift, q: string): boolean {
@@ -59,7 +57,7 @@ const b = StyleSheet.create({
 
 // ─── Scheduled shift card ─────────────────────────────────────────────────────
 function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
-  const status = windowStatus(shift);
+  const status = cardStatus(shift);
   const { day, num, mon } = dateParts(shift.startTime);
   const isActive = status === 'active';
   const isPast = status === 'completed';
@@ -257,10 +255,11 @@ function Empty({ tab, searching }: { tab: Tab; searching: boolean }) {
 // ─── Screen ─────────────────────────────────────────────────────────────────
 export default function ShiftsScreen() {
   const router = useRouter();
+  const tabBarHeight = useTabBarHeight();
   const [tab, setTab] = useState<Tab>('available');
   const [query, setQuery] = useState('');
 
-  const { upcoming, past, isLoading: schedLoading, refetch: refetchSched } = useUpcomingShifts();
+  const { active, upcoming, past, isLoading: schedLoading, refetch: refetchSched } = useUpcomingShifts();
   const { data: openShifts = [], isLoading: openLoading, refetch: refetchOpen } = useOpenShifts();
   const claimShift = useClaimShift();
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -320,6 +319,22 @@ export default function ShiftsScreen() {
         <Text style={s.subtitle}>Your available, upcoming and past shifts</Text>
       </View>
 
+      {/* Active shift is managed on the Clock tab — surfaced here, never duplicated as a card. */}
+      {active && (
+        <Pressable
+          onPress={() => router.push('/(tabs)/clock')}
+          style={({ pressed }) => [s.activeBanner, pressed && { opacity: 0.9 }]}
+          accessibilityRole="button"
+          accessibilityLabel={`You are on shift at ${active.house?.name}. Open the Clock tab.`}
+        >
+          <View style={s.activeDot} />
+          <Text style={s.activeTxt} numberOfLines={1}>
+            On shift at {active.house?.name} · manage on Clock
+          </Text>
+          <CaretRight size={15} color={D.white} weight="bold" />
+        </Pressable>
+      )}
+
       {/* Search */}
       <View style={s.searchBar}>
         <MagnifyingGlass size={17} color={D.light} weight="regular" />
@@ -368,7 +383,7 @@ export default function ShiftsScreen() {
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={s.listContent}
+          contentContainerStyle={[s.listContent, { paddingBottom: tabBarHeight + 24 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={D.emerald} />}
           ListEmptyComponent={<Empty tab={tab} searching={q.length > 0} />}
@@ -397,6 +412,14 @@ const s = StyleSheet.create({
   title: { fontSize: 26, fontWeight: '800', color: D.text, letterSpacing: -0.5 },
   subtitle: { fontSize: 13, color: D.muted, marginTop: 3 },
 
+  activeBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 18, marginBottom: 12,
+    backgroundColor: D.emerald, borderRadius: 13, paddingHorizontal: 14, paddingVertical: 11,
+  },
+  activeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: D.mint },
+  activeTxt: { flex: 1, fontSize: 13, fontWeight: '700', color: D.white },
+
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginHorizontal: 18, marginBottom: 12,
@@ -421,10 +444,10 @@ const s = StyleSheet.create({
   tabCountTxt: { fontSize: 10, fontWeight: '800', color: D.muted },
   tabCountTxtActive: { color: D.white },
 
-  listContent: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 120, flexGrow: 1 },
+  listContent: { paddingHorizontal: 18, paddingTop: 4, flexGrow: 1 },
   skeletonWrap: { paddingHorizontal: 18, paddingTop: 4 },
 
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 70, paddingHorizontal: 24 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: D.white, alignItems: 'center', justifyContent: 'center', marginBottom: 14, borderWidth: 1, borderColor: D.border },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: D.text, marginBottom: 6 },
   emptySub: { fontSize: 13.5, color: D.muted, textAlign: 'center', lineHeight: 20 },

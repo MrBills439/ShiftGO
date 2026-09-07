@@ -18,6 +18,7 @@ import { Shift } from '../../types';
 import { D } from '../../constants/theme';
 import { fmtTime as fmt, relativeDayLabel as fmtDate, getGreeting } from '../../lib/datetime';
 import { shiftTypeLabel } from '../../lib/shiftTypes';
+import { useTabBarHeight } from '../../lib/useTabBarHeight';
 import * as Haptics from 'expo-haptics';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
@@ -121,10 +122,13 @@ const cb = StyleSheet.create({
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ClockScreen() {
-  const { upcoming, isLoading: shiftsLoading } = useUpcomingShifts();
+  const { active, upcoming, isLoading: shiftsLoading } = useUpcomingShifts();
   const user = useAuthStore(s => s.user);
   const router = useRouter();
-  const activeShift = getActive(upcoming);
+  const tabBarHeight = useTabBarHeight();
+  // A shift the worker has clocked into (`active`) wins; otherwise the shift
+  // whose time window is open right now (the one they can clock into).
+  const activeShift = active ?? getActive(upcoming);
   const nextShift = getNext(upcoming, activeShift);
   const {
     isClockedIn,
@@ -222,7 +226,10 @@ export default function ClockScreen() {
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[s.scroll, { paddingBottom: tabBarHeight + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
 
         {/* ── Header ── */}
         <View style={s.header}>
@@ -375,7 +382,7 @@ export default function ClockScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: D.bg },
-  scroll: { paddingHorizontal: 16, paddingBottom: 110 },
+  scroll: { paddingHorizontal: 16 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: { flexDirection: 'row', alignItems: 'center', paddingTop: 10, paddingBottom: 10 },

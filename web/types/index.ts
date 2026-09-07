@@ -32,6 +32,7 @@ export interface User {
   role: Role;
   status?: 'ACTIVE' | 'DEACTIVATED';
   phone?: string | null;
+  profilePicture?: string | null;
   contractedHours?: number | null;
   deactivatedAt?: string | null;
   deactivatedById?: string | null;
@@ -166,6 +167,19 @@ export interface DashboardShift {
   attendance: 'Scheduled' | 'Clocked in' | 'Late' | 'Completed' | 'Needs review' | 'Open';
 }
 
+export interface DashboardOpenShift {
+  id: string;
+  house: { id: string; name: string; address: string } | null;
+  startTime: string;
+  endTime: string;
+  shiftType: ShiftType;
+  status: ShiftStatus;
+  urgent: boolean;
+  eligibleRoles: string[];
+  claimCount: number;
+  href: string;
+}
+
 export interface DashboardToday {
   date: string;
   /** IANA timezone the "today" boundaries were computed in (agency timezone). */
@@ -194,6 +208,9 @@ export interface DashboardToday {
   issues: DashboardIssue[];
   todayShifts: DashboardShift[];
   tomorrow: { count: number; shifts: DashboardShift[] };
+  /** OPEN / cover shifts still needing a worker over the next 2 weeks, scoped to the caller. */
+  openShifts: DashboardOpenShift[];
+  openShiftsToday: number;
   staff: { total: number };
 }
 

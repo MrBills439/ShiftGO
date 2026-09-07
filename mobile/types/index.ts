@@ -43,6 +43,14 @@ export interface Shift {
   cancellationReason: string | null;
   house: House;
   worker?: { id: string; name: string; email: string } | null;
+  timesheet?: {
+    id: string;
+    clockInAt: string | null;
+    clockOutAt: string | null;
+    totalHours: number | null;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    reviewedAt: string | null;
+  } | null;
 }
 
 export interface ShiftClaim {
@@ -118,6 +126,7 @@ export interface UserProfile {
   bio?: string | null;
   profilePicture?: string | null;
   address?: string | null;
+  contractedHours?: number | null;
   onboardedAt?: string | null;
   createdAt: string;
   updatedAt: string;

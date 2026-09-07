@@ -1,8 +1,10 @@
 import { Tabs } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { Platform, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CalendarBlank, ClockCountdown, ListChecks, UserCircle } from 'phosphor-react-native';
 import { Colors } from '../../constants/theme';
+import { TAB_BAR_BASE_HEIGHT } from '../../lib/useTabBarHeight';
 
 function TabBar({ children }: { children: React.ReactNode }) {
   if (Platform.OS === 'ios') {
@@ -16,6 +18,7 @@ function TabBar({ children }: { children: React.ReactNode }) {
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -23,7 +26,13 @@ export default function TabsLayout() {
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.outline,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginBottom: 2 },
-        tabBarStyle: styles.tabBar,
+        // Content band is a fixed visual height; the device's bottom inset
+        // (gesture bar / 3-button nav) is added beneath so the bar is never
+        // clipped by or overlapping the Android system navigation.
+        tabBarStyle: [
+          styles.tabBar,
+          { height: TAB_BAR_BASE_HEIGHT + insets.bottom, paddingBottom: insets.bottom },
+        ],
         tabBarBackground: () => (
           Platform.OS === 'ios'
             ? <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
@@ -69,7 +78,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E1F5EE',
     elevation: 0,
-    height: Platform.OS === 'ios' ? 84 : 64,
     backgroundColor: 'transparent',
   },
   blurBar: { flex: 1 },
