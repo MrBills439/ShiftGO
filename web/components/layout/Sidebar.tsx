@@ -81,35 +81,32 @@ export function Sidebar() {
         </p>
       </div>
 
-      <div className="px-3 py-4 border-t border-outline-variant/30">
+      <div className="px-3 py-3 border-t border-outline-variant/30">
         {(() => {
           const role = (user?.role ?? 'WORKER') as Role;
           const meta = ROLE_META[role] ?? ROLE_META.WORKER;
           const displayName = displayNameOf(user);
           const avatarSeed = realNameOf(user) ?? user?.email ?? displayName;
           return (
-            <div className="rounded-lg border border-outline-variant/40 bg-surface-low p-3">
-              <div className="flex items-center gap-3">
-                <div className={clsx('flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold', meta.avatarClass)}>
-                  {initials(avatarSeed)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-on-surface">{displayName}</p>
-                  <p className="truncate text-[11px] text-on-surface-variant font-inter">{user?.email}</p>
-                </div>
+            <div className="flex items-center gap-2.5">
+              <div className={clsx('flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold', meta.avatarClass)}>
+                {initials(avatarSeed)}
               </div>
-              <div className="mt-2.5 flex items-center justify-between gap-2">
-                <span className={clsx('inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', meta.badgeClass)}>
-                  {meta.label}
-                </span>
-                <button
-                  onClick={logout}
-                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-on-surface-variant transition-colors hover:bg-error-container/40 hover:text-error-DEFAULT"
-                >
-                  <SignOutIcon size={15} weight="regular" />
-                  Sign out
-                </button>
+              <div className="min-w-0 flex-1 leading-tight">
+                <p className="truncate text-sm font-semibold text-on-surface">{displayName}</p>
+                <p className="truncate text-[11px] text-on-surface-variant font-inter">
+                  <span className="font-medium text-on-surface/70">{meta.label}</span>
+                  {user?.email ? ` · ${user.email}` : ''}
+                </p>
               </div>
+              <button
+                onClick={logout}
+                aria-label="Sign out"
+                title="Sign out"
+                className="flex-shrink-0 rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-error-container/40 hover:text-error-DEFAULT"
+              >
+                <SignOutIcon size={16} weight="regular" />
+              </button>
             </div>
           );
         })()}
