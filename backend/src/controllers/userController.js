@@ -24,11 +24,46 @@ const userSelect = {
 };
 
 const meSelect = {
-  id: true, agencyId: true, name: true, email: true, role: true, status: true,
+  id: true, agencyId: true, clerkUserId: true, name: true, email: true, role: true, status: true,
   phone: true, bio: true, profilePicture: true, address: true,
   onboardedAt: true, createdAt: true, updatedAt: true,
   agency: { select: { name: true } },
 };
+
+/** True when `name` is missing or is really just the email address — the state
+ *  the Clerk membership webhook leaves a user in when Clerk has no first/last
+ *  name yet. Such a value must never be shown as a person's name. */
+function nameIsUnset(name, email) {
+  const n = (name || '').trim().toLowerCase();
+  return !n || n === (email || '').trim().toLowerCase();
+}
+
+// Clerk user ids we have already tried to heal this process — so a user who
+// genuinely has no name in Clerk does not cause a Clerk API call on every
+// /users/me. The webhook (`user.updated`) is the real sync path; this is only a
+// fallback for rows created before that handler existed. Resets on redeploy.
+const _nameHealAttempted = new Set();
+
+/** Exceptional fallback: if the stored name is just the email (legacy rows from
+ *  before the user.updated webhook), pull the real name from Clerk once and
+ *  persist it on this user's own row. Never throws, at most one Clerk call per
+ *  user per process. */
+async function backfillNameFromClerk(user) {
+  if (process.env.JEST_WORKER_ID !== undefined) return user;
+  if (!user.clerkUserId || !nameIsUnset(user.name, user.email)) return user;
+  if (_nameHealAttempted.has(user.clerkUserId)) return user;
+  _nameHealAttempted.add(user.clerkUserId);
+  try {
+    const cu = await clerkClient.users.getUser(user.clerkUserId);
+    const real = [cu.firstName, cu.lastName].filter(Boolean).join(' ').trim();
+    if (real && real.toLowerCase() !== (user.email || '').toLowerCase()) {
+      return prisma.user.update({ where: { id: user.id }, data: { name: real }, select: meSelect });
+    }
+  } catch (err) {
+    console.warn('[users/me] could not backfill name from Clerk:', err.message);
+  }
+  return user;
+}
 
 async function listUsers(req, res) {
   const { role, status = 'ACTIVE' } = req.query;
@@ -145,8 +180,9 @@ async function deactivateUser(req, res) {
 }
 
 async function getMe(req, res) {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
+  let user = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
   if (!user) return notFound(res);
+  user = await backfillNameFromClerk(user);
   ok(res, user);
 }
 

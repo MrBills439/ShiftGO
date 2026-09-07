@@ -127,6 +127,10 @@ model Agency {
   id         String   @id @default(cuid())
   name       String
   clerkOrgId String?  @unique
+  // IANA timezone that defines this agency's operational "day" for the
+  // dashboard, rota, attendance, payroll and reporting. Never the server's
+  // (UTC on Railway) or the browser's timezone. See src/lib/agencyTime.js.
+  timezone   String   @default("Europe/London")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

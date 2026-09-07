@@ -1,25 +1,21 @@
 'use client';
-import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircleIcon, WarningCircleIcon, ClockIcon, ExclamationMarkIcon, CalendarBlankIcon } from '@phosphor-icons/react';
-import { useShifts } from '@/hooks/useShifts';
-import { useHouses } from '@/hooks/useHouses';
-import { useUsers } from '@/hooks/useWorkers';
-import { useLeaveRequests, useApproveLeaveRequest } from '@/hooks/useLeaveRequests';
+import {
+  CheckCircleIcon, WarningCircleIcon, ClockIcon, ExclamationMarkIcon,
+  CalendarBlankIcon, UsersIcon, ArrowRightIcon,
+} from '@phosphor-icons/react';
+import { useDashboardToday } from '@/hooks/useDashboard';
 import { useAuthStore } from '@/store/authStore';
+import { firstNameOf } from '@/lib/userName';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { StatsSkeleton } from '@/components/ui/Skeleton';
 import { ActivityFeed } from '@/components/operations/ActivityFeed';
-import { useToast } from '@/hooks/useToast';
+import type { DashboardIssue, DashboardShift } from '@/types';
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 function formatFullDate(date: Date) {
@@ -31,91 +27,80 @@ function getGreeting() {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
-// KPI Card Component
+type CardStatus = 'good' | 'warning' | 'critical' | 'neutral';
+
 function KPICard({
-  label,
-  value,
-  status,
-  icon: Icon,
-  onClick,
+  label, value, status, icon: Icon, onClick,
 }: {
   label: string;
   value: number | string;
-  status: 'good' | 'warning' | 'critical';
+  status: CardStatus;
   icon: React.ElementType;
   onClick?: () => void;
 }) {
-  const statusColors = {
+  const statusColors: Record<CardStatus, string> = {
     good: 'bg-success/10 border-success/20',
     warning: 'bg-warning/10 border-warning/20',
     critical: 'bg-danger/10 border-danger/20',
+    neutral: 'bg-surface-subtle border-border',
   };
-
-  const statusDots = {
-    good: <div className="w-2 h-2 rounded-full bg-success" />,
-    warning: <div className="w-2 h-2 rounded-full bg-warning" />,
-    critical: <div className="w-2 h-2 rounded-full bg-danger" />,
+  const dot: Record<CardStatus, string> = {
+    good: 'bg-success', warning: 'bg-warning', critical: 'bg-danger', neutral: 'bg-fg-muted/40',
   };
 
   return (
     <Card
-      className={`p-6 cursor-pointer transition-all hover:shadow-lg ${statusColors[status]} ${onClick ? 'cursor-pointer' : ''}`}
+      className={`p-6 transition-all ${statusColors[status]} ${onClick ? 'cursor-pointer hover:shadow-lg' : ''}`}
       onClick={onClick}
     >
       <div className="flex items-start justify-between mb-4">
         <Icon size={20} className="text-fg-muted" weight="regular" />
-        {statusDots[status]}
+        <div className={`w-2 h-2 rounded-full ${dot[status]}`} />
       </div>
-      <div>
-        <p className="text-sm font-medium text-fg-muted mb-2">{label}</p>
-        <p className="text-3xl font-bold text-fg font-inter">{value}</p>
-      </div>
+      <p className="text-sm font-medium text-fg-muted mb-2">{label}</p>
+      <p className="text-3xl font-bold text-fg font-inter">{value}</p>
     </Card>
   );
 }
 
-// Problem Alert Component
-function ProblemAlert({
-  severity,
-  title,
-  description,
-  actions,
-}: {
-  severity: 'critical' | 'warning' | 'info';
-  title: string;
-  description: string;
-  actions: { label: string; onClick?: () => void }[];
-}) {
-  const severityStyles = {
+const ISSUE_ACTION: Record<DashboardIssue['type'], string> = {
+  LATE: 'Open rota',
+  UNCOVERED_SHIFT: 'Cover shift',
+  ATTENDANCE_REVIEW: 'Review attendance',
+  RIGHT_TO_WORK: 'Open Right to Work',
+  TIMESHEET_APPROVAL: 'Review timesheet',
+  LEAVE_APPROVAL: 'Review leave',
+};
+
+function IssueRow({ issue, onAction }: { issue: DashboardIssue; onAction: () => void }) {
+  const styles = {
     critical: 'border-danger/30 bg-danger/5',
     warning: 'border-warning/30 bg-warning/5',
     info: 'border-info/30 bg-info/5',
-  };
-
-  const severityIcons = {
+  }[issue.severity];
+  const icon = {
     critical: <ExclamationMarkIcon size={18} className="text-danger" weight="bold" />,
     warning: <WarningCircleIcon size={18} className="text-warning" weight="bold" />,
     info: <CheckCircleIcon size={18} className="text-info" weight="regular" />,
-  };
+  }[issue.severity];
+
+  const context = [
+    issue.house?.name,
+    issue.at ? formatTime(issue.at) : null,
+  ].filter(Boolean).join(' • ');
 
   return (
-    <div className={`border rounded-lg p-4 ${severityStyles[severity]}`}>
+    <div className={`border rounded-lg p-4 ${styles}`}>
       <div className="flex items-start gap-3">
-        <div className="mt-0.5">{severityIcons[severity]}</div>
+        <div className="mt-0.5">{icon}</div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-fg text-sm">{title}</p>
-          <p className="text-sm text-fg-muted mt-1">{description}</p>
-          <div className="flex gap-2 mt-3">
-            {actions.map((action, i) => (
-              <Button
-                key={i}
-                size="sm"
-                variant="ghost"
-                onClick={action.onClick}
-              >
-                {action.label}
-              </Button>
-            ))}
+          <p className="font-semibold text-fg text-sm">{issue.title}</p>
+          <p className="text-sm text-fg-muted mt-1">{issue.detail}</p>
+          {context && <p className="text-xs text-fg-muted mt-1">{context}</p>}
+          <div className="mt-3">
+            <Button size="sm" variant="ghost" onClick={onAction}>
+              {ISSUE_ACTION[issue.type]}
+            </Button>
           </div>
         </div>
       </div>
@@ -123,69 +108,26 @@ function ProblemAlert({
   );
 }
 
+function attendanceBadge(a: DashboardShift['attendance']) {
+  const map: Record<DashboardShift['attendance'], 'info' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+    Scheduled: 'info',
+    'Clocked in': 'success',
+    Late: 'warning',
+    Completed: 'neutral',
+    'Needs review': 'danger',
+    Open: 'warning',
+  };
+  return <Badge variant={map[a]} label={a} dot={false} />;
+}
+
 export function OpsToday() {
   const router = useRouter();
-  const toast = useToast();
   const user = useAuthStore((s) => s.user);
-  const { data: shifts = [], isLoading: shiftsLoading } = useShifts();
-  const { data: houses = [] } = useHouses();
-  const { data: workers = [] } = useUsers('WORKER');
-  const { data: leaveRequests = [] } = useLeaveRequests({ status: 'PENDING' });
-  const approveLeave = useApproveLeaveRequest();
-
-  async function handleApproveLeave(id: string) {
-    try {
-      await approveLeave.mutateAsync(id);
-      toast.success('Leave request approved');
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to approve leave');
-    }
-  }
+  const canSee = user?.role !== 'WORKER';
+  const { data, isLoading, isError } = useDashboardToday(canSee);
 
   const now = new Date();
-  const todayString = now.toDateString();
-
-  // Calculate operational metrics
-  const metrics = useMemo(() => {
-    const activeSchedule = shifts.filter((s) => s.status !== 'CANCELLED');
-    const todayShifts = activeSchedule.filter((s) => new Date(s.date).toDateString() === todayString);
-
-    // Actually clocked in right now (status flips SCHEDULED -> IN_PROGRESS on clock-in).
-    const activeShifts = todayShifts.filter((s) => s.status === 'IN_PROGRESS');
-
-    // Shift window has started but the worker hasn't clocked in yet.
-    const lateWorkers = todayShifts.filter(
-      (s) => s.status === 'SCHEDULED' && new Date(s.startTime) <= now && new Date(s.endTime) >= now
-    );
-
-    // Genuinely unfilled shifts today — no worker assigned, regardless of time.
-    const openShifts = todayShifts.filter((s) => s.status === 'OPEN' || !s.workerId);
-
-    // Share of today's shifts that are actually staffed.
-    const coverage = todayShifts.length > 0
-      ? Math.round(((todayShifts.length - openShifts.length) / todayShifts.length) * 100)
-      : 100;
-
-    return {
-      coverage,
-      workersLive: activeShifts.length,
-      openIssues: lateWorkers.length + openShifts.length,
-      pendingApprovals: leaveRequests.length,
-      todayShifts,
-      activeShifts,
-      openShifts,
-      lateWorkers,
-    };
-  }, [shifts, leaveRequests, todayString, now]);
-
-  // Generate operational status
-  const operationalStatus = metrics.coverage >= 95 && metrics.openIssues === 0
-    ? 'healthy'
-    : 'attention-required';
-
-  const isLoading = shiftsLoading;
-  const firstName = user?.name?.split(' ')[0] ?? 'there';
-  const agencyName = user?.agency?.name ?? '';
+  const greetingName = firstNameOf(user);
 
   if (isLoading) {
     return (
@@ -201,136 +143,158 @@ export function OpsToday() {
     );
   }
 
+  if (isError || !data) {
+    return (
+      <div className="space-y-8">
+        <div className="pb-8 border-b border-neutral-200">
+          <h1 className="text-3xl font-bold text-fg tracking-tight">
+            {getGreeting()}{greetingName ? `, ${greetingName}` : ''}
+          </h1>
+          <p className="text-sm text-fg-muted mt-2">{formatFullDate(now)}</p>
+        </div>
+        <Card className="p-6 text-center">
+          <WarningCircleIcon size={32} className="mx-auto text-warning mb-3" weight="regular" />
+          <p className="text-fg font-medium">Couldn&apos;t load today&apos;s overview</p>
+          <p className="text-sm text-fg-muted mt-1">Refresh the page to try again.</p>
+        </Card>
+      </div>
+    );
+  }
+
+  const { coverage, pendingApprovals, issues, todayShifts, tomorrow, permissions, staff } = data;
+  const agencyName = user?.agency?.name ?? '';
+
+  const statusPill =
+    data.openIssues > 0
+      ? { cls: 'bg-warning/10 text-warning-text', dot: 'bg-warning', label: 'Attention required' }
+      : coverage.percent === null
+      ? { cls: 'bg-surface-subtle text-fg-muted', dot: 'bg-fg-muted/40', label: 'No shifts today' }
+      : { cls: 'bg-success/10 text-success-text', dot: 'bg-success', label: 'Operations healthy' };
+
+  const coverageStatus: CardStatus =
+    coverage.percent === null ? 'neutral'
+    : coverage.percent >= 95 ? 'good'
+    : coverage.percent >= 80 ? 'warning'
+    : 'critical';
+
   return (
     <div className="space-y-8">
       {/* ─── Header ─────────────────────────────────────────────── */}
       <div className="pb-8 border-b border-neutral-200">
-        <div className="flex items-start justify-between mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-fg -0.5px tracking-tight">
-              {getGreeting()}, {firstName}
+            <h1 className="text-3xl font-bold text-fg tracking-tight">
+              {getGreeting()}{greetingName ? `, ${greetingName}` : ''}
             </h1>
             <p className="text-sm text-fg-muted mt-2">
-              {formatFullDate(now)} • {agencyName}
+              {formatFullDate(now)}{agencyName ? ` • ${agencyName}` : ''}
             </p>
           </div>
-          <div className="text-right">
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
-              operationalStatus === 'healthy'
-                ? 'bg-success/10 text-success-text'
-                : 'bg-warning/10 text-warning-text'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${operationalStatus === 'healthy' ? 'bg-success' : 'bg-warning'}`} />
-              {operationalStatus === 'healthy'
-                ? "Operations healthy"
-                : "Attention required"}
-            </div>
+          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${statusPill.cls}`}>
+            <div className={`w-2 h-2 rounded-full ${statusPill.dot}`} />
+            {statusPill.label}
           </div>
         </div>
       </div>
 
-      {/* ─── Operations Summary (4 Cards) ───────────────────────── */}
+      {/* ─── No staff yet ───────────────────────────────────────── */}
+      {staff.total === 0 && (
+        <div className="rounded-lg border border-info/30 bg-info/5 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <UsersIcon size={20} className="text-info" weight="regular" />
+            <div>
+              <p className="font-semibold text-fg text-sm">No staff have been added yet</p>
+              <p className="text-sm text-fg-muted">Invite your team to start scheduling shifts.</p>
+            </div>
+          </div>
+          {permissions.canManageStaff && (
+            <Button size="sm" variant="primary" onClick={() => router.push('/dashboard/workers')}>
+              Add / invite staff
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* ─── Summary cards ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
           label="Coverage Today"
-          value={`${metrics.coverage}%`}
-          status={metrics.coverage >= 95 ? 'good' : metrics.coverage >= 80 ? 'warning' : 'critical'}
+          value={coverage.percent === null ? 'No shifts' : `${coverage.percent}%`}
+          status={coverageStatus}
           icon={CheckCircleIcon}
+          onClick={() => router.push('/dashboard/rota')}
         />
         <KPICard
           label="Workers Live"
-          value={metrics.workersLive}
-          status={metrics.workersLive > 0 ? 'good' : 'warning'}
+          value={data.workersLive}
+          status={data.workersLive > 0 ? 'good' : 'neutral'}
           icon={CalendarBlankIcon}
         />
         <KPICard
           label="Open Issues"
-          value={metrics.openIssues}
-          status={metrics.openIssues === 0 ? 'good' : metrics.openIssues <= 2 ? 'warning' : 'critical'}
+          value={data.openIssues}
+          status={data.openIssues === 0 ? 'good' : data.openIssues <= 2 ? 'warning' : 'critical'}
           icon={WarningCircleIcon}
         />
         <KPICard
           label="Pending Approvals"
-          value={metrics.pendingApprovals}
-          status={metrics.pendingApprovals === 0 ? 'good' : metrics.pendingApprovals <= 3 ? 'warning' : 'critical'}
+          value={pendingApprovals.total}
+          status={pendingApprovals.total === 0 ? 'good' : pendingApprovals.total <= 3 ? 'warning' : 'critical'}
           icon={ClockIcon}
+          onClick={permissions.canReviewApprovals ? () => router.push('/dashboard/timesheets') : undefined}
         />
       </div>
 
-      {/* ─── Problems That Need Attention ──────────────────────── */}
+      {/* ─── Issues requiring attention ─────────────────────────── */}
       <section>
         <h2 className="text-lg font-semibold text-fg mb-4">Issues Requiring Attention</h2>
-        <div className="space-y-3">
-          {metrics.openIssues === 0 ? (
-            <div className="rounded-lg border border-success/20 bg-success/5 p-6 text-center">
-              <CheckCircleIcon size={32} className="mx-auto text-success mb-3" weight="regular" />
-              <p className="text-fg font-medium">No open issues today</p>
-              <p className="text-sm text-fg-muted mt-1">Everything is running smoothly</p>
-            </div>
-          ) : (
-            <>
-              {metrics.lateWorkers.map((shift) => (
-                <ProblemAlert
-                  key={`late-${shift.id}`}
-                  severity="warning"
-                  title={`${shift.worker?.name ?? 'Worker'} is late`}
-                  description={`Expected at ${shift.house.name} at ${formatTime(shift.startTime)}`}
-                  actions={[{ label: 'Contact' }, { label: 'Resolve' }]}
-                />
-              ))}
-              {metrics.openShifts.slice(0, 2).map((shift) => (
-                <ProblemAlert
-                  key={`open-${shift.id}`}
-                  severity="critical"
-                  title={`Unfilled shift: ${shift.house.name}`}
-                  description={`${formatTime(shift.startTime)} – ${formatTime(shift.endTime)}`}
-                  actions={[{ label: 'Assign Worker' }, { label: 'Details' }]}
-                />
-              ))}
-            </>
-          )}
-        </div>
+        {issues.length === 0 ? (
+          <div className="rounded-lg border border-success/20 bg-success/5 p-6 text-center">
+            <CheckCircleIcon size={32} className="mx-auto text-success mb-3" weight="regular" />
+            <p className="text-fg font-medium">No open issues today</p>
+            <p className="text-sm text-fg-muted mt-1">Everything is running smoothly</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {issues.map((issue) => (
+              <IssueRow key={issue.id} issue={issue} onAction={() => router.push(issue.href)} />
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* ─── Today's Rota Snapshot ──────────────────────────────── */}
+      {/* ─── Today's shifts ─────────────────────────────────────── */}
       <section>
-        <h2 className="text-lg font-semibold text-fg mb-4">Today's Shifts</h2>
+        <h2 className="text-lg font-semibold text-fg mb-4">Today&apos;s Shifts</h2>
         <Card className="overflow-hidden">
-          {metrics.todayShifts.length === 0 ? (
-            <div className="p-6 text-center">
+          {todayShifts.length === 0 ? (
+            <div className="p-8 text-center">
               <CalendarBlankIcon size={32} className="mx-auto text-fg-muted mb-3" weight="regular" />
               <p className="text-fg font-medium">No shifts scheduled today</p>
+              {permissions.canCreateShift && (
+                <div className="mt-4">
+                  <Button size="sm" variant="primary" onClick={() => router.push('/dashboard/rota')}>
+                    Create shift
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-neutral-200">
-              {metrics.todayShifts.map((shift) => (
-                <div key={shift.id} className="p-4 flex items-center justify-between hover:bg-neutral-50 transition-colors">
+              {todayShifts.map((shift) => (
+                <div key={shift.id} className="p-4 flex items-center justify-between gap-4 hover:bg-neutral-50 transition-colors">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                       <p className="font-semibold text-fg">{shift.worker?.name ?? 'Open shift'}</p>
-                      <Badge
-                        variant={
-                          shift.status === 'SCHEDULED'
-                            ? 'info'
-                            : shift.status === 'IN_PROGRESS'
-                            ? 'success'
-                            : shift.status === 'COMPLETED'
-                            ? 'neutral'
-                            : 'danger'
-                        }
-                        label={shift.status.replace(/_/g, ' ')}
-                        dot={false}
-                      />
+                      {attendanceBadge(shift.attendance)}
                     </div>
                     <p className="text-sm text-fg-muted">
-                      {shift.house.name} • {formatTime(shift.startTime)} – {formatTime(shift.endTime)}
+                      {shift.house?.name ?? 'Unassigned service'} • {formatTime(shift.startTime)} – {formatTime(shift.endTime)}
                     </p>
                   </div>
-                  <div className="text-right ml-4 flex-shrink-0">
-                    <span className="text-xs font-medium text-fg-muted">
-                      {shift.shiftType || 'Standard'}
-                    </span>
-                  </div>
+                  <span className="text-xs font-medium text-fg-muted flex-shrink-0">
+                    {shift.shiftType?.replace(/_/g, ' ') || 'Standard'}
+                  </span>
                 </div>
               ))}
             </div>
@@ -338,107 +302,91 @@ export function OpsToday() {
         </Card>
       </section>
 
-      {/* ─── Pending Approvals ──────────────────────────────────── */}
+      {/* ─── Pending approvals ──────────────────────────────────── */}
+      {permissions.canReviewApprovals && (
+        <section>
+          <h2 className="text-lg font-semibold text-fg mb-4">Pending Approvals</h2>
+          <Card>
+            {pendingApprovals.total === 0 ? (
+              <div className="p-6 text-center">
+                <CheckCircleIcon size={32} className="mx-auto text-success mb-3" weight="regular" />
+                <p className="text-fg font-medium">No pending approvals</p>
+                <p className="text-sm text-fg-muted mt-1">All requests have been reviewed</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-neutral-200">
+                {[
+                  { label: 'Timesheets', count: pendingApprovals.timesheets, href: '/dashboard/timesheets' },
+                  { label: 'Attendance reviews', count: pendingApprovals.attendanceReviews, href: '/dashboard/timesheets' },
+                  { label: 'Leave requests', count: pendingApprovals.leave, href: '/dashboard/leave' },
+                ].map((row) => (
+                  <button
+                    key={row.label}
+                    onClick={() => router.push(row.href)}
+                    className="w-full p-4 flex items-center justify-between hover:bg-neutral-50 transition-colors text-left disabled:opacity-50"
+                    disabled={row.count === 0}
+                  >
+                    <span className="text-sm font-medium text-fg">{row.label}</span>
+                    <span className="flex items-center gap-2 text-sm text-fg-muted">
+                      {row.count} pending
+                      <ArrowRightIcon size={16} weight="bold" />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+        </section>
+      )}
+
+      {/* ─── Tomorrow preview ───────────────────────────────────── */}
       <section>
-        <h2 className="text-lg font-semibold text-fg mb-4">Pending Approvals</h2>
-        <Card>
-          {leaveRequests.length === 0 ? (
-            <div className="p-6 text-center">
-              <CheckCircleIcon size={32} className="mx-auto text-success mb-3" weight="regular" />
-              <p className="text-fg font-medium">No pending approvals</p>
-              <p className="text-sm text-fg-muted mt-1">All requests have been reviewed</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-neutral-200">
-              {leaveRequests.slice(0, 5).map((leave) => (
-                <div key={leave.id} className="p-4 flex items-center justify-between hover:bg-neutral-50 transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-fg text-sm">{leave.worker?.name || 'Unknown'}</p>
-                    <p className="text-xs text-fg-muted mt-1">
-                      {formatDate(leave.startDate)} – {formatDate(leave.endDate)} • {leave.reason}
-                    </p>
-                  </div>
-                  <div className="ml-4 flex-shrink-0 flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleApproveLeave(leave.id)}
-                      disabled={approveLeave.isPending}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => router.push('/dashboard/leave')}
-                    >
-                      Reject
-                    </Button>
-                  </div>
+        <h2 className="text-lg font-semibold text-fg mb-4">Tomorrow&apos;s Preview</h2>
+        <Card className="p-6">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-fg-muted">
+              {new Date(now.getTime() + 86_400_000).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
+            </p>
+            <p className="text-2xl font-bold text-fg font-inter">{tomorrow.count} shifts</p>
+          </div>
+          {tomorrow.shifts.length > 0 && (
+            <div className="pt-4 mt-4 border-t border-neutral-200 space-y-2">
+              {tomorrow.shifts.map((shift) => (
+                <div key={shift.id} className="flex items-center justify-between text-sm">
+                  <span className="text-fg">{shift.worker?.name ?? 'Open shift'}</span>
+                  <span className="text-fg-muted">{formatTime(shift.startTime)} – {formatTime(shift.endTime)}</span>
                 </div>
               ))}
-              {leaveRequests.length > 5 && (
-                <div className="p-4 text-center">
-                  <p className="text-sm text-fg-muted">+{leaveRequests.length - 5} more pending</p>
-                </div>
+              {tomorrow.count > tomorrow.shifts.length && (
+                <p className="text-sm text-fg-muted pt-2">+{tomorrow.count - tomorrow.shifts.length} more</p>
               )}
             </div>
           )}
         </Card>
       </section>
 
-      {/* ─── Tomorrow Preview ───────────────────────────────────── */}
-      <section>
-        <h2 className="text-lg font-semibold text-fg mb-4">Tomorrow's Preview</h2>
-        <Card className="p-6">
-          {(() => {
-            const tomorrow = new Date(now);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const tomorrowString = tomorrow.toDateString();
-            const tomorrowShifts = shifts.filter(
-              (s) => s.status !== 'CANCELLED' && new Date(s.date).toDateString() === tomorrowString
-            );
+      {/* ─── Quick actions ──────────────────────────────────────── */}
+      {(permissions.canCreateShift || permissions.canManageStaff) && (
+        <section>
+          <h2 className="text-lg font-semibold text-fg mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {permissions.canCreateShift && (
+              <Button variant="primary" className="w-full" onClick={() => router.push('/dashboard/rota')}>Create shift</Button>
+            )}
+            {permissions.canCreateShift && (
+              <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/workers')}>Assign worker</Button>
+            )}
+            {permissions.canManageStaff && (
+              <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/workers')}>Invite staff</Button>
+            )}
+            {permissions.canManageStaff && (
+              <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/houses')}>Add service</Button>
+            )}
+          </div>
+        </section>
+      )}
 
-            return (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-fg-muted">
-                    {tomorrow.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
-                  </p>
-                  <p className="text-2xl font-bold text-fg font-inter">{tomorrowShifts.length} shifts</p>
-                </div>
-                {tomorrowShifts.length > 0 && (
-                  <div className="pt-4 border-t border-neutral-200 space-y-2">
-                    {tomorrowShifts.slice(0, 3).map((shift) => (
-                      <div key={shift.id} className="flex items-center justify-between text-sm">
-                        <span className="text-fg">{shift.worker?.name ?? 'Open shift'}</span>
-                        <span className="text-fg-muted">{formatTime(shift.startTime)} – {formatTime(shift.endTime)}</span>
-                      </div>
-                    ))}
-                    {tomorrowShifts.length > 3 && (
-                      <p className="text-sm text-fg-muted pt-2">+{tomorrowShifts.length - 3} more</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </Card>
-      </section>
-
-      {/* ─── Quick Actions ──────────────────────────────────────── */}
-      <section>
-        <h2 className="text-lg font-semibold text-fg mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <Button variant="primary" className="w-full" onClick={() => router.push('/dashboard/rota')}>Create Shift</Button>
-          <Button variant="primary" className="w-full" onClick={() => router.push('/dashboard/rota')}>Emergency Shift</Button>
-          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/workers')}>Assign Worker</Button>
-          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/workers')}>Create Staff</Button>
-          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/houses')}>Create Service</Button>
-        </div>
-      </section>
-
-      {/* ─── Live Activity ──────────────────────────────────────── */}
+      {/* ─── Live activity ──────────────────────────────────────── */}
       <section>
         <ActivityFeed limit={8} title="Live Activity" />
       </section>

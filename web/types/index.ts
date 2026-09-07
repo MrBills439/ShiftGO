@@ -134,6 +134,69 @@ export interface AttendanceReviewItem extends Omit<Timesheet, 'shift' | 'house'>
   house: { id: string; name: string; address: string };
 }
 
+// ─── Ops "Today" dashboard (GET /dashboard/today) ───────────────────────────
+export type DashboardIssueType =
+  | 'LATE'
+  | 'UNCOVERED_SHIFT'
+  | 'ATTENDANCE_REVIEW'
+  | 'RIGHT_TO_WORK'
+  | 'TIMESHEET_APPROVAL'
+  | 'LEAVE_APPROVAL';
+
+export interface DashboardIssue {
+  id: string;
+  type: DashboardIssueType;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  worker: { id: string; name: string } | null;
+  house: { id: string; name: string } | null;
+  at: string | null;
+  href: string;
+}
+
+export interface DashboardShift {
+  id: string;
+  worker: { id: string; name: string } | null;
+  house: { id: string; name: string } | null;
+  startTime: string;
+  endTime: string;
+  shiftType: ShiftType;
+  status: ShiftStatus;
+  attendance: 'Scheduled' | 'Clocked in' | 'Late' | 'Completed' | 'Needs review' | 'Open';
+}
+
+export interface DashboardToday {
+  date: string;
+  /** IANA timezone the "today" boundaries were computed in (agency timezone). */
+  timezone: string;
+  role: Role;
+  permissions: {
+    canCreateShift: boolean;
+    canManageStaff: boolean;
+    canReviewApprovals: boolean;
+  };
+  coverage: {
+    /** null — not 100 — when nothing is scheduled today. */
+    percent: number | null;
+    scheduled: number;
+    covered: number;
+    uncovered: number;
+  };
+  workersLive: number;
+  openIssues: number;
+  pendingApprovals: {
+    timesheets: number;
+    attendanceReviews: number;
+    leave: number;
+    total: number;
+  };
+  issues: DashboardIssue[];
+  todayShifts: DashboardShift[];
+  tomorrow: { count: number; shifts: DashboardShift[] };
+  staff: { total: number };
+}
+
 export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
 export interface LeaveRequest {

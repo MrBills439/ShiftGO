@@ -82,6 +82,34 @@ async function handleUserDeleted(data) {
   });
 }
 
+/**
+ * `user.updated` — keep the local User's name/email in step with Clerk when a
+ * person edits their profile. Touches name/email ONLY: role, agency membership
+ * and status are owned by the organizationMembership.* handlers and must never
+ * be changed here. A blank Clerk name is not written over an existing good name
+ * (that would recreate the "name === email" state the self-heal exists to fix).
+ * If the user has no local row yet, updateMany matches nothing and a later
+ * organizationMembership.created will create them.
+ */
+async function handleUserUpdated(data) {
+  const clerkUserId = data.id;
+  if (!clerkUserId) return;
+
+  const emails = data.email_addresses || [];
+  const email =
+    emails.find((e) => e.id === data.primary_email_address_id)?.email_address ??
+    emails[0]?.email_address ??
+    null;
+  const realName = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+
+  const patch = {};
+  if (realName) patch.name = realName;
+  if (email) patch.email = email;
+  if (Object.keys(patch).length === 0) return;
+
+  await prisma.user.updateMany({ where: { clerkUserId }, data: patch });
+}
+
 async function receive(req, res) {
   let event;
   try {
@@ -105,6 +133,9 @@ async function receive(req, res) {
         break;
       case 'organizationMembership.deleted':
         await handleMembershipDeleted(event.data);
+        break;
+      case 'user.updated':
+        await handleUserUpdated(event.data);
         break;
       case 'user.deleted':
         await handleUserDeleted(event.data);

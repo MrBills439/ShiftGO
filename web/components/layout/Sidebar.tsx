@@ -8,6 +8,7 @@ import {
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/store/authStore';
 import { ROLE_META, initials } from '@/lib/roles';
+import { displayNameOf, realNameOf } from '@/lib/userName';
 import type { Role } from '@/types';
 
 interface NavItem {
@@ -84,12 +85,13 @@ export function Sidebar() {
         {(() => {
           const role = (user?.role ?? 'WORKER') as Role;
           const meta = ROLE_META[role] ?? ROLE_META.WORKER;
-          const displayName = user?.name && user.name !== user.email ? user.name : (user?.email?.split('@')[0] ?? 'Account');
+          const displayName = displayNameOf(user);
+          const avatarSeed = realNameOf(user) ?? user?.email ?? displayName;
           return (
             <div className="rounded-lg border border-outline-variant/40 bg-surface-low p-3">
               <div className="flex items-center gap-3">
                 <div className={clsx('flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold', meta.avatarClass)}>
-                  {initials(displayName)}
+                  {initials(avatarSeed)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-on-surface">{displayName}</p>

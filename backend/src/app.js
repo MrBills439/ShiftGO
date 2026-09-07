@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const { AVATARS_DIR } = require('./lib/storage');
 
 const webhookRoutes = require('./routes/webhooks');
+const dashboardRoutes = require('./routes/dashboard');
 const userRoutes = require('./routes/users');
 const houseRoutes = require('./routes/houses');
 const shiftRoutes = require('./routes/shifts');
@@ -63,6 +64,7 @@ app.get('/health', (_, res) => res.json({ status: 'ok', app: 'ShiftGO', timestam
 app.use(apiLimiter);
 
 // Routes (NOTE: clients expect routes WITHOUT /api prefix)
+app.use('/dashboard', dashboardRoutes);
 app.use('/users', userRoutes);
 app.use('/houses', houseRoutes);
 app.use('/shifts', shiftRoutes);
