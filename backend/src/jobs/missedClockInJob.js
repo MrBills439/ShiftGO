@@ -33,20 +33,29 @@ async function missedClockInJob() {
     },
   });
 
-  let alerted = 0;
-  for (const shift of shifts) {
-    if (shift.clockEvents.length > 0) continue;
-
-    const existing = await prisma.notification.findFirst({
+  // One dedup query for the whole batch instead of one per shift. A missed
+  // shift matches for ~10 minutes of ticks, so any prior alert is recent; the
+  // 30-minute window keeps the scan tiny while covering every earlier tick.
+  const candidates = shifts.filter((s) => s.clockEvents.length === 0);
+  const alertedShiftIds = new Set();
+  if (candidates.length > 0) {
+    const priorAlerts = await prisma.notification.findMany({
       where: {
-        agencyId: shift.agencyId,
-        userId: shift.workerId,
         type: 'MISSED_CLOCK_IN',
-        data: { path: ['shiftId'], equals: shift.id },
+        userId: { in: candidates.map((s) => s.workerId) },
+        createdAt: { gte: new Date(now.getTime() - 30 * 60 * 1000) },
       },
-      select: { id: true },
+      select: { data: true },
     });
-    if (existing) continue;
+    for (const n of priorAlerts) {
+      const sid = n.data && n.data.shiftId;
+      if (sid) alertedShiftIds.add(sid);
+    }
+  }
+
+  let alerted = 0;
+  for (const shift of candidates) {
+    if (alertedShiftIds.has(shift.id)) continue;
 
     try {
       await createAndSend(

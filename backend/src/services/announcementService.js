@@ -25,25 +25,35 @@ async function notifyAgencyOfAnnouncement(announcement, agencyId) {
     return;
   }
 
+  // One query for everyone already notified about THIS announcement (retry
+  // idempotency) instead of a per-recipient findFirst.
+  let alreadyNotified = new Set();
+  try {
+    const existing = await prisma.notification.findMany({
+      where: {
+        type: 'GENERAL',
+        userId: { in: recipients.map((r) => r.id) },
+        data: { path: ['announcementId'], equals: announcement.id },
+      },
+      select: { userId: true },
+    });
+    alreadyNotified = new Set(existing.map((n) => n.userId));
+  } catch (err) {
+    console.error('[Announcement] dedup lookup failed, continuing:', err.message);
+  }
+
   await Promise.allSettled(
-    recipients.map(async (r) => {
-      const existing = await prisma.notification.findFirst({
-        where: {
-          userId: r.id,
-          type: 'GENERAL',
-          data: { path: ['announcementId'], equals: announcement.id },
-        },
-        select: { id: true },
-      });
-      if (existing) return;
-      await notificationService.createAndSend(
-        r.id,
-        'GENERAL',
-        announcement.title,
-        announcement.body,
-        { kind: 'ANNOUNCEMENT', announcementId: announcement.id },
-      );
-    }),
+    recipients
+      .filter((r) => !alreadyNotified.has(r.id))
+      .map(async (r) => {
+        await notificationService.createAndSend(
+          r.id,
+          'GENERAL',
+          announcement.title,
+          announcement.body,
+          { kind: 'ANNOUNCEMENT', announcementId: announcement.id },
+        );
+      }),
   ).then((results) => {
     const failed = results.filter((x) => x.status === 'rejected');
     if (failed.length) {
@@ -57,6 +67,9 @@ function withReadFlag(announcement) {
   return { ...rest, read: (reads?.length ?? 0) > 0 };
 }
 
+// NOTE: this list is unbounded. Proper cursor/limit pagination is a deliberate
+// future API change to be rolled out together with the web + mobile consumers
+// (it alters the response contract). Ordering stays pinned-first, then newest.
 async function listAnnouncements(agencyId, userId) {
   const announcements = await prisma.announcement.findMany({
     where: { agencyId },

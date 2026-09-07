@@ -17,12 +17,20 @@ async function attendanceJob(now = new Date()) {
     include: { shift: { include: { house: true } }, worker: { select: { id: true, name: true, fcmToken: true } } },
   });
 
+  // One query for every open monitor's timesheet instead of one per iteration.
+  // AttendanceMonitor.shiftId is unique, so a shift maps to at most one row.
+  const timesheets = await prisma.timesheet.findMany({
+    where: { shiftId: { in: monitors.map((m) => m.shiftId) } },
+    select: { id: true, shiftId: true, clockOutAt: true },
+  });
+  const timesheetByShiftId = new Map(timesheets.map((t) => [t.shiftId, t]));
+
   for (const m of monitors) {
     try {
       const shift = m.shift;
 
       // 1. Reconcile — closed elsewhere / shift cancelled / already completed.
-      const ts = await prisma.timesheet.findUnique({ where: { shiftId: shift.id } });
+      const ts = timesheetByShiftId.get(shift.id);
       if (ts?.clockOutAt || shift.status === 'CANCELLED' || shift.status === 'COMPLETED') {
         await clockService.closeMonitor(shift.id, 'RECONCILED');
         continue;

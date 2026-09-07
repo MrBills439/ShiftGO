@@ -7,12 +7,16 @@ const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
 const app = require('../src/app');
 const { signAccess } = require('../src/utils/jwt');
+const { agencyDayRange } = require('../src/lib/agencyTime');
 
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const tokenFor = (u) => signAccess({ id: u.id, agencyId: u.agencyId, role: u.role, status: u.status, name: u.name, email: u.email });
 const get = (u) => request(app).get('/dashboard/today').set('Authorization', `Bearer ${tokenFor(u)}`);
 const hrs = (h) => new Date(Date.now() + h * 3600_000);
+// Noon of the agency's current day (Europe/London default) — deterministically
+// "today" regardless of the wall-clock hour the suite runs at.
+const noonToday = () => new Date(agencyDayRange('Europe/London', new Date()).start.getTime() + 12 * 3600_000);
 
 let agencyA;
 let agencyB;
@@ -66,7 +70,7 @@ afterAll(async () => {
 
 describe('HR dashboard — open / cover shifts', () => {
   test('HR sees every OPEN shift in the agency; assigned and cancelled shifts are excluded', async () => {
-    const s1 = await mkOpenShift({ agencyId: agencyA.id, houseId: houseA1.id, start: hrs(3) });
+    const s1 = await mkOpenShift({ agencyId: agencyA.id, houseId: houseA1.id, start: noonToday() });
     const s2 = await mkOpenShift({ agencyId: agencyA.id, houseId: houseA2.id, start: hrs(5 * 24) });
     await mkOpenShift({ agencyId: agencyA.id, houseId: houseA1.id, start: hrs(6), status: 'CANCELLED' });
     await mkOpenShift({ agencyId: agencyA.id, houseId: houseA1.id, start: hrs(7), status: 'SCHEDULED', workerId: managerA.id });

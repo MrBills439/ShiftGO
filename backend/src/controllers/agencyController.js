@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const { ok, fail, notFound } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
 const { auditContext, createAuditLog } = require('../services/auditService');
+const agencyCache = require('../lib/agencyCache');
 
 const agencySelect = {
   id: true,
@@ -39,6 +40,7 @@ async function updateAgency(req, res) {
   if (Object.keys(data).length === 0) return ok(res, before);
 
   const agency = await prisma.agency.update({ where: { id: agencyId }, data, select: agencySelect });
+  agencyCache.invalidate(agencyId); // settings changed — drop any cached copy now
 
   await createAuditLog({
     ...auditContext(req),

@@ -6,6 +6,10 @@ const clockService = require('./clockService');
 const FUTURE_GRACE_MS = 5 * 60_000; // tolerate small clock skew, never a real future time
 const MANAGER_RESOLVED_VERIFICATION = 'MANAGER_RESOLVED_CLOCK_OUT';
 
+// NOTE: this list is unbounded. Proper cursor/limit pagination is a deliberate
+// future API change to be rolled out together with the web + mobile consumers
+// (it alters the response contract). Not truncated here — deterministic
+// newest-first ordering is preserved.
 async function getMyTimesheets(workerId, agencyId) {
   return prisma.timesheet.findMany({
     where: { agencyId, workerId },

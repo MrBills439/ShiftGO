@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const agencyCache = require('../lib/agencyCache');
 const { agencyWeekRange, agencyWeekRangeForDate } = require('../lib/agencyTime');
 
 // ─── Domain constants ──────────────────────────────────────────────────────
@@ -105,10 +106,7 @@ async function scopedWorkerIds(user, agencyId) {
  * Agency-scoped; manager/team-leader house scoping respected.
  */
 async function getAllocation(user, agencyId, { week, proposedShiftId } = {}) {
-  const agency = await prisma.agency.findUnique({
-    where: { id: agencyId },
-    select: { timezone: true, maxWeeklyScheduledHours: true },
-  });
+  const agency = await agencyCache.getAgencySettings(agencyId);
   const weekRange = agencyWeekRangeForDate(agency?.timezone, week);
   const max = agency?.maxWeeklyScheduledHours ?? 60;
   const now = new Date();

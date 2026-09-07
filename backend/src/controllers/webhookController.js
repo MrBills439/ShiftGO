@@ -2,6 +2,7 @@ const { verifyWebhook } = require('@clerk/express/webhooks');
 const prisma = require('../lib/prisma');
 const clerkClient = require('../utils/clerkClient');
 const { ORG_ROLE_TO_ROLE } = require('../utils/clerkRoles');
+const agencyCache = require('../lib/agencyCache');
 
 async function findAgencyByOrgId(clerkOrgId) {
   let agency = await prisma.agency.findUnique({ where: { clerkOrgId } });
@@ -40,6 +41,7 @@ async function handleOrganizationCreated(data) {
 
 async function handleOrganizationUpdated(data) {
   await prisma.agency.updateMany({ where: { clerkOrgId: data.id }, data: { name: data.name } });
+  agencyCache.invalidateAll(); // rare event; cheapest correct move is a full drop
 }
 
 async function handleMembershipUpsert(data) {

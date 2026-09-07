@@ -268,6 +268,7 @@ model HouseWorker {
   worker User  @relation(fields: [workerId], references: [id], onDelete: Cascade)
 
   @@id([houseId, workerId])
+  @@index([workerId]) // "which houses is this worker in" — PK leads with houseId
 }
 
 model HouseTeamLeader {
@@ -278,6 +279,7 @@ model HouseTeamLeader {
   teamLeader User  @relation(fields: [teamLeaderId], references: [id], onDelete: Cascade)
 
   @@id([houseId, teamLeaderId])
+  @@index([teamLeaderId]) // rota/allocation "which house does this TL run"
 }
 
 model Shift {
@@ -309,9 +311,11 @@ model Shift {
   agency            Agency             @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
-  @@index([shiftType])
   @@index([agencyId, startTime, endTime])
   @@index([workerId, startTime, endTime])
+  // Cross-agency time-window scan used by missedClockInJob every 5 minutes
+  // (WHERE startTime BETWEEN ? AND ?), which no agency-scoped index can serve.
+  @@index([startTime])
 }
 
 model ShiftClaim {
@@ -457,6 +461,10 @@ model Timesheet {
   agency      Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
+  @@index([agencyId, workerId]) // GET /timesheets/me
+  @@index([agencyId, houseId]) // GET /timesheets/house/:id + PDF export
+  @@index([agencyId, status]) // dashboard pending-timesheet list + count
+  @@index([agencyId, needsReview]) // dashboard "needs review" list (rare -> true)
 }
 
 model Notification {
@@ -473,7 +481,13 @@ model Notification {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   agency Agency @relation(fields: [agencyId], references: [id])
 
-  @@index([agencyId])
+  // Replaces the bare [agencyId] index. Every authenticated page load hits the
+  // unread-count query (agencyId + userId + read=false); GET /notifications
+  // reuses the agencyId+userId prefix then sorts its <=50 rows by createdAt.
+  @@index([agencyId, userId, read])
+  // Idempotency dedup lookups in the announcement fan-out and missed-clock-in
+  // job (userId + type + a JSON-path match done in memory).
+  @@index([userId, type])
 }
 
 model Training {
@@ -492,6 +506,7 @@ model Training {
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
+  @@index([agencyId, userId]) // GET /training/me + /training/user/:id
 }
 
 model DbsCheck {
@@ -561,6 +576,9 @@ model LeaveRequest {
   @@index([workerId])
   @@index([status])
   @@index([startDate, endDate])
+  // checkLeaveConflict runs on every shift create/update/claim:
+  // WHERE agencyId=? AND workerId=? AND status='APPROVED' AND date-overlap.
+  @@index([agencyId, workerId, status])
 }
 
 /// Per-user PTO accrual policy. One row per user; HR/managers configure it.

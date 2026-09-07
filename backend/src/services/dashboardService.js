@@ -3,6 +3,7 @@ const shiftService = require('./shiftService');
 const timesheetService = require('./timesheetService');
 const leaveRequestService = require('./leaveRequestService');
 const rightToWorkService = require('./rightToWorkService');
+const agencyCache = require('../lib/agencyCache');
 const { agencyDayRange } = require('../lib/agencyTime');
 
 const MANAGER_PLUS = ['MANAGER', 'HR'];
@@ -55,10 +56,7 @@ function shiftSummary(shift, now, needsReviewShiftIds) {
  * guards on those features.
  */
 async function getTodaySummary(user, agencyId, now = new Date()) {
-  const agency = await prisma.agency.findUnique({
-    where: { id: agencyId },
-    select: { timezone: true },
-  });
+  const agency = await agencyCache.getAgencySettings(agencyId);
 
   // "Today" is the agency's calendar day in its configured timezone, expressed
   // as UTC instants for the queries below. Never the server's UTC day.

@@ -1,9 +1,10 @@
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
-const morgan = require('morgan');
 const prisma = require('./lib/prisma');
 const { AVATARS_DIR } = require('./lib/storage');
+const { requestLogger } = require('./middleware/requestLogger');
+const metrics = require('./lib/metrics');
 
 const webhookRoutes = require('./routes/webhooks');
 const dashboardRoutes = require('./routes/dashboard');
@@ -52,7 +53,7 @@ app.use('/webhooks', webhookRoutes);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
-app.use(morgan('dev'));
+app.use(requestLogger);
 
 // Serve ONLY avatar images statically. Right-to-Work / compliance documents live
 // under UPLOAD_DIR/rtw and are deliberately NOT mounted here — they are reachable
@@ -62,12 +63,23 @@ app.use(morgan('dev'));
 // origin) embed these public avatar images in <img> tags — helmet's default of
 // `same-origin` otherwise blocks them in the browser (the mobile app is
 // unaffected, which is why an uploaded photo showed there but not on the web).
+// Avatar on-disk names are random 16-byte hex (see middleware/upload.js
+// makeFilename); uploadAvatar writes a brand-new name and deletes the old file,
+// so a given /uploads/avatars/<name> URL always maps to the same bytes and a
+// new avatar is a new URL. That makes each file safely immutable, so it is
+// served `public, max-age=31536000, immutable` to stop browsers/CDNs re-reading
+// the Railway volume. This applies ONLY to this public-avatar mount — RTW and
+// other private uploads are never statically served (they go through the
+// authenticated /right-to-work routes).
 app.use(
   '/uploads/avatars',
   express.static(AVATARS_DIR, {
     dotfiles: 'deny',
     index: false,
-    setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'),
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    },
   }),
 );
 
@@ -97,6 +109,21 @@ app.get('/health', async (_req, res) => {
     db,
     timestamp: new Date().toISOString(),
   });
+});
+
+// Operational metrics — non-sensitive in-process counters (request/error/slow
+// counts, avg/max latency, optional DB query counts). Gated by METRICS_TOKEN
+// supplied ONLY via the x-metrics-token header (never a query parameter, so the
+// token can't leak into access logs or browser history). With no token
+// configured the route does not exist (404), so it can't be scraped by
+// accident. Never behind the rate limiter or auth stack.
+app.get('/metrics', (req, res) => {
+  const expected = process.env.METRICS_TOKEN;
+  const provided = req.get('x-metrics-token');
+  if (!expected || provided !== expected) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND' } });
+  }
+  res.json(metrics.snapshot());
 });
 
 // General API limiter. Health checks are intentionally outside this limiter.

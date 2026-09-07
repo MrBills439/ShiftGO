@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const leaveRequestService = require('./leaveRequestService');
 const { evaluateAssignment } = require('./staffAllocationService');
 const { createAuditLog } = require('./auditService');
+const agencyCache = require('../lib/agencyCache');
 
 // Roles allowed to override the agency weekly scheduled-hours ceiling.
 const WEEKLY_OVERRIDE_ROLES = ['MANAGER', 'HR'];
@@ -54,10 +55,7 @@ function forbidden(message = 'Record does not belong to your agency') {
  *    override + reason                  -> proceed; audit on success
  */
 async function assertWeeklyHoursOk({ worker, agencyId, startTime, endTime, data = {}, actor, excludeShiftId = null, selfClaim = false }) {
-  const agency = await prisma.agency.findUnique({
-    where: { id: agencyId },
-    select: { timezone: true, maxWeeklyScheduledHours: true },
-  });
+  const agency = await agencyCache.getAgencySettings(agencyId);
 
   const evalResult = await evaluateAssignment({
     worker: { id: worker.id, contractedHours: worker.contractedHours ?? null },
