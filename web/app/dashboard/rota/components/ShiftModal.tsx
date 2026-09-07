@@ -4,6 +4,8 @@ import { XIcon } from '@phosphor-icons/react';
 import { useHouses } from '@/hooks/useHouses';
 import { useWorkers } from '@/hooks/useRota';
 import { useCreateShift, useUpdateShift } from '@/hooks/useShifts';
+import { useAuthStore } from '@/store/authStore';
+import { WeeklyHoursOverrideModal, type WeeklyHoursOverrideDetails } from '@/components/staff/WeeklyHoursOverrideModal';
 import type { User, House, ShiftType, Role, Shift } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { FieldShell, Input, Select } from '@/components/ui/Input';
@@ -61,6 +63,9 @@ export function ShiftModal({
   const updateShift = useUpdateShift();
   const isPending = createShift.isPending || updateShift.isPending;
   const [error, setError] = useState<string | null>(null);
+  const role = useAuthStore((s) => s.user?.role);
+  const canOverride = role === 'HR' || role === 'MANAGER';
+  const [weeklyBlock, setWeeklyBlock] = useState<{ details: WeeklyHoursOverrideDetails; workerName?: string } | null>(null);
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -78,6 +83,51 @@ export function ShiftModal({
     setError(null);
   };
 
+  function buildPayload(extra?: Record<string, unknown>) {
+    const startDateTime = new Date(`${form.date}T${form.startTime}:00Z`);
+    let endDateTime = new Date(`${form.date}T${form.endTime}:00Z`);
+    if (endDateTime <= startDateTime) {
+      endDateTime = new Date(endDateTime.getTime() + 24 * 60 * 60 * 1000);
+    }
+    const times = {
+      date: form.date,
+      startTime: startDateTime.toISOString(),
+      endTime: endDateTime.toISOString(),
+      shiftType: form.shiftType,
+    };
+    if (isEdit && editingShift) {
+      return { kind: 'update' as const, body: { id: editingShift.id, workerId: form.workerId || null, houseId: form.houseId, ...times, ...(isCover ? { eligibleRoles } : {}), ...extra } };
+    }
+    if (isCover) {
+      return { kind: 'create' as const, body: { houseId: form.houseId, ...times, status: 'OPEN', eligibleRoles, ...extra } };
+    }
+    return { kind: 'create' as const, body: { workerId: form.workerId, houseId: form.houseId, ...times, ...extra } };
+  }
+
+  async function submit(extra?: Record<string, unknown>) {
+    setError(null);
+    const { kind, body } = buildPayload(extra);
+    try {
+      if (kind === 'update') await updateShift.mutateAsync(body as any);
+      else await createShift.mutateAsync(body as any);
+      setWeeklyBlock(null);
+      onSuccess();
+    } catch (err: any) {
+      const code = err.response?.data?.code;
+      const message = err.response?.data?.message || err.message || `Failed to ${isEdit ? 'save' : 'create'} shift`;
+      if (code === 'APPROVAL_REQUIRED' || code === 'OVERRIDE_NOT_PERMITTED') {
+        setWeeklyBlock({
+          details: err.response?.data?.details ?? {},
+          workerName: workers?.find((w: User) => w.id === form.workerId)?.name,
+        });
+      } else if (err.response?.status === 409) {
+        setError(`Conflict: ${message}`);
+      } else {
+        setError(message);
+      }
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -94,58 +144,7 @@ export function ShiftModal({
       setError('Select at least one eligible role for the cover shift');
       return;
     }
-
-    try {
-      const startDateTime = new Date(`${form.date}T${form.startTime}:00Z`);
-      let endDateTime = new Date(`${form.date}T${form.endTime}:00Z`);
-
-      if (endDateTime <= startDateTime) {
-        endDateTime = new Date(endDateTime.getTime() + 24 * 60 * 60 * 1000);
-      }
-
-      if (isEdit && editingShift) {
-        await updateShift.mutateAsync({
-          id: editingShift.id,
-          workerId: form.workerId || null,
-          houseId: form.houseId,
-          date: form.date,
-          startTime: startDateTime.toISOString(),
-          endTime: endDateTime.toISOString(),
-          shiftType: form.shiftType,
-          ...(isCover ? { eligibleRoles } : {}),
-        });
-      } else if (isCover) {
-        await createShift.mutateAsync({
-          houseId: form.houseId,
-          date: form.date,
-          startTime: startDateTime.toISOString(),
-          endTime: endDateTime.toISOString(),
-          shiftType: form.shiftType,
-          status: 'OPEN',
-          eligibleRoles,
-        });
-      } else {
-        await createShift.mutateAsync({
-          workerId: form.workerId,
-          houseId: form.houseId,
-          date: form.date,
-          startTime: startDateTime.toISOString(),
-          endTime: endDateTime.toISOString(),
-          shiftType: form.shiftType,
-        });
-      }
-
-      onSuccess();
-    } catch (err: any) {
-      const message = err.response?.data?.message || err.message || `Failed to ${isEdit ? 'save' : 'create'} shift`;
-
-      // Check for leave/overlap conflict
-      if (err.response?.status === 409) {
-        setError(`Conflict: ${message}`);
-      } else {
-        setError(message);
-      }
-    }
+    await submit();
   };
 
   const selectedWorker = workers?.find((w: User) => w.id === form.workerId);
@@ -318,6 +317,16 @@ export function ShiftModal({
           </div>
         </form>
       </div>
+
+      <WeeklyHoursOverrideModal
+        open={!!weeklyBlock}
+        onClose={() => setWeeklyBlock(null)}
+        workerName={weeklyBlock?.workerName}
+        details={weeklyBlock?.details ?? null}
+        canOverride={canOverride}
+        isPending={isPending}
+        onConfirm={(reason) => submit({ overrideWeeklyLimit: true, overrideReason: reason })}
+      />
     </div>
   );
 }

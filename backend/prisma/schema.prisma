@@ -131,6 +131,11 @@ model Agency {
   // dashboard, rota, attendance, payroll and reporting. Never the server's
   // (UTC on Railway) or the browser's timezone. See src/lib/agencyTime.js.
   timezone   String   @default("Europe/London")
+  // Maximum scheduled hours any one worker may be rostered in an agency week
+  // (Mon 00:00 -> next Mon 00:00 in `timezone`). Assignments above this need an
+  // explicit manager/HR override with a reason. Service logic reads this value
+  // — never a hardcoded number. See src/services/staffAllocationService.js.
+  maxWeeklyScheduledHours Int @default(60)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

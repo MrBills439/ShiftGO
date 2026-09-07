@@ -214,6 +214,67 @@ export interface DashboardToday {
   staff: { total: number };
 }
 
+// ─── Agency settings (GET/PATCH /agency) ───────────────────────────────────
+export interface AgencySettings {
+  id: string;
+  name: string;
+  timezone: string;
+  maxWeeklyScheduledHours: number;
+}
+
+// ─── Staff Allocation & Weekly Hours (GET /staff/allocation) ────────────────
+export type AllocationCurrentStatus = 'ON_SHIFT' | 'OFF_SHIFT';
+export type AllocationAvailability = 'AVAILABLE' | 'CONFLICT' | 'ON_LEAVE';
+export type AllocationHoursStatus = 'SAFE' | 'OVER_CONTRACT' | 'NEAR_LIMIT' | 'OVER_LIMIT';
+
+export interface AllocationConflict {
+  shiftId: string;
+  startTime: string;
+  endTime: string;
+  status: ShiftStatus;
+}
+
+export interface AllocationWorker {
+  id: string;
+  name: string;
+  profilePicture: string | null;
+  role: Role;
+  contractedHours: number | null;
+  scheduledHours: number;
+  remainingContractedHours: number | null;
+  projectedHours: number;
+  currentStatus: AllocationCurrentStatus;
+  /** Only set when a proposed shift is selected; null otherwise. */
+  availabilityForSelectedShift: AllocationAvailability | null;
+  onLeaveForSelectedShift: boolean | null;
+  hoursStatus: AllocationHoursStatus;
+  maxWeeklyScheduledHours: number;
+  hasOverlap: boolean;
+  overContract: boolean;
+  activeShift: { id: string; startTime: string; endTime: string; status: ShiftStatus } | null;
+  nextShift: { id: string; startTime: string; endTime: string; status: ShiftStatus } | null;
+  conflicts: AllocationConflict[];
+}
+
+export interface StaffAllocation {
+  week: string;
+  weekEnd: string;
+  timezone: string;
+  maxWeeklyScheduledHours: number;
+  warnRatio: number;
+  proposedShift: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    shiftType: ShiftType;
+    status: ShiftStatus;
+    eligibleRoles: string[];
+    house: { id: string; name: string } | null;
+    durationHours: number;
+  } | null;
+  workers: AllocationWorker[];
+}
+
 export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
 export interface LeaveRequest {

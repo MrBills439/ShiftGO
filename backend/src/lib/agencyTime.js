@@ -106,6 +106,34 @@ function agencyDayKey(timeZone, instant = new Date()) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+/**
+ * The half-open UTC interval `[start, end)` for the agency **week** containing
+ * `instant`. The week runs Monday 00:00 -> next Monday 00:00 in `timeZone`
+ * (there is no pre-existing rota/payroll week definition in ShiftGO, so this is
+ * the documented convention). DST-aware, so a week can be 167 or 169 hours.
+ */
+function agencyWeekRange(timeZone, instant = new Date()) {
+  const tz = resolveTimeZone(timeZone);
+  const { year, month, day } = ymdInZone(tz, instant);
+  // Day-of-week of that local calendar date (0=Sun..6=Sat). Noon UTC of the
+  // date lands on the same weekday in every real timezone.
+  const dow = new Date(Date.UTC(year, month - 1, day, 12)).getUTCDay();
+  const sinceMonday = (dow + 6) % 7; // Monday -> 0
+  const start = zonedWallTimeToUtc(tz, year, month, day - sinceMonday);
+  const end = zonedWallTimeToUtc(tz, year, month, day - sinceMonday + 7);
+  return { start, end, timeZone: tz };
+}
+
+/**
+ * `agencyWeekRange` for a plain "YYYY-MM-DD" (any date in the target week).
+ * Invalid/empty -> the week containing `now`.
+ */
+function agencyWeekRangeForDate(timeZone, dateStr) {
+  const m = typeof dateStr === 'string' && dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const ref = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12)) : new Date();
+  return agencyWeekRange(timeZone, ref);
+}
+
 module.exports = {
   DEFAULT_AGENCY_TIMEZONE,
   isValidTimeZone,
@@ -115,4 +143,6 @@ module.exports = {
   ymdInZone,
   agencyDayRange,
   agencyDayKey,
+  agencyWeekRange,
+  agencyWeekRangeForDate,
 };

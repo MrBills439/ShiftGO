@@ -1,5 +1,10 @@
 const prisma = require('../lib/prisma');
 const leaveRequestService = require('./leaveRequestService');
+const { evaluateAssignment } = require('./staffAllocationService');
+const { createAuditLog } = require('./auditService');
+
+// Roles allowed to override the agency weekly scheduled-hours ceiling.
+const WEEKLY_OVERRIDE_ROLES = ['MANAGER', 'HR'];
 
 const shiftInclude = {
   house: true,
@@ -36,7 +41,107 @@ function forbidden(message = 'Record does not belong to your agency') {
   return err;
 }
 
-async function createShift(data, createdById, agencyId) {
+/**
+ * Weekly scheduled-hours guard for a shift assignment. Runs AFTER the existing
+ * overlap / leave checks (it never bypasses them). Returns an `applyOverrideAudit`
+ * callback to invoke once the shift row exists, or null when no override was used.
+ *
+ *  - projected <= agency max            -> proceed (no-op)
+ *  - projected  > max, no override      -> 409 APPROVAL_REQUIRED, no assignment
+ *  - projected  > max, override by a
+ *    non-authorised role                -> 403 OVERRIDE_NOT_PERMITTED
+ *  - projected  > max, authorised
+ *    override + reason                  -> proceed; audit on success
+ */
+async function assertWeeklyHoursOk({ worker, agencyId, startTime, endTime, data = {}, actor, excludeShiftId = null, selfClaim = false }) {
+  const agency = await prisma.agency.findUnique({
+    where: { id: agencyId },
+    select: { timezone: true, maxWeeklyScheduledHours: true },
+  });
+
+  const evalResult = await evaluateAssignment({
+    worker: { id: worker.id, contractedHours: worker.contractedHours ?? null },
+    agency: { id: agencyId, timezone: agency?.timezone, maxWeeklyScheduledHours: agency?.maxWeeklyScheduledHours ?? 60 },
+    proposedStart: startTime,
+    proposedEnd: endTime,
+    excludeShiftId,
+  });
+
+  if (!evalResult.exceedsMax) return null;
+
+  const details = {
+    workerId: worker.id,
+    scheduledHours: evalResult.scheduledHours,
+    shiftHours: evalResult.proposedHours,
+    projectedHours: evalResult.projectedHours,
+    maxWeeklyScheduledHours: evalResult.maxWeeklyScheduledHours,
+    hoursStatus: evalResult.hoursStatus,
+  };
+
+  // A worker claiming an open shift can never self-override the ceiling.
+  if (selfClaim) {
+    const err = new Error(
+      `Claiming this shift would put you on ${evalResult.projectedHours}h this week, over the agency limit of ${evalResult.maxWeeklyScheduledHours}h. Ask your manager to assign it.`,
+    );
+    err.statusCode = 409;
+    err.code = 'WEEKLY_HOURS_LIMIT';
+    err.details = details;
+    throw err;
+  }
+
+  const wantsOverride = data.overrideWeeklyLimit === true || data.overrideWeeklyLimit === 'true';
+
+  if (!wantsOverride) {
+    const err = new Error(
+      `This assignment would put ${worker.name || 'the worker'} on ${evalResult.projectedHours}h this week, over the agency limit of ${evalResult.maxWeeklyScheduledHours}h. A manager or HR must approve it with a reason.`,
+    );
+    err.statusCode = 409;
+    err.code = 'APPROVAL_REQUIRED';
+    err.details = details;
+    throw err;
+  }
+
+  if (!actor || !WEEKLY_OVERRIDE_ROLES.includes(actor.role)) {
+    const err = new Error('You are not authorised to override the agency weekly hours limit. Ask a manager or HR to assign this shift.');
+    err.statusCode = 403;
+    err.code = 'OVERRIDE_NOT_PERMITTED';
+    err.details = details;
+    throw err;
+  }
+
+  const reason = (data.overrideReason || '').trim();
+  if (reason.length < 3) {
+    const err = new Error('An override reason is required to schedule a worker over the agency weekly hours limit.');
+    err.statusCode = 400;
+    err.code = 'OVERRIDE_REASON_REQUIRED';
+    err.details = details;
+    throw err;
+  }
+
+  return async function applyOverrideAudit(shiftId) {
+    await createAuditLog({
+      agencyId,
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: 'WEEKLY_HOURS_LIMIT_OVERRIDE',
+      entityType: 'Shift',
+      entityId: shiftId,
+      newValue: {
+        workerId: worker.id,
+        shiftId,
+        projectedHours: evalResult.projectedHours,
+        scheduledHoursBefore: evalResult.scheduledHours,
+        maxWeeklyScheduledHours: evalResult.maxWeeklyScheduledHours,
+        reason,
+        approvedById: actor.id,
+        approvedByRole: actor.role,
+        approvedAt: new Date().toISOString(),
+      },
+    });
+  };
+}
+
+async function createShift(data, createdById, agencyId, actor = null) {
   const startTime = new Date(data.startTime);
   const endTime = new Date(data.endTime);
   const [worker, house] = await Promise.all([
@@ -69,7 +174,10 @@ async function createShift(data, createdById, agencyId) {
     throw statusConflict('Worker is on approved leave during this shift');
   }
 
-  return prisma.shift.create({
+  // Weekly scheduled-hours ceiling — after overlap/leave, never instead of them.
+  const overrideAudit = await assertWeeklyHoursOk({ worker, agencyId, startTime, endTime, data, actor });
+
+  const shift = await prisma.shift.create({
     data: {
       agencyId,
       houseId: data.houseId,
@@ -83,6 +191,8 @@ async function createShift(data, createdById, agencyId) {
     },
     include: shiftInclude,
   });
+  if (overrideAudit) await overrideAudit(shift.id);
+  return shift;
 }
 
 function dateRangeWhere(filters = {}) {
@@ -225,7 +335,7 @@ async function cancelShift(id, cancelledById, cancellationReason, agencyId) {
   });
 }
 
-async function updateShift(id, data, agencyId) {
+async function updateShift(id, data, agencyId, actor = null) {
   const existing = await prisma.shift.findFirst({ where: { id, agencyId } });
   if (!existing) throw notFound();
   if (existing.status === 'CANCELLED') throw statusConflict('Cancelled shifts cannot be edited');
@@ -263,13 +373,29 @@ async function updateShift(id, data, agencyId) {
     if (leaveConflicts.length > 0) throw statusConflict('Worker is on approved leave during this shift');
   }
 
+  // Re-validate the weekly hours ceiling on an explicit (re)assignment OR when
+  // an already-assigned shift's start/end/date changes (which can move or grow
+  // it). The current shift is excluded from the tally, so it is not
+  // double-counted. Unrelated field edits skip this.
+  const isReassign = data.workerId !== undefined;
+  const timesChanged =
+    (data.startTime && +new Date(data.startTime) !== +new Date(existing.startTime)) ||
+    (data.endTime && +new Date(data.endTime) !== +new Date(existing.endTime)) ||
+    (data.date && +new Date(data.date) !== +new Date(existing.date));
+  let overrideAudit = null;
+  if (workerId && worker && (isReassign || timesChanged)) {
+    overrideAudit = await assertWeeklyHoursOk({
+      worker, agencyId, startTime, endTime, data, actor, excludeShiftId: id,
+    });
+  }
+
   // A worker being present/absent drives whether this is an assigned shift or
   // a cover-needed one — only recompute when workerId is actually part of
   // this edit, so leaving it untouched can't accidentally downgrade e.g. a
   // CLAIMED shift back to SCHEDULED.
   const status = data.workerId !== undefined ? (workerId ? 'SCHEDULED' : 'OPEN') : existing.status;
 
-  return prisma.shift.update({
+  const updated = await prisma.shift.update({
     where: { id },
     data: {
       workerId: workerId || null,
@@ -284,6 +410,8 @@ async function updateShift(id, data, agencyId) {
     },
     include: shiftInclude,
   });
+  if (overrideAudit) await overrideAudit(id);
+  return updated;
 }
 
 function effectiveEligibleRoles(shift) {
@@ -358,6 +486,17 @@ async function claimShift(id, worker, agencyId) {
     agencyId
   );
   if (leaveConflicts.length > 0) throw statusConflict('You are on approved leave during this shift');
+
+  // Same agency weekly-hours ceiling as a manager assignment — but a worker can
+  // never self-override it. Blocks the claim; the shift stays OPEN.
+  const claimant = await prisma.user.findUnique({ where: { id: worker.id }, select: { contractedHours: true, name: true } });
+  await assertWeeklyHoursOk({
+    worker: { id: worker.id, name: claimant?.name, contractedHours: claimant?.contractedHours ?? null },
+    agencyId,
+    startTime: shift.startTime,
+    endTime: shift.endTime,
+    selfClaim: true,
+  });
 
   const claim = await prisma.$transaction(async (tx) => {
     // Atomic guard: only succeeds if the shift is still OPEN at the moment of

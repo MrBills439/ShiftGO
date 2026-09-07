@@ -52,6 +52,19 @@ const optionalIsoDate = (name, label) =>
     .isISO8601()
     .withMessage(`${label} must be a valid ISO 8601 date`);
 
+// Weekly scheduled-hours override on a shift assignment (create / update).
+const weeklyOverrideBody = [
+  body('overrideWeeklyLimit')
+    .optional()
+    .isBoolean()
+    .withMessage('overrideWeeklyLimit must be a boolean'),
+  body('overrideReason')
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ min: 3, max: 500 })
+    .withMessage('An override reason of 3–500 characters is required'),
+];
+
 const pagination = [
   query('page')
     .optional()
@@ -336,6 +349,7 @@ const validators = {
       .optional()
       .isBoolean()
       .withMessage('Urgent must be a boolean'),
+    ...weeklyOverrideBody,
     handleValidationErrors,
   ],
 
@@ -385,6 +399,7 @@ const validators = {
     body('eligibleRoles.*')
       .isIn(ROLES)
       .withMessage('Eligible roles must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    ...weeklyOverrideBody,
     handleValidationErrors,
   ],
 
@@ -909,6 +924,19 @@ const validators = {
 
   getAnnouncement: [
     ...idParam('id', 'Announcement ID'),
+    handleValidationErrors,
+  ],
+
+  staffAllocation: [
+    query('week')
+      .optional({ checkFalsy: true })
+      .matches(/^\d{4}-\d{2}-\d{2}$/)
+      .withMessage('week must be YYYY-MM-DD'),
+    query('proposedShiftId')
+      .optional({ checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('proposedShiftId must be a valid shift id'),
     handleValidationErrors,
   ],
 };

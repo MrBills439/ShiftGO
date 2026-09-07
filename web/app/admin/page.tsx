@@ -1,11 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { BuildingsIcon, UsersIcon, MapPinIcon, ShieldCheckIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, UsersIcon, MapPinIcon, ShieldCheckIcon, ClockCountdownIcon } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { useAuthStore } from '@/store/authStore';
 import { useHouses, useUpdateGeofence } from '@/hooks/useHouses';
 import { useUsers } from '@/hooks/useWorkers';
+import { useAgency, useUpdateAgencySettings } from '@/hooks/useAgency';
 import { useToast } from '@/hooks/useToast';
 
 export default function AdminPage() {
@@ -13,14 +14,35 @@ export default function AdminPage() {
   const router = useRouter();
   const { data: houses = [] } = useHouses();
   const { data: allUsers = [] } = useUsers();
+  const { data: agency } = useAgency();
   const updateGeofence = useUpdateGeofence();
+  const updateAgencySettings = useUpdateAgencySettings();
   const toast = useToast();
   const [globalRadius, setGlobalRadius] = useState('50');
+  const [maxHours, setMaxHours] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!isLoading && user && user.role !== 'HR') router.replace('/dashboard');
   }, [user, isLoading]);
+
+  useEffect(() => {
+    if (agency && maxHours === '') setMaxHours(String(agency.maxWeeklyScheduledHours));
+  }, [agency]);
+
+  async function saveMaxHours() {
+    const n = parseInt(maxHours, 10);
+    if (!Number.isInteger(n) || n < 1 || n > 168) {
+      toast.error('Enter a whole number of hours between 1 and 168');
+      return;
+    }
+    try {
+      await updateAgencySettings.mutateAsync({ maxWeeklyScheduledHours: n });
+      toast.success(`Weekly scheduled-hours limit set to ${n}h`);
+    } catch {
+      toast.error('Failed to update the weekly hours limit');
+    }
+  }
 
   async function applyGlobalGeofence() {
     setSaving(true);
@@ -64,6 +86,43 @@ export default function AdminPage() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
+        <div className="glass-card p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-9 h-9 rounded-lg bg-[#e6f4f0] flex items-center justify-center">
+              <ClockCountdownIcon size={18} className="text-primary" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-on-surface">Weekly Scheduled-Hours Limit</h2>
+              <p className="text-xs text-on-surface-variant font-inter">Maximum hours any one worker may be rostered per week</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+                Hours per week
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="168"
+                value={maxHours}
+                onChange={(e) => setMaxHours(e.target.value)}
+                className="input-field max-w-[180px]"
+              />
+              <p className="text-xs text-on-surface-variant font-inter mt-1.5">
+                Currently {agency?.maxWeeklyScheduledHours ?? '—'}h. Assignments above this need an explicit manager/HR override with a reason.
+              </p>
+            </div>
+            <button
+              onClick={saveMaxHours}
+              disabled={updateAgencySettings.isPending || maxHours === String(agency?.maxWeeklyScheduledHours ?? '')}
+              className="btn-primary"
+            >
+              {updateAgencySettings.isPending ? 'Saving…' : 'Save limit'}
+            </button>
+          </div>
+        </div>
+
         <div className="glass-card p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 rounded-lg bg-[#e6f4f0] flex items-center justify-center">

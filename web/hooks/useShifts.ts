@@ -34,6 +34,7 @@ export function useUpdateShift() {
       qc.invalidateQueries({ queryKey: ['shifts'] });
       qc.invalidateQueries({ queryKey: ['rota-week'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['staff-allocation'] });
     },
   });
 }

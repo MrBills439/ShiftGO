@@ -22,6 +22,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
 import { ROLE_LABELS, ROLE_META, initials } from '@/lib/roles';
 import { clsx } from 'clsx';
+import { AllocationView } from '@/components/staff/AllocationView';
 import type { Role, User } from '@/types';
 
 const ROLE_OPTIONS: Role[] = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
@@ -29,6 +30,7 @@ const ROLE_OPTIONS: Role[] = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
 export default function StaffPage() {
   const user = useAuthStore((s) => s.user);
   const router = useRouter();
+  const [view, setView] = useState<'directory' | 'allocation'>('directory');
   const [statusFilter, setStatusFilter] = useState<UserStatus>('ACTIVE');
   const [roleFilter, setRoleFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -190,6 +192,26 @@ export default function StaffPage() {
         )}
       />
 
+      {/* Directory / Allocation toggle */}
+      <div className="inline-flex rounded-lg border border-border bg-surface p-1">
+        {(['directory', 'allocation'] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={clsx(
+              'rounded-md px-4 py-1.5 text-sm font-semibold transition-colors capitalize',
+              view === v ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
+            )}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+
+      {view === 'allocation' && <AllocationView />}
+
+      {view === 'directory' && (
+        <>
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card
@@ -416,6 +438,8 @@ export default function StaffPage() {
           },
         ]}
       />
+        </>
+      )}
 
       {/* Create Modal */}
       <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="Add Staff Member">

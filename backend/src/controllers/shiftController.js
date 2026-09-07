@@ -21,10 +21,11 @@ async function createShift(req, res) {
   try {
     shift = status === 'OPEN'
       ? await shiftService.createOpenShift(req.body, req.user.id, agencyIdFor(req))
-      : await shiftService.createShift(req.body, req.user.id, agencyIdFor(req));
+      : await shiftService.createShift(req.body, req.user.id, agencyIdFor(req), req.user);
   } catch (err) {
-    if (err.statusCode === 403) return fail(res, err.message, 403);
-    if (err.statusCode === 409) return fail(res, err.message, 409);
+    if (err.statusCode === 400 && err.code) return fail(res, err.message, 400, { code: err.code, details: err.details });
+    if (err.statusCode === 403) return fail(res, err.message, 403, err.code ? { code: err.code, details: err.details } : {});
+    if (err.statusCode === 409) return fail(res, err.message, 409, err.code ? { code: err.code, details: err.details } : {});
     throw err;
   }
   await createAuditLog({
@@ -102,7 +103,7 @@ async function updateShift(req, res) {
     const oldShift = await shiftService.getShiftByIdForAgency(req.params.id, agencyIdFor(req));
     if (!oldShift) return notFound(res);
 
-    const shift = await shiftService.updateShift(req.params.id, req.body, agencyIdFor(req));
+    const shift = await shiftService.updateShift(req.params.id, req.body, agencyIdFor(req), req.user);
     await createAuditLog({
       ...auditContext(req),
       action: 'SHIFT_UPDATED',
@@ -127,8 +128,9 @@ async function updateShift(req, res) {
       }
     }
   } catch (err) {
-    if (err.statusCode === 409) return fail(res, err.message, 409);
-    if (err.statusCode === 403) return fail(res, err.message, 403);
+    if (err.statusCode === 400 && err.code) return fail(res, err.message, 400, { code: err.code, details: err.details });
+    if (err.statusCode === 409) return fail(res, err.message, 409, err.code ? { code: err.code, details: err.details } : {});
+    if (err.statusCode === 403) return fail(res, err.message, 403, err.code ? { code: err.code, details: err.details } : {});
     if (err.statusCode === 404) return notFound(res);
     throw err;
   }
@@ -179,7 +181,7 @@ async function claimShift(req, res) {
       .then((workers) => sendShiftClaimedOther(workers, shift, shift.house))
       .catch((e) => console.error('[Notify] shift claimed (other)', e.message));
   } catch (err) {
-    if (err.statusCode === 409) return fail(res, err.message, 409);
+    if (err.statusCode === 409) return fail(res, err.message, 409, err.code ? { code: err.code, details: err.details } : {});
     if (err.statusCode === 403) return fail(res, err.message, 403);
     if (err.statusCode === 404) return notFound(res);
     throw err;

@@ -7,6 +7,8 @@ const { AVATARS_DIR } = require('./lib/storage');
 
 const webhookRoutes = require('./routes/webhooks');
 const dashboardRoutes = require('./routes/dashboard');
+const staffRoutes = require('./routes/staff');
+const agencyRoutes = require('./routes/agency');
 const userRoutes = require('./routes/users');
 const houseRoutes = require('./routes/houses');
 const shiftRoutes = require('./routes/shifts');
@@ -91,6 +93,8 @@ app.use(apiLimiter);
 
 // Routes (NOTE: clients expect routes WITHOUT /api prefix)
 app.use('/dashboard', dashboardRoutes);
+app.use('/staff', staffRoutes);
+app.use('/agency', agencyRoutes);
 app.use('/users', userRoutes);
 app.use('/houses', houseRoutes);
 app.use('/shifts', shiftRoutes);
