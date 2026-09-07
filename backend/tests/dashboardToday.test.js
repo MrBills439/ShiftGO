@@ -7,6 +7,7 @@ const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
 const app = require('../src/app');
 const { signAccess } = require('../src/utils/jwt');
+const { agencyDayRange } = require('../src/lib/agencyTime');
 
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -51,6 +52,25 @@ async function mkUser(agencyId, role, tag) {
 
 function hoursFromNow(h) {
   return new Date(Date.now() + h * 60 * 60 * 1000);
+}
+
+// The dashboard buckets a shift as "today" when its startTime falls in the
+// agency's local calendar day (default tz Europe/London). `hoursFromNow(N)`
+// offsets can cross local midnight depending on the wall-clock time the suite
+// runs at, so any shift that MUST land on "today" is anchored to the agency
+// day window instead. Recomputed per call so it always matches what the
+// service computes at request time.
+function agencyDayNow() {
+  return agencyDayRange('Europe/London', new Date());
+}
+// `h` hours after the agency-local midnight of today (0 <= h < ~23).
+function atToday(h) {
+  return new Date(agencyDayNow().start.getTime() + h * 60 * 60 * 1000);
+}
+// A shift that has already started and is still running right now, guaranteed
+// inside today's window (clamped to the day start for the first hour of the day).
+function startedToday() {
+  return new Date(Math.max(agencyDayNow().start.getTime(), Date.now() - 90 * 60 * 1000));
 }
 
 async function mkShift({ agencyId, houseId, workerId = null, start, end, status = 'SCHEDULED' }) {
@@ -128,10 +148,10 @@ describe('GET /dashboard/today — coverage', () => {
   });
 
   test('partially covered shifts => correct percentage', async () => {
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: hoursFromNow(1), end: hoursFromNow(9) });
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA2.id, start: hoursFromNow(2), end: hoursFromNow(10) });
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: tlA.id, start: hoursFromNow(3), end: hoursFromNow(11) });
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: null, start: hoursFromNow(4), end: hoursFromNow(12), status: 'OPEN' });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: atToday(9), end: atToday(17) });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA2.id, start: atToday(10), end: atToday(18) });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: tlA.id, start: atToday(11), end: atToday(19) });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: null, start: atToday(12), end: atToday(20), status: 'OPEN' });
 
     const res = await get(hrA);
     expect(res.status).toBe(200);
@@ -142,8 +162,8 @@ describe('GET /dashboard/today — coverage', () => {
   });
 
   test('fully covered shifts => 100%', async () => {
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: hoursFromNow(1), end: hoursFromNow(9) });
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA2.id, start: hoursFromNow(2), end: hoursFromNow(10) });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: atToday(9), end: atToday(17) });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA2.id, start: atToday(10), end: atToday(18) });
 
     const res = await get(hrA);
     expect(res.body.data.coverage.percent).toBe(100);
@@ -151,15 +171,15 @@ describe('GET /dashboard/today — coverage', () => {
   });
 
   test('workersLive counts in-progress shifts only', async () => {
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: hoursFromNow(-1), end: hoursFromNow(7), status: 'IN_PROGRESS' });
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA2.id, start: hoursFromNow(2), end: hoursFromNow(10) });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: atToday(8), end: atToday(16), status: 'IN_PROGRESS' });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA2.id, start: atToday(10), end: atToday(18) });
 
     const res = await get(hrA);
     expect(res.body.data.workersLive).toBe(1);
   });
 
   test('a started, un-clocked-in scheduled shift becomes a LATE issue', async () => {
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: hoursFromNow(-1), end: hoursFromNow(6), status: 'SCHEDULED' });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: startedToday(), end: hoursFromNow(6), status: 'SCHEDULED' });
     const res = await get(hrA);
     expect(res.body.data.issues.some((i) => i.type === 'LATE' && i.worker?.id === workerA1.id)).toBe(true);
   });
@@ -195,7 +215,7 @@ describe('GET /dashboard/today — role & agency isolation', () => {
   });
 
   test('TEAM_LEADER sees shift issues but no approvals / RTW data', async () => {
-    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: null, start: hoursFromNow(2), end: hoursFromNow(10), status: 'OPEN' });
+    await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: null, start: atToday(9), end: atToday(17), status: 'OPEN' });
     const s = await mkShift({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, start: hoursFromNow(-9), end: hoursFromNow(-2), status: 'COMPLETED' });
     await mkTimesheet({ agencyId: agencyA.id, houseId: houseA.id, workerId: workerA1.id, shiftId: s.id, status: 'PENDING', clockOutAt: hoursFromNow(-2), needsReview: true, reviewReason: 'x' });
     await prisma.leaveRequest.create({
@@ -221,7 +241,7 @@ describe('GET /dashboard/today — role & agency isolation', () => {
       });
     }
     // Agency B: an uncovered shift, a flagged timesheet and a pending leave.
-    await mkShift({ agencyId: agencyB.id, houseId: houseB.id, workerId: null, start: hoursFromNow(2), end: hoursFromNow(10), status: 'OPEN' });
+    await mkShift({ agencyId: agencyB.id, houseId: houseB.id, workerId: null, start: atToday(9), end: atToday(17), status: 'OPEN' });
     const sB = await prisma.shift.create({
       data: { agencyId: agencyB.id, houseId: houseB.id, workerId: workerB.id, createdById: hrB.id, startTime: hoursFromNow(-9), endTime: hoursFromNow(-2), date: hoursFromNow(-9), status: 'COMPLETED' },
     });
