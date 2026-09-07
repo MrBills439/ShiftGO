@@ -1,6 +1,6 @@
-// Shared design tokens. Mobile imports this file directly.
-// The web service builds with /web as its root and cannot reach above it, so it
-// has a synced copy at web/design-system/tokens.ts — update both when editing.
+// Synced copy of /design-system/tokens.ts. The web service builds with /web as
+// its root (Railway), so it cannot import the shared file above that root.
+// Keep this in sync with /design-system/tokens.ts; mobile still reads the root file.
 export const shiftGoTokens = {
   // ─── Color System ───────────────────────────────────────────────────────
   color: {

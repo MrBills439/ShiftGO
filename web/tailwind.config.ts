@@ -1,5 +1,5 @@
 import type { Config } from 'tailwindcss';
-import { shiftGoTokens } from '../design-system/tokens';
+import { shiftGoTokens } from './design-system/tokens';
 
 const config: Config = {
   content: [
