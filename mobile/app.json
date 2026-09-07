@@ -15,7 +15,6 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "While you are clocked in, ShiftGO checks your location in the background to confirm you are still at the service and to end your shift correctly. Monitoring stops the moment you clock out.",
         "NSPhotoLibraryUsageDescription": "ShiftGO needs access to your photo library to update your profile picture.",
         "UIBackgroundModes": [
-          "location",
           "location"
         ]
       }
@@ -32,14 +31,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "plugins": [
