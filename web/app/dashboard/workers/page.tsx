@@ -192,20 +192,39 @@ export default function StaffPage() {
         )}
       />
 
-      {/* Directory / Allocation toggle */}
-      <div className="inline-flex rounded-lg border border-border bg-surface p-1">
-        {(['directory', 'allocation'] as const).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={clsx(
-              'rounded-md px-4 py-1.5 text-sm font-semibold transition-colors capitalize',
-              view === v ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
-            )}
-          >
-            {v}
-          </button>
-        ))}
+      {/* Directory / Allocation  ·············  Active / Deactivated */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-lg border border-border bg-surface p-1">
+          {(['directory', 'allocation'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={clsx(
+                'rounded-md px-4 py-1.5 text-sm font-semibold transition-colors capitalize',
+                view === v ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
+              )}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+
+        {view === 'directory' && (
+          <div className="inline-flex rounded-lg border border-border bg-surface p-1">
+            {(['ACTIVE', 'DEACTIVATED'] as UserStatus[]).map((status) => (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={clsx(
+                  'rounded-md px-4 py-1.5 text-sm font-semibold transition-colors',
+                  statusFilter === status ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
+                )}
+              >
+                {status === 'ACTIVE' ? 'Active' : 'Deactivated'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {view === 'allocation' && <AllocationView />}
@@ -264,22 +283,6 @@ export default function StaffPage() {
             </div>
           </div>
         </Card>
-      </div>
-
-      {/* Status tabs */}
-      <div className="inline-flex rounded-lg border border-border bg-surface p-1">
-        {(['ACTIVE', 'DEACTIVATED'] as UserStatus[]).map((status) => (
-          <button
-            key={status}
-            onClick={() => setStatusFilter(status)}
-            className={clsx(
-              'rounded-md px-4 py-1.5 text-sm font-semibold transition-colors',
-              statusFilter === status ? 'bg-brand-600 text-white' : 'text-fg-muted hover:text-fg'
-            )}
-          >
-            {status === 'ACTIVE' ? 'Active' : 'Deactivated'}
-          </button>
-        ))}
       </div>
 
       {/* Filters */}

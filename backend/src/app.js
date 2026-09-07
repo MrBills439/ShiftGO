@@ -58,7 +58,18 @@ app.use(morgan('dev'));
 // under UPLOAD_DIR/rtw and are deliberately NOT mounted here — they are reachable
 // only through the authenticated /right-to-work routes, which enforce agency/RBAC
 // checks. `dotfiles: 'deny'` and helmet's nosniff header harden the mount.
-app.use('/uploads/avatars', express.static(AVATARS_DIR, { dotfiles: 'deny', index: false }));
+// `Cross-Origin-Resource-Policy: cross-origin` lets the web app (a different
+// origin) embed these public avatar images in <img> tags — helmet's default of
+// `same-origin` otherwise blocks them in the browser (the mobile app is
+// unaffected, which is why an uploaded photo showed there but not on the web).
+app.use(
+  '/uploads/avatars',
+  express.static(AVATARS_DIR, {
+    dotfiles: 'deny',
+    index: false,
+    setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'),
+  }),
+);
 
 // Health check — Railway readiness endpoint. Lightweight `SELECT 1` so a dead
 // database surfaces as 503 instead of a falsely-healthy 200. Never exposes DB
