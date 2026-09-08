@@ -1,7 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
-const { AVATARS_DIR, RTW_DIR, ensureUploadDirs } = require('../lib/storage');
+const { AVATARS_DIR, RTW_QUARANTINE_DIR, ensureUploadDirs } = require('../lib/storage');
 
 // multer.diskStorage does not create the destination directory itself, so make
 // sure every upload directory exists before any request is handled. On a fresh
@@ -17,13 +17,16 @@ const IMAGE_TYPES = {
   'image/png': '.png',
   'image/webp': '.webp',
 };
-const DOCUMENT_TYPES = {
-  ...IMAGE_TYPES,
+// Right-to-Work: NEW uploads are PDF only. This is a first-pass gate on the
+// client-declared type + extension; the RTW controller then verifies the real
+// file signature (lib/fileValidation). Existing non-PDF documents already on
+// file are unaffected — nothing here runs on download.
+const RTW_DOCUMENT_TYPES = {
   'application/pdf': '.pdf',
 };
 
-function makeFilter(typeMap) {
-  const allowedExts = new Set([...Object.values(typeMap), '.jpeg']);
+function makeFilter(typeMap, extraExts = ['.jpeg']) {
+  const allowedExts = new Set([...Object.values(typeMap), ...extraExts]);
   return (_req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
     const mimeOk = Object.prototype.hasOwnProperty.call(typeMap, file.mimetype);
@@ -48,10 +51,12 @@ const avatarUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
 });
 
-// ─── Right-to-Work proof documents ──────────────────────────────────────────
+// ─── Right-to-Work proof documents (PDF only) ───────────────────────────────
+// New uploads land in the quarantine dir. The RTW controller validates them
+// there and only then atomically promotes them into the accepted RTW dir.
 const shareCodeUpload = multer({
-  storage: multer.diskStorage({ destination: RTW_DIR, filename: makeFilename(DOCUMENT_TYPES) }),
-  fileFilter: makeFilter(DOCUMENT_TYPES),
+  storage: multer.diskStorage({ destination: RTW_QUARANTINE_DIR, filename: makeFilename(RTW_DOCUMENT_TYPES) }),
+  fileFilter: makeFilter(RTW_DOCUMENT_TYPES, []),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
 });
 

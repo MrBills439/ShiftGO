@@ -4,7 +4,20 @@ const prisma = require('../lib/prisma');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
-const { resolveStoredPath, discardUpload } = require('../lib/storage');
+const { resolveStoredPath, discardUpload, AVATARS_DIR } = require('../lib/storage');
+
+/**
+ * Absolute on-disk path for a stored avatar web-path, or null. Two guards:
+ *  - it must be a /uploads/avatars/ web path (never an external URL)
+ *  - it must resolve to a real file strictly inside AVATARS_DIR — so a tampered
+ *    value with "../" can never make us unlink a file in another upload folder.
+ */
+function safeAvatarFsPath(webPath) {
+  if (typeof webPath !== 'string' || !webPath.startsWith('/uploads/avatars/')) return null;
+  const abs = resolveStoredPath(webPath);
+  if (!abs || !abs.startsWith(AVATARS_DIR + path.sep)) return null;
+  return abs;
+}
 const clerkClient = require('../utils/clerkClient');
 const { ROLE_TO_ORG_ROLE } = require('../utils/clerkRoles');
 
@@ -269,13 +282,49 @@ async function uploadAvatar(req, res) {
     newValue: user,
   });
 
-  // Delete the previous avatar once the new one is committed. Only local
-  // /uploads/avatars/ files — leave external URLs / nulls alone.
-  const oldPic = oldUser?.profilePicture;
-  if (oldPic && oldPic !== profilePicture && oldPic.startsWith('/uploads/avatars/')) {
-    const prev = resolveStoredPath(oldPic);
+  // Delete the previous avatar once the new one is committed. Only files that
+  // resolve strictly inside AVATARS_DIR — external URLs / nulls / tampered
+  // "../" values are left alone.
+  if (oldUser?.profilePicture && oldUser.profilePicture !== profilePicture) {
+    const prev = safeAvatarFsPath(oldUser.profilePicture);
     if (prev) fs.promises.unlink(prev).catch(() => {});
   }
+
+  ok(res, user);
+}
+
+/**
+ * DELETE /users/me/avatar — remove the caller's own profile picture.
+ *
+ * Scoped strictly to req.user.id (no id param), so a user can only clear their
+ * own avatar; agency isolation is unaffected. The physical file is deleted only
+ * when the stored value is a local /uploads/avatars/ path AND resolveStoredPath
+ * keeps it inside UPLOAD_DIR (path-traversal safe) — a tampered/external value
+ * clears the column but touches no file. A missing file is ignored.
+ */
+async function removeAvatar(req, res) {
+  const oldUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
+  if (!oldUser) return notFound(res);
+
+  if (!oldUser.profilePicture) return ok(res, oldUser); // nothing to remove
+
+  const user = await prisma.user.update({
+    where: { id: req.user.id },
+    data: { profilePicture: null },
+    select: meSelect,
+  });
+
+  await createAuditLog({
+    ...auditContext(req),
+    action: 'USER_UPDATED',
+    entityType: 'User',
+    entityId: user.id,
+    oldValue: oldUser,
+    newValue: user,
+  });
+
+  const prev = safeAvatarFsPath(oldUser.profilePicture);
+  if (prev) fs.promises.unlink(prev).catch(() => {}); // already-missing file is fine
 
   ok(res, user);
 }
@@ -330,5 +379,5 @@ async function updateFcmToken(req, res) {
 
 module.exports = {
   listUsers, getUser, createUser, updateUser, deactivateUser, getMe, updateMe, completeOnboarding, uploadAvatar,
-  assignWorkerToHouse, assignTeamLeaderToHouse, updateFcmToken,
+  removeAvatar, assignWorkerToHouse, assignTeamLeaderToHouse, updateFcmToken,
 };

@@ -17,14 +17,14 @@ export async function updateMyShareCode(payload: {
   return data.data;
 }
 
-export async function uploadShareCodeDocument(uri: string): Promise<ShareCode> {
+/** Upload a Right-to-Work proof PDF. New uploads are PDF only — the picker and
+ *  the backend both enforce it (extension, declared MIME, and real file
+ *  signature), so we always send it as application/pdf with a .pdf name. */
+export async function uploadShareCodeDocument(file: { uri: string; name?: string | null }): Promise<ShareCode> {
   const formData = new FormData();
-  const filename = uri.split('/').pop() ?? 'right-to-work.jpg';
-  const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
-  const mimeMap: Record<string, string> = {
-    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf',
-  };
-  formData.append('document', { uri, name: filename, type: mimeMap[ext] ?? 'image/jpeg' } as any);
+  const rawName = file.name ?? file.uri.split('/').pop() ?? 'right-to-work.pdf';
+  const name = rawName.toLowerCase().endsWith('.pdf') ? rawName : `${rawName}.pdf`;
+  formData.append('document', { uri: file.uri, name, type: 'application/pdf' } as any);
   const { data } = await api.post('/right-to-work/me/document', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });

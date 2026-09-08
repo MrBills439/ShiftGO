@@ -33,6 +33,12 @@ export async function uploadAvatar(uri: string) {
   return data.data;
 }
 
+/** Remove the current user's profile picture. Returns the updated user record. */
+export async function removeAvatar() {
+  const { data } = await api.delete('/users/me/avatar');
+  return data.data;
+}
+
 export async function getMyTraining() {
   const { data } = await api.get('/training/me');
   return data.data;

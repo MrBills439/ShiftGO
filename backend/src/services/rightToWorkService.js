@@ -117,11 +117,6 @@ async function setDocument(agencyId, userId, file, updatedById) {
     err.statusCode = 400;
     throw err;
   }
-  // Remove the previous file, best-effort.
-  if (existing.documentPath) {
-    const prev = resolveStoredPath(existing.documentPath);
-    if (prev) fs.promises.unlink(prev).catch(() => {});
-  }
   // The display name is echoed back in Content-Disposition on download — strip
   // any path separators and cap the length. The on-disk name is server-generated
   // (file.filename), so this only affects the label, never the storage path.
@@ -137,6 +132,12 @@ async function setDocument(agencyId, userId, file, updatedById) {
     },
     include: { updatedBy: { select: { id: true, name: true } } },
   });
+  // Only NOW, with the DB pointing at the new file, remove the previous one.
+  // If the update above had thrown, the old document would still be intact.
+  if (existing.documentPath && existing.documentPath !== record.documentPath) {
+    const prev = resolveStoredPath(existing.documentPath);
+    if (prev) fs.promises.unlink(prev).catch(() => {});
+  }
   return decorate(record);
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, ActivityIndicator, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated, ActivityIndicator, ScrollView, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -14,6 +14,8 @@ import { RightToWorkBanner } from '../../components/RightToWorkBanner';
 import { getUnreadCount } from '../../services/notificationsService';
 import { useClockStatus } from '../../hooks/useClockStatus';
 import { useAuthStore } from '../../store/authStore';
+import { getMe } from '../../services/profileService';
+import { API_BASE_URL } from '../../services/api';
 import { Shift } from '../../types';
 import { D } from '../../constants/theme';
 import { fmtTime as fmt, relativeDayLabel as fmtDate, getGreeting } from '../../lib/datetime';
@@ -153,6 +155,10 @@ export default function ClockScreen() {
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
+  // Same authoritative current-user record the profile screens use. Reading the
+  // shared ['me'] cache here means an avatar upload / removal / profile edit
+  // (which update this cache) is reflected in the header with no restart.
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 30_000 });
 
   useEffect(() => { const id = setInterval(() => tick(t => t + 1), 30_000); return () => clearInterval(id); }, []);
 
@@ -192,7 +198,9 @@ export default function ClockScreen() {
     );
   }, [prompt, activeShift?.id]);
 
-  const firstName = user?.name?.split(' ')[0] ?? 'there';
+  const currentUser = me ?? user;
+  const firstName = currentUser?.name?.split(' ')[0] ?? 'there';
+  const avatarUri = currentUser?.profilePicture ? `${API_BASE_URL}${currentUser.profilePicture}` : null;
   const p2 = activeShift ? prog(activeShift) : null;
   const isLoading = shiftsLoading || statusLoading;
 
@@ -251,7 +259,9 @@ export default function ClockScreen() {
                 </View>
               )}
             </Pressable>
-            <View style={s.avatar}><Text style={s.avatarTxt}>{firstName[0]?.toUpperCase() ?? 'U'}</Text></View>
+            {avatarUri
+              ? <Image source={{ uri: avatarUri }} style={s.avatarImg} />
+              : <View style={s.avatar}><Text style={s.avatarTxt}>{firstName[0]?.toUpperCase() ?? 'U'}</Text></View>}
           </View>
         </View>
 
@@ -393,6 +403,7 @@ const s = StyleSheet.create({
   bellBadge: { position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, borderWidth: 1.5, borderColor: D.white },
   bellBadgeTxt: { fontSize: 9, fontWeight: '700', color: '#fff' },
   avatar: { width: 36, height: 36, borderRadius: 11, backgroundColor: D.emerald, alignItems: 'center', justifyContent: 'center' },
+  avatarImg: { width: 36, height: 36, borderRadius: 11 },
   avatarTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
 
   nextCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: D.white, borderRadius: 14, padding: 11, marginBottom: 10, borderWidth: 1, borderColor: D.border },

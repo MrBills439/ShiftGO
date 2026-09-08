@@ -24,10 +24,16 @@ const UPLOAD_DIR = config.uploadDir;
 /** Profile / avatar images — served publicly via express.static. */
 const AVATARS_DIR = path.join(UPLOAD_DIR, 'avatars');
 
-/** Right-to-Work proof documents — served only through authenticated routes. */
+/** Accepted Right-to-Work proof documents — served only through authenticated
+ *  routes, never statically. */
 const RTW_DIR = path.join(UPLOAD_DIR, 'rtw');
 
-const ALL_DIRS = [UPLOAD_DIR, AVATARS_DIR, RTW_DIR];
+/** Landing zone for a NEW, still-untrusted RTW upload. A file lives here only
+ *  until it has passed type + signature validation and the malware-scan seam;
+ *  it is then atomically renamed up into RTW_DIR ("promoted"). Never served. */
+const RTW_QUARANTINE_DIR = path.join(RTW_DIR, '_quarantine');
+
+const ALL_DIRS = [UPLOAD_DIR, AVATARS_DIR, RTW_DIR, RTW_QUARANTINE_DIR];
 
 /** Create the upload directories if they don't exist yet. Safe to call repeatedly
  *  (recursive mkdir is idempotent). Called at server startup and when the upload
@@ -70,11 +76,57 @@ async function discardUpload(file) {
   }
 }
 
+/** True iff `abs` is a real path strictly inside `dir` (not the dir itself). */
+function isInsideDir(dir, abs) {
+  return typeof abs === 'string' && path.resolve(abs).startsWith(dir + path.sep);
+}
+
+/** Best-effort unlink that refuses to touch anything outside `dir`. Never throws.
+ *  Returns true only if a file was actually removed. */
+async function unlinkInside(dir, absPath) {
+  if (!isInsideDir(dir, absPath)) return false;
+  try {
+    await fs.promises.unlink(path.resolve(absPath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Atomically promote a validated RTW upload from the quarantine dir into the
+ * accepted RTW dir. The basename is server-generated (multer) and is preserved;
+ * both the source and destination are asserted to sit in their expected
+ * directories, so a tampered path can neither be read from outside quarantine
+ * nor written outside RTW_DIR. Uses fs.rename (no copy / whole-file read).
+ *
+ * @param {string} quarantineAbsPath absolute path of the file in RTW_QUARANTINE_DIR
+ * @returns {Promise<{ acceptedAbsPath: string, webPath: string }>}
+ */
+async function promoteRtwUpload(quarantineAbsPath) {
+  const src = path.resolve(String(quarantineAbsPath || ''));
+  if (!isInsideDir(RTW_QUARANTINE_DIR, src)) {
+    throw new Error('promoteRtwUpload: source is not inside the quarantine directory');
+  }
+  const base = path.basename(src);
+  const dest = path.join(RTW_DIR, base);
+  // dest must be directly in RTW_DIR and must NOT land back in quarantine.
+  if (!isInsideDir(RTW_DIR, dest) || isInsideDir(RTW_QUARANTINE_DIR, dest) || path.dirname(dest) !== RTW_DIR) {
+    throw new Error('promoteRtwUpload: destination escapes the accepted RTW directory');
+  }
+  await fs.promises.rename(src, dest); // atomic within the same filesystem
+  return { acceptedAbsPath: dest, webPath: `/uploads/rtw/${base}` };
+}
+
 module.exports = {
   UPLOAD_DIR,
   AVATARS_DIR,
   RTW_DIR,
+  RTW_QUARANTINE_DIR,
   ensureUploadDirs,
   resolveStoredPath,
   discardUpload,
+  isInsideDir,
+  unlinkInside,
+  promoteRtwUpload,
 };

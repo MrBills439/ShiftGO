@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   ArrowLeft, ShieldCheck, ShieldWarning, Warning, ArrowSquareOut,
   FileArrowUp, FileText, CheckCircle,
@@ -103,7 +103,7 @@ export default function RightToWorkScreen() {
   });
 
   const upload = useMutation({
-    mutationFn: (uri: string) => uploadShareCodeDocument(uri),
+    mutationFn: (file: { uri: string; name?: string | null }) => uploadShareCodeDocument(file),
     onSuccess: (updated) => {
       qc.setQueryData(['right-to-work'], updated);
       qc.invalidateQueries({ queryKey: ['right-to-work'] });
@@ -111,19 +111,21 @@ export default function RightToWorkScreen() {
     onError: (e: any) => Alert.alert('Upload failed', e.response?.data?.message ?? 'Could not upload the document.'),
   });
 
+  // PDF documents only — this deliberately does NOT open the photo library.
   async function pickDocument() {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to upload your Right-to-Work proof.');
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/pdf',
+      multiple: false,
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
+    const asset = result.assets?.[0];
+    if (!asset?.uri) return;
+    if (asset.mimeType && asset.mimeType !== 'application/pdf') {
+      Alert.alert('PDF required', 'Right-to-Work proof must be a PDF document.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    });
-    if (!result.canceled && result.assets[0]?.uri) {
-      upload.mutate(result.assets[0].uri);
-    }
+    upload.mutate({ uri: asset.uri, name: asset.name });
   }
 
   function onSave() {
@@ -269,7 +271,7 @@ export default function RightToWorkScreen() {
             </View>
           ) : (
             <Text style={s.docHint}>
-              Upload a photo or screenshot of your Right-to-Work check result so HR can keep it on file.
+              Upload a PDF of your Right-to-Work check result so HR can keep it on file.
             </Text>
           )}
 

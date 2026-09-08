@@ -10,10 +10,11 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import {
   ArrowLeft, User, Envelope, Phone, MapPin,
-  Clock, Camera, Check, Lock,
+  Clock, Camera, Check, Lock, Trash,
 } from 'phosphor-react-native';
-import { getMe, updateMe, uploadAvatar } from '../../services/profileService';
+import { getMe, updateMe, uploadAvatar, removeAvatar } from '../../services/profileService';
 import { API_BASE_URL } from '../../services/api';
+import { useAuthStore } from '../../store/authStore';
 import { UserProfile } from '../../types';
 import { D } from '../../constants/theme';
 
@@ -131,13 +132,38 @@ export default function PersonalInfoScreen() {
     onError: () => Alert.alert('Error', 'Could not save changes. Please try again.'),
   });
 
+  // Keep every screen's current-user view in lockstep: the React Query ['me']
+  // cache (profile screens) AND the auth store (clock/home header) both hold the
+  // same /users/me payload, so update both after any avatar change — no restart,
+  // no separate avatar state.
+  function syncCurrentUser(updated: UserProfile) {
+    qc.setQueryData(['me'], updated);
+    qc.invalidateQueries({ queryKey: ['me'] });
+    useAuthStore.setState({ user: updated as any });
+  }
+
   const avatarMutation = useMutation({
     mutationFn: uploadAvatar,
-    onSuccess: (updated) => {
-      qc.setQueryData(['me'], updated);
-    },
+    onSuccess: syncCurrentUser,
     onError: () => Alert.alert('Error', 'Could not upload photo.'),
   });
+
+  const removeAvatarMutation = useMutation({
+    mutationFn: removeAvatar,
+    onSuccess: syncCurrentUser,
+    onError: () => Alert.alert('Error', 'Could not remove photo.'),
+  });
+
+  function confirmRemoveAvatar() {
+    Alert.alert(
+      'Remove photo',
+      'Remove your profile picture? Your initials will be shown instead.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => removeAvatarMutation.mutate() },
+      ],
+    );
+  }
 
   async function pickAvatar() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -211,13 +237,28 @@ export default function PersonalInfoScreen() {
                 </View>
               )}
             </View>
-            <Pressable
-              onPress={pickAvatar}
-              style={({ pressed }) => [s.changePhotoBtn, pressed && { opacity: 0.75 }]}
-            >
-              <Camera size={15} color={D.emerald} weight="bold" />
-              <Text style={s.changePhotoTxt}>Change Photo</Text>
-            </Pressable>
+            <View style={s.photoActions}>
+              <Pressable
+                onPress={pickAvatar}
+                disabled={avatarMutation.isPending || removeAvatarMutation.isPending}
+                style={({ pressed }) => [s.changePhotoBtn, pressed && { opacity: 0.75 }]}
+              >
+                <Camera size={15} color={D.emerald} weight="bold" />
+                <Text style={s.changePhotoTxt}>{avatarUri ? 'Change Photo' : 'Add Photo'}</Text>
+              </Pressable>
+              {avatarUri && (
+                <Pressable
+                  onPress={confirmRemoveAvatar}
+                  disabled={avatarMutation.isPending || removeAvatarMutation.isPending}
+                  style={({ pressed }) => [s.removePhotoBtn, pressed && { opacity: 0.75 }]}
+                >
+                  {removeAvatarMutation.isPending
+                    ? <ActivityIndicator size="small" color={D.error} />
+                    : <Trash size={15} color={D.error} weight="bold" />}
+                  <Text style={s.removePhotoTxt}>Remove photo</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
 
           {/* Account identity — read-only */}
@@ -293,8 +334,11 @@ const s = StyleSheet.create({
   avatarFallback: { width: 96, height: 96, borderRadius: 30, backgroundColor: D.emerald, alignItems: 'center', justifyContent: 'center' },
   avatarTxt: { fontSize: 30, fontWeight: '700', color: '#fff' },
   avatarLoading: { ...StyleSheet.absoluteFill, borderRadius: 30, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
+  photoActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   changePhotoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: D.white, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1, borderColor: D.border },
   changePhotoTxt: { fontSize: 13, fontWeight: '600', color: D.emerald },
+  removePhotoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: D.white, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1, borderColor: D.errorBorder },
+  removePhotoTxt: { fontSize: 13, fontWeight: '600', color: D.error },
 
   card: { backgroundColor: D.white, borderRadius: 22, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: D.border, shadowColor: '#00534810', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 16, elevation: 3 },
 

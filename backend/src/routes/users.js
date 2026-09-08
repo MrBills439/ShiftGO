@@ -12,6 +12,7 @@ router.get('/me', asyncHandler(ctrl.getMe));
 router.patch('/me', validators.updateMe, asyncHandler(ctrl.updateMe));
 router.post('/me/onboarding', validators.updateMe, asyncHandler(ctrl.completeOnboarding));
 router.post('/me/avatar', avatarUpload.single('avatar'), asyncHandler(ctrl.uploadAvatar));
+router.delete('/me/avatar', asyncHandler(ctrl.removeAvatar));
 router.patch('/me/fcm-token', validators.updateFcmToken, asyncHandler(ctrl.updateFcmToken));
 
 // Team leaders may only ever list workers (needed to assign staff to a house) —
