@@ -39,7 +39,11 @@ function resolveBaseUrl(): string {
     (Constants as unknown as { expoGoConfig?: { debuggerHost?: string } }).expoGoConfig?.debuggerHost ??
     '';
   const host = hostUri.split('/')[0].split(':')[0];
-  if (host && host !== 'localhost' && host !== '127.0.0.1') {
+  // Only reuse the Metro host when it's a LAN IPv4 literal. Under `--tunnel` the
+  // Metro host is a public domain (e.g. *.exp.direct) that only forwards Metro,
+  // not the API port — in that case fall through to the explicit URL.
+  const isLanIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(host) && host !== '127.0.0.1';
+  if (isLanIpv4) {
     return `http://${host}:4000`;
   }
 
