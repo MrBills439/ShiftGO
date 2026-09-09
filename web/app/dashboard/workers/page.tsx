@@ -18,6 +18,7 @@ import { FieldShell, Select as UiSelect, Input as UiInput } from '@/components/u
 import { API_BASE } from '@/lib/api';
 import { useUsers, useCreateUser, useAssignWorker, useDeactivateUser, useUpdateUser, type UserStatus, type UserFilters } from '@/hooks/useWorkers';
 import { useHouses } from '@/hooks/useHouses';
+import { useAgency } from '@/hooks/useAgency';
 import {
   useDepartmentOptions, useJobTitleOptions, useLocationOptions,
   WORK_PATTERN_LABELS, EMPLOYMENT_TYPE_LABELS,
@@ -66,6 +67,7 @@ export default function StaffPage() {
   const { data: departmentOptions = [] } = useDepartmentOptions(isHrOrManager);
   const { data: jobTitleOptions = [] } = useJobTitleOptions(isHrOrManager);
   const { data: locationOptions = [] } = useLocationOptions(isHrOrManager);
+  const { data: agency } = useAgency();
   const managerCandidates = users; // scoped to same agency by the API
 
   // Department → Job Title link. Job-title options carry departmentId, so the
@@ -101,6 +103,9 @@ export default function StaffPage() {
   const [deactivationReason, setDeactivationReason] = useState('');
   const [deactivationError, setDeactivationError] = useState('');
   const [createError, setCreateError] = useState('');
+  // Employee IDs are auto-generated from the agency prefix; HR opts in to typing one.
+  const [customEmpId, setCustomEmpId] = useState(false);
+  const canAutoGenerateId = !!agency?.employeeIdPrefix;
 
   function openEmployment(u: User) {
     setEmploymentForm({
@@ -125,7 +130,7 @@ export default function StaffPage() {
     try {
       await updateUser.mutateAsync({
         id: employmentOpen.id,
-        employeeNumber: nn(employmentForm.employeeNumber),
+        // Employee ID is read-only here — never sent from this form.
         departmentId: nn(employmentForm.departmentId),
         jobTitleId: nn(employmentForm.jobTitleId),
         primaryLocationId: nn(employmentForm.primaryLocationId),
@@ -221,7 +226,9 @@ export default function StaffPage() {
         email: form.email.trim(),
         role: form.role,
         ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
-        ...(form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
+        // Omit employeeNumber unless HR explicitly chose a custom one — the
+        // backend then auto-generates the next agency Employee ID.
+        ...(customEmpId && form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
         ...(form.departmentId ? { departmentId: form.departmentId } : {}),
         ...(form.jobTitleId ? { jobTitleId: form.jobTitleId } : {}),
         ...(form.primaryLocationId ? { primaryLocationId: form.primaryLocationId } : {}),
@@ -230,10 +237,12 @@ export default function StaffPage() {
         workPatternType: form.workPatternType,
         ...(form.employmentType ? { employmentType: form.employmentType } : {}),
       };
-      await createUser.mutateAsync(body);
+      const res = await createUser.mutateAsync(body);
       setCreateOpen(false);
       setForm({ name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER', ...emptyEmployment });
-      toast.success('Invitation sent — employment details will apply once they accept');
+      setCustomEmpId(false);
+      const empNo = (res as any)?.data?.data?.employeeNumber;
+      toast.success(empNo ? `Invitation sent — Employee ID ${empNo}` : 'Invitation sent — employment details will apply once they accept');
     } catch (e: any) {
       setCreateError(errorMessage(e));
     }
@@ -624,8 +633,29 @@ export default function StaffPage() {
               <FieldShell label="Full name *">
                 <UiInput type="text" placeholder="Jane Smith" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
               </FieldShell>
-              <FieldShell label="Employee number">
-                <UiInput type="text" placeholder="E-1042" value={form.employeeNumber} onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })} />
+              <FieldShell
+                label="Employee ID"
+                hint={
+                  customEmpId
+                    ? 'Custom ID — must be unique in your agency.'
+                    : canAutoGenerateId
+                      ? `Auto-generated when the invitation is sent (${agency?.nextEmployeeIdPreview}).`
+                      : 'Set an Employee ID prefix in Admin → General before adding employees.'
+                }
+              >
+                {customEmpId ? (
+                  <UiInput type="text" placeholder="E-1042" value={form.employeeNumber} onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })} />
+                ) : (
+                  <UiInput type="text" value={canAutoGenerateId ? (agency?.nextEmployeeIdPreview ?? 'Auto-generated') : 'Not available'} disabled readOnly />
+                )}
+                <label className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-muted">
+                  <input
+                    type="checkbox"
+                    checked={customEmpId}
+                    onChange={(e) => { setCustomEmpId(e.target.checked); if (!e.target.checked) setForm((f) => ({ ...f, employeeNumber: '' })); }}
+                  />
+                  Use a custom ID
+                </label>
               </FieldShell>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -727,7 +757,7 @@ export default function StaffPage() {
             <Button
               variant="primary"
               type="submit"
-              disabled={createUser.isPending}
+              disabled={createUser.isPending || (!customEmpId && !canAutoGenerateId)}
             >
               {createUser.isPending ? 'Sending…' : 'Send Invitation'}
             </Button>
@@ -826,9 +856,8 @@ export default function StaffPage() {
         <form onSubmit={handleSaveEmployment} className="space-y-4">
           <LoadingOverlay show={updateUser.isPending} label="Saving…" />
           <div className="grid grid-cols-2 gap-3">
-            <FieldShell label="Employee number">
-              <UiInput type="text" value={employmentForm.employeeNumber}
-                onChange={(e) => setEmploymentForm({ ...employmentForm, employeeNumber: e.target.value })} />
+            <FieldShell label="Employee ID" hint="Assigned automatically when the employee is invited.">
+              <UiInput type="text" value={employmentOpen?.employeeNumber ?? 'Not set'} disabled readOnly />
             </FieldShell>
             <FieldShell label="Contracted hours / week" hint="Blank to clear">
               <UiInput type="number" min="0" max="168" step="0.5" value={employmentForm.contractedHours}

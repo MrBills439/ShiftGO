@@ -38,7 +38,7 @@ function tokenFor(user) {
 
 describe('Protected agency staff onboarding', () => {
   beforeAll(async () => {
-    agency = await prisma.agency.create({ data: { name: `Onboarding Agency ${suffix}`, clerkOrgId: `org_test_${suffix}` } });
+    agency = await prisma.agency.create({ data: { name: `Onboarding Agency ${suffix}`, clerkOrgId: `org_test_${suffix}`, employeeIdPrefix: 'ONB' } });
     otherAgency = await prisma.agency.create({ data: { name: `Other Agency ${suffix}` } });
 
     manager = await prisma.user.create({

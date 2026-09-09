@@ -21,6 +21,7 @@ function safeAvatarFsPath(webPath) {
 const clerkClient = require('../utils/clerkClient');
 const { ROLE_TO_ORG_ROLE } = require('../utils/clerkRoles');
 const { buildEmploymentData, rethrowP2002 } = require('../services/employmentService');
+const { generateEmployeeId } = require('../services/employeeIdService');
 
 // Whole-Workforce Phase 1: employment scalars + related-record labels. Selected
 // (not deep-included) so a directory page never N+1s.
@@ -159,6 +160,32 @@ async function createUser(req, res) {
     if (dupe) return fail(res, 'That employee number is already used in your agency', 409, { code: 'DUPLICATE_EMPLOYEE_NUMBER' });
   }
 
+  const priorPending = await prisma.pendingEmployee.findUnique({
+    where: { agencyId_email: { agencyId, email } },
+    select: { id: true, employeeNumber: true },
+  });
+
+  // Employee IDs are normally auto-generated from the agency's configured
+  // prefix — HR only types one when explicitly overriding.
+  //   - custom number supplied            -> use it (dup-checked above); no counter consumed
+  //   - retry with a number still staged  -> reuse it; do NOT burn a fresh number
+  //   - otherwise                         -> reserve the next number atomically
+  //                                          (400 NO_EMPLOYEE_ID_PREFIX if unset)
+  let stagedEmployeeNumber = employmentData.employeeNumber ?? null;
+  if (!stagedEmployeeNumber) {
+    if (priorPending?.employeeNumber) {
+      stagedEmployeeNumber = priorPending.employeeNumber;
+    } else {
+      try {
+        stagedEmployeeNumber = await generateEmployeeId(agencyId);
+      } catch (err) {
+        if (err.statusCode) return fail(res, err.message, err.statusCode, err.code ? { code: err.code } : {});
+        throw err;
+      }
+    }
+  }
+  const { employeeNumber: _customEmployeeNumber, ...employmentRest } = employmentData;
+
   // Staff onboarding sends a Clerk organization invitation rather than creating
   // a local password — the User row is created by the organizationMembership
   // webhook once the invite is accepted.
@@ -172,23 +199,19 @@ async function createUser(req, res) {
   // created is rolled back. An invitation must never succeed while the HR
   // employment data is silently lost.
   const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-  const priorPending = await prisma.pendingEmployee.findUnique({
-    where: { agencyId_email: { agencyId, email } },
-    select: { id: true },
-  });
   try {
     await prisma.pendingEmployee.upsert({
       where: { agencyId_email: { agencyId, email } },
       create: {
         agencyId, email, role: req.body.role, invitedById: req.user.id,
         expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
-        contractedHours, ...employmentData,
+        contractedHours, employeeNumber: stagedEmployeeNumber, ...employmentRest,
       },
       update: {
         role: req.body.role, invitedById: req.user.id,
         expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
         consumedAt: null, needsReview: false, reviewNote: null, invitationId: null,
-        contractedHours: contractedHours ?? null, ...employmentData,
+        contractedHours: contractedHours ?? null, employeeNumber: stagedEmployeeNumber, ...employmentRest,
       },
     });
   } catch (err) {
@@ -251,9 +274,16 @@ async function createUser(req, res) {
     action: 'USER_INVITED',
     entityType: 'OrganizationInvitation',
     entityId: invitation.id,
-    newValue: { email, name: req.body.name, role: req.body.role, hasEmploymentData: Object.keys(employmentData).length > 0 },
+    newValue: {
+      email, name: req.body.name, role: req.body.role,
+      employeeNumber: stagedEmployeeNumber,
+      hasEmploymentData: Object.keys(employmentData).length > 0,
+    },
   });
-  created(res, { invitationId: invitation.id, email, role: req.body.role, status: invitation.status });
+  created(res, {
+    invitationId: invitation.id, email, role: req.body.role,
+    status: invitation.status, employeeNumber: stagedEmployeeNumber,
+  });
 }
 
 async function updateUser(req, res) {

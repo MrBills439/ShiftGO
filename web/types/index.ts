@@ -278,6 +278,8 @@ export interface AgencySettings {
   name: string;
   timezone: string;
   maxWeeklyScheduledHours: number;
+  employeeIdPrefix: string | null;
+  nextEmployeeIdPreview: string | null; // e.g. "PIP-0017"; null until a prefix is set
 }
 
 // ─── Staff Allocation & Weekly Hours (GET /staff/allocation) ────────────────

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { BuildingsIcon, UsersIcon, MapPinIcon, ShieldCheckIcon, ClockCountdownIcon } from '@phosphor-icons/react';
+import { BuildingsIcon, UsersIcon, MapPinIcon, ShieldCheckIcon, ClockCountdownIcon, IdentificationBadgeIcon } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { useAuthStore } from '@/store/authStore';
 import { useHouses, useUpdateGeofence } from '@/hooks/useHouses';
@@ -24,6 +24,7 @@ export default function AdminPage() {
   const [maxHours, setMaxHours] = useState('');
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<'general' | 'organisation'>('general');
+  const [empPrefix, setEmpPrefix] = useState('');
 
   useEffect(() => {
     if (!isLoading && user && user.role !== 'HR') router.replace('/dashboard');
@@ -32,6 +33,26 @@ export default function AdminPage() {
   useEffect(() => {
     if (agency && maxHours === '') setMaxHours(String(agency.maxWeeklyScheduledHours));
   }, [agency]);
+
+  useEffect(() => {
+    if (agency) setEmpPrefix(agency.employeeIdPrefix ?? '');
+  }, [agency]);
+
+  const prefixValid = /^[A-Z0-9]{2,8}$/.test(empPrefix);
+  const prefixDirty = empPrefix !== (agency?.employeeIdPrefix ?? '');
+
+  async function saveEmployeePrefix() {
+    if (!prefixValid) {
+      toast.error('Employee ID prefix must be 2–8 letters or digits, no spaces');
+      return;
+    }
+    try {
+      await updateAgencySettings.mutateAsync({ employeeIdPrefix: empPrefix });
+      toast.success(`Employee IDs will now be generated as ${empPrefix}-0001`);
+    } catch {
+      toast.error('Failed to update the Employee ID prefix');
+    }
+  }
 
   async function saveMaxHours() {
     const n = parseInt(maxHours, 10);
@@ -114,6 +135,46 @@ export default function AdminPage() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
+        <div className="glass-card p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-9 h-9 rounded-lg bg-[#e6f4f0] flex items-center justify-center">
+              <IdentificationBadgeIcon size={18} className="text-primary" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-on-surface">Employee ID Prefix</h2>
+              <p className="text-xs text-on-surface-variant font-inter">Used to automatically generate employee IDs such as PIP-0001.</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+                Prefix
+              </label>
+              <input
+                type="text"
+                maxLength={8}
+                placeholder="PIP"
+                value={empPrefix}
+                onChange={(e) => setEmpPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                className="input-field max-w-[180px] tracking-widest font-semibold"
+              />
+              <p className="text-xs text-on-surface-variant font-inter mt-1.5">
+                2–8 letters or digits, no spaces.{' '}
+                {agency?.nextEmployeeIdPreview
+                  ? <>Next Employee ID: <span className="font-semibold text-on-surface">{agency.nextEmployeeIdPreview}</span></>
+                  : 'No prefix set yet — employees cannot be added until one is configured.'}
+              </p>
+            </div>
+            <button
+              onClick={saveEmployeePrefix}
+              disabled={updateAgencySettings.isPending || !prefixDirty || !prefixValid}
+              className="btn-primary"
+            >
+              {updateAgencySettings.isPending ? 'Saving…' : 'Save prefix'}
+            </button>
+          </div>
+        </div>
+
         <div className="glass-card p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 rounded-lg bg-[#e6f4f0] flex items-center justify-center">

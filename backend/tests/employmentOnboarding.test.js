@@ -46,8 +46,8 @@ const mkUser = (agencyId, role, tag, extra = {}) =>
   prisma.user.create({ data: { agencyId, role, name: `Emp ${tag}`, email: `emp-${tag}-${suffix}@shiftgo.test`, passwordHash: 'x', ...extra } });
 
 beforeAll(async () => {
-  agencyA = await prisma.agency.create({ data: { name: `Emp A ${suffix}`, clerkOrgId: `org_a_${suffix}` } });
-  agencyB = await prisma.agency.create({ data: { name: `Emp B ${suffix}`, clerkOrgId: `org_b_${suffix}` } });
+  agencyA = await prisma.agency.create({ data: { name: `Emp A ${suffix}`, clerkOrgId: `org_a_${suffix}`, employeeIdPrefix: 'EMA' } });
+  agencyB = await prisma.agency.create({ data: { name: `Emp B ${suffix}`, clerkOrgId: `org_b_${suffix}`, employeeIdPrefix: 'EMB' } });
   hrA = await mkUser(agencyA.id, 'HR', 'hrA');
   mgrA = await mkUser(agencyA.id, 'MANAGER', 'mgrA');
   wkrA = await mkUser(agencyA.id, 'WORKER', 'wkrA');
@@ -121,11 +121,16 @@ describe('HR create employee — employment data is staged', () => {
     expect(await prisma.pendingEmployee.count({ where: { agencyId: agencyA.id } })).toBe(0);
   });
 
-  test('existing create (no employment fields) still works exactly as before', async () => {
+  test('create with no employment fields still works and auto-generates an Employee ID', async () => {
     mockInvitationId = `inv_plain_${suffix}`;
-    const res = await as(hrA).post('/users', { name: 'Plain', email: `newhire-plain-${suffix}@shiftgo.test`, role: 'WORKER' });
+    const email = `newhire-plain-${suffix}@shiftgo.test`;
+    const res = await as(hrA).post('/users', { name: 'Plain', email, role: 'WORKER' });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ role: 'WORKER', status: 'pending' });
+    // agencyA prefix is 'EMA'; the number is whatever the sequence is at.
+    expect(res.body.data.employeeNumber).toMatch(/^EMA-\d{4,}$/);
+    const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
+    expect(pending.employeeNumber).toBe(res.body.data.employeeNumber);
   });
 });
 

@@ -14,11 +14,16 @@ export function useAgency() {
   });
 }
 
+type AgencySettingsPatch = Partial<{
+  maxWeeklyScheduledHours: number;
+  employeeIdPrefix: string | null;
+}>;
+
 /** Update configurable agency settings (HR only). */
 export function useUpdateAgencySettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { maxWeeklyScheduledHours: number }) => api.patch('/agency', body),
+    mutationFn: (body: AgencySettingsPatch) => api.patch('/agency', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['agency'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });

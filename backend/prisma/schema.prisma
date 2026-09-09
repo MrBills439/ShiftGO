@@ -181,6 +181,13 @@ model Agency {
   // explicit manager/HR override with a reason. Service logic reads this value
   // — never a hardcoded number. See src/services/staffAllocationService.js.
   maxWeeklyScheduledHours Int @default(60)
+  // Whole-Workforce: employee IDs are auto-generated as `${employeeIdPrefix}-0001`.
+  // The prefix is HR-configurable (uppercase, 2–8 alphanumerics). The counter is
+  // reserved with a single atomic increment per hire and only ever moves
+  // forward — a number left unused by a failed invite just leaves a gap; a
+  // reused number is never acceptable. Not derived from `name` (names change).
+  employeeIdPrefix     String?
+  employeeIdNextNumber Int     @default(1)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
