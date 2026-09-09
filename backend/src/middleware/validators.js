@@ -939,6 +939,56 @@ const validators = {
       .withMessage('proposedShiftId must be a valid shift id'),
     handleValidationErrors,
   ],
+
+  // ─── Shift Cover / Swap ─────────────────────────────────────────────────
+  shiftChangeCover: [
+    requiredIdBody('shiftId', 'Shift ID'),
+    requiredIdBody('targetWorkerId', 'Teammate ID'),
+    body('reason').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 1000 }).withMessage('Reason must be 1000 characters or fewer'),
+    handleValidationErrors,
+  ],
+  shiftChangeSwap: [
+    requiredIdBody('shiftId', 'Shift ID'),
+    requiredIdBody('targetWorkerId', 'Teammate ID'),
+    requiredIdBody('targetShiftId', 'Teammate shift ID'),
+    body('reason').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 1000 }).withMessage('Reason must be 1000 characters or fewer'),
+    handleValidationErrors,
+  ],
+  shiftChangeEligibleWorkers: [
+    query('shiftId').trim().isLength({ min: 5 }).withMessage('shiftId is required'),
+    handleValidationErrors,
+  ],
+  shiftChangeSwapShifts: [
+    query('shiftId').trim().isLength({ min: 5 }).withMessage('shiftId is required'),
+    query('targetWorkerId').trim().isLength({ min: 5 }).withMessage('targetWorkerId is required'),
+    handleValidationErrors,
+  ],
+  shiftChangeRespond: [
+    ...idParam('id', 'Request ID'),
+    body('decision').isIn(['ACCEPT', 'DECLINE']).withMessage('decision must be ACCEPT or DECLINE'),
+    handleValidationErrors,
+  ],
+  shiftChangeIdOnly: [
+    ...idParam('id', 'Request ID'),
+    handleValidationErrors,
+  ],
+  shiftChangeApprove: [
+    ...idParam('id', 'Request ID'),
+    body('overrideWeeklyHours').optional().isBoolean().withMessage('overrideWeeklyHours must be a boolean'),
+    body('overrideReason').optional({ nullable: true, checkFalsy: true }).trim().isLength({ min: 3, max: 500 }).withMessage('An override reason of 3–500 characters is required'),
+    handleValidationErrors,
+  ],
+  shiftChangeReject: [
+    ...idParam('id', 'Request ID'),
+    body('reason').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 1000 }).withMessage('Reason must be 1000 characters or fewer'),
+    handleValidationErrors,
+  ],
+  shiftChangeList: [
+    query('page').optional().isInt({ min: 1, max: 10_000 }).withMessage('page must be a positive integer'),
+    query('pageSize').optional().isInt({ min: 1, max: 50 }).withMessage('pageSize must be 1–50'),
+    query('status').optional().isIn(['PENDING_MANAGER', 'APPROVED', 'REJECTED']).withMessage('invalid status filter'),
+    handleValidationErrors,
+  ],
 };
 
 module.exports = { validators, handleValidationErrors };

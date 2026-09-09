@@ -104,6 +104,25 @@ enum LeaveRequestStatus {
   CANCELLED
 }
 
+enum ShiftChangeType {
+  COVER
+  SWAP
+}
+
+enum ShiftChangeStatus {
+  PENDING_RECIPIENT // waiting for the target worker to accept / decline
+  PENDING_MANAGER // target accepted, waiting for manager / HR approval
+  APPROVED // manager approved, assignment(s) changed
+  REJECTED // target declined OR manager rejected
+  CANCELLED // requester withdrew it before approval
+  EXPIRED // a shift involved started before it could be actioned
+}
+
+enum ShiftChangeRecipientResponse {
+  ACCEPTED
+  DECLINED
+}
+
 enum AccrualMethod {
   FLAT_RATE // fixed hours awarded per completed pay period
   HOURLY // hours earned as a fraction of actual hours worked
@@ -156,6 +175,7 @@ model Agency {
   leaveAccrualProfiles LeaveAccrualProfile[]
   leaveBalances        LeaveBalance[]
   leaveLedgerEntries   LeaveLedgerEntry[]
+  shiftChangeRequests  ShiftChangeRequest[]
 }
 
 model User {
@@ -206,6 +226,9 @@ model User {
   leaveAccrualProfile   LeaveAccrualProfile?
   leaveBalance          LeaveBalance?
   leaveLedgerEntries    LeaveLedgerEntry[]
+  shiftChangesRequested ShiftChangeRequest[] @relation("ShiftChangeRequester")
+  shiftChangesTargeted  ShiftChangeRequest[] @relation("ShiftChangeTarget")
+  shiftChangesManaged   ShiftChangeRequest[] @relation("ShiftChangeManager")
 
   agency Agency @relation(fields: [agencyId], references: [id])
 
@@ -308,6 +331,8 @@ model Shift {
   timesheet         Timesheet?
   claims            ShiftClaim[]
   attendanceMonitor AttendanceMonitor?
+  shiftChangesPrimary ShiftChangeRequest[] @relation("ShiftChangePrimary")
+  shiftChangesSwap    ShiftChangeRequest[] @relation("ShiftChangeSwap")
   agency            Agency             @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
@@ -669,4 +694,47 @@ model AnnouncementRead {
 
   @@unique([announcementId, userId])
   @@index([userId])
+}
+
+/// Worker-initiated Shift Cover / Shift Swap request. One shared model for both:
+///  - COVER: requester gives `primaryShift` to `targetWorker` (swapShift null)
+///  - SWAP : requester's `primaryShift` <-> targetWorker's `swapShift`
+/// Creating or accepting a request NEVER changes a shift's workerId — only a
+/// MANAGER/HR approval does, inside a single transaction, after re-validating
+/// against current data.
+model ShiftChangeRequest {
+  id       String            @id @default(cuid())
+  agencyId String
+  type     ShiftChangeType
+  status   ShiftChangeStatus @default(PENDING_RECIPIENT)
+
+  requesterId    String
+  primaryShiftId String
+  targetWorkerId String?
+  swapShiftId    String? // only set for type = SWAP
+
+  requesterReason String?
+
+  recipientRespondedAt DateTime?
+  recipientResponse    ShiftChangeRecipientResponse?
+
+  managerId         String?
+  managerDecisionAt  DateTime?
+  managerReason      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agency       Agency @relation(fields: [agencyId], references: [id])
+  requester    User   @relation("ShiftChangeRequester", fields: [requesterId], references: [id])
+  targetWorker User?  @relation("ShiftChangeTarget", fields: [targetWorkerId], references: [id])
+  manager      User?  @relation("ShiftChangeManager", fields: [managerId], references: [id])
+  primaryShift Shift  @relation("ShiftChangePrimary", fields: [primaryShiftId], references: [id])
+  swapShift    Shift? @relation("ShiftChangeSwap", fields: [swapShiftId], references: [id])
+
+  @@index([agencyId, status])
+  @@index([requesterId, status])
+  @@index([targetWorkerId, status])
+  @@index([primaryShiftId])
+  @@index([swapShiftId])
 }

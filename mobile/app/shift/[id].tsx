@@ -1,17 +1,20 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  ActivityIndicator, Linking, Platform, Alert,
+  ActivityIndicator, Linking, Platform, Alert, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, MapPin, Clock, Calendar, HouseLine,
-  NavigationArrow, CheckCircle, Timer, SignOut,
+  NavigationArrow, CheckCircle, Timer, SignOut, ArrowsClockwise, HandHeart,
 } from 'phosphor-react-native';
 import { getShiftById } from '../../services/profileService';
 import { dropShift } from '../../services/rotaService';
+import {
+  getEligibleWorkers, getSwapShifts, requestCover, requestSwap,
+} from '../../services/shiftChangeService';
 import { useAuthStore } from '../../store/authStore';
 import { Shift } from '../../types';
 import { D } from '../../constants/theme';
@@ -86,6 +89,47 @@ export default function ShiftDetailScreen() {
 
   const status = shift ? getStatus(shift) : null;
   const canDrop = !!shift && status === 'upcoming' && shift.workerId === userId && shift.status === 'SCHEDULED';
+  const canRequestChange = canDrop; // own, future, SCHEDULED shift
+
+  // ── Cover / swap ──
+  const [mode, setMode] = React.useState<null | 'menu' | 'cover' | 'swap'>(null);
+  const [targetWorkerId, setTargetWorkerId] = React.useState<string | null>(null);
+  const [targetShiftId, setTargetShiftId] = React.useState<string | null>(null);
+  const [reason, setReason] = React.useState('');
+
+  const eligible = useQuery({
+    queryKey: ['shift-change', 'eligible', id],
+    queryFn: () => getEligibleWorkers(id),
+    enabled: !!id && (mode === 'cover' || mode === 'swap'),
+  });
+  const swapShifts = useQuery({
+    queryKey: ['shift-change', 'swap-shifts', id, targetWorkerId],
+    queryFn: () => getSwapShifts(id, targetWorkerId as string),
+    enabled: mode === 'swap' && !!targetWorkerId,
+  });
+
+  function resetChange() {
+    setMode(null); setTargetWorkerId(null); setTargetShiftId(null); setReason('');
+  }
+
+  const coverMut = useMutation({
+    mutationFn: () => requestCover({ shiftId: id, targetWorkerId: targetWorkerId as string, reason: reason.trim() || undefined }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shift-change'] });
+      Alert.alert('Cover requested', 'Your teammate has been notified. If they accept, your manager approves before anything changes.');
+      resetChange();
+    },
+    onError: (e: any) => Alert.alert('Could not request cover', e.response?.data?.message ?? 'Please try again.'),
+  });
+  const swapMut = useMutation({
+    mutationFn: () => requestSwap({ shiftId: id, targetWorkerId: targetWorkerId as string, targetShiftId: targetShiftId as string, reason: reason.trim() || undefined }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shift-change'] });
+      Alert.alert('Swap requested', 'Your teammate has been notified. If they accept, your manager approves before anything changes.');
+      resetChange();
+    },
+    onError: (e: any) => Alert.alert('Could not request swap', e.response?.data?.message ?? 'Please try again.'),
+  });
 
   const drop = useMutation({
     mutationFn: () => dropShift(id),
@@ -223,6 +267,107 @@ export default function ShiftDetailScreen() {
             ))}
           </View>
 
+          {canRequestChange && mode === null && (
+            <Pressable
+              onPress={() => setMode('menu')}
+              style={({ pressed }) => [s.cantBtn, pressed && { opacity: 0.75 }]}
+            >
+              <Text style={s.cantTxt}>Can’t work this shift?</Text>
+            </Pressable>
+          )}
+
+          {mode === 'menu' && (
+            <View style={s.card}>
+              <Text style={s.cardTitle}>Can’t work this shift?</Text>
+              <Pressable style={s.opt} onPress={() => setMode('cover')}>
+                <HandHeart size={18} color={D.emerald} weight="bold" />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.optTitle}>Request cover</Text>
+                  <Text style={s.optSub}>A teammate takes this shift (manager approves)</Text>
+                </View>
+              </Pressable>
+              <Pressable style={s.opt} onPress={() => setMode('swap')}>
+                <ArrowsClockwise size={18} color={D.emerald} weight="bold" />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.optTitle}>Swap with a teammate</Text>
+                  <Text style={s.optSub}>Trade this shift for one of theirs (manager approves)</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={resetChange}><Text style={s.linkTxt}>Cancel</Text></Pressable>
+            </View>
+          )}
+
+          {(mode === 'cover' || mode === 'swap') && (
+            <View style={s.card}>
+              <Text style={s.cardTitle}>{mode === 'cover' ? 'Request cover' : 'Swap shift'}</Text>
+              <Text style={s.optSub}>Choose an available teammate</Text>
+              {eligible.isLoading ? (
+                <ActivityIndicator color={D.emerald} style={{ marginVertical: 12 }} />
+              ) : (
+                <View style={{ marginTop: 8 }}>
+                  {(eligible.data?.workers ?? []).filter((w) => w.eligible).map((w) => (
+                    <Pressable
+                      key={w.id}
+                      style={[s.pick, targetWorkerId === w.id && s.pickOn]}
+                      onPress={() => { setTargetWorkerId(w.id); setTargetShiftId(null); }}
+                    >
+                      <Text style={[s.pickTxt, targetWorkerId === w.id && s.pickTxtOn]}>{w.name}</Text>
+                    </Pressable>
+                  ))}
+                  {(eligible.data?.workers ?? []).filter((w) => w.eligible).length === 0 && (
+                    <Text style={s.optSub}>No teammates are available for this shift right now.</Text>
+                  )}
+                </View>
+              )}
+
+              {mode === 'swap' && targetWorkerId && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={s.optSub}>Choose one of their future shifts to take</Text>
+                  {swapShifts.isLoading ? (
+                    <ActivityIndicator color={D.emerald} style={{ marginVertical: 12 }} />
+                  ) : (
+                    <View style={{ marginTop: 8 }}>
+                      {(swapShifts.data?.shifts ?? []).map((sh) => {
+                        const d = new Date(sh.startTime);
+                        const label = `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · ${sh.house?.name ?? ''}`;
+                        return (
+                          <Pressable key={sh.id} style={[s.pick, targetShiftId === sh.id && s.pickOn]} onPress={() => setTargetShiftId(sh.id)}>
+                            <Text style={[s.pickTxt, targetShiftId === sh.id && s.pickTxtOn]}>{label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                      {(swapShifts.data?.shifts ?? []).length === 0 && (
+                        <Text style={s.optSub}>They have no swappable future shifts.</Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <TextInput
+                style={s.reasonInput}
+                value={reason}
+                onChangeText={setReason}
+                placeholder="Reason (optional)"
+                placeholderTextColor={D.light}
+                multiline
+              />
+
+              <View style={s.rowBtns}>
+                <Pressable onPress={resetChange}><Text style={s.linkTxt}>Cancel</Text></Pressable>
+                <Pressable
+                  style={[s.sendBtn, ((mode === 'cover' ? !targetWorkerId : !(targetWorkerId && targetShiftId)) || coverMut.isPending || swapMut.isPending) && { opacity: 0.5 }]}
+                  disabled={(mode === 'cover' ? !targetWorkerId : !(targetWorkerId && targetShiftId)) || coverMut.isPending || swapMut.isPending}
+                  onPress={() => (mode === 'cover' ? coverMut.mutate() : swapMut.mutate())}
+                >
+                  <Text style={s.sendTxt}>
+                    {coverMut.isPending || swapMut.isPending ? 'Sending…' : mode === 'cover' ? 'Send cover request' : 'Send swap request'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
           {canDrop && (
             <Pressable
               onPress={confirmDrop}
@@ -296,4 +441,19 @@ const s = StyleSheet.create({
     borderRadius: 14, paddingVertical: 14, marginTop: 4,
   },
   dropTxt: { fontSize: 15, fontWeight: '700', color: D.error },
+
+  cantBtn: { alignItems: 'center', paddingVertical: 13, borderRadius: 14, borderWidth: 1, borderColor: D.border, backgroundColor: D.white, marginTop: 4, marginBottom: 8 },
+  cantTxt: { fontSize: 15, fontWeight: '700', color: D.emerald },
+  opt: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EEF2F1' },
+  optTitle: { fontSize: 14, fontWeight: '700', color: D.text },
+  optSub: { fontSize: 12.5, color: D.muted, marginTop: 1 },
+  linkTxt: { fontSize: 13.5, fontWeight: '700', color: D.muted, paddingVertical: 12 },
+  pick: { paddingVertical: 11, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: D.border, marginBottom: 6, backgroundColor: D.white },
+  pickOn: { borderColor: D.emerald, backgroundColor: 'rgba(0,95,86,0.06)' },
+  pickTxt: { fontSize: 13.5, color: D.text, fontWeight: '500' },
+  pickTxtOn: { color: D.emerald, fontWeight: '700' },
+  reasonInput: { marginTop: 12, borderWidth: 1.5, borderColor: D.inputBorder, backgroundColor: D.inputBg, borderRadius: 12, padding: 12, fontSize: 14, color: D.text, minHeight: 60, textAlignVertical: 'top' },
+  rowBtns: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 },
+  sendBtn: { backgroundColor: D.emerald, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18 },
+  sendTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
 });

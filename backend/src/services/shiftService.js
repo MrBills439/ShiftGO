@@ -139,6 +139,48 @@ async function assertWeeklyHoursOk({ worker, agencyId, startTime, endTime, data 
   };
 }
 
+/**
+ * Full "can this worker take this shift window" check — the exact three gates
+ * `createShift` / `updateShift` / `claimShift` apply, packaged for reuse by the
+ * Shift Cover / Swap flow so that validation is never duplicated:
+ *   1. no overlapping non-cancelled shift  (never bypassed)
+ *   2. not on approved leave               (never bypassed)
+ *   3. weekly scheduled-hours ceiling      (MANAGER/HR may override with reason)
+ *
+ * `excludeShiftId` drops one shift from BOTH the overlap check and the weekly
+ * tally — pass the shift the worker is giving away in a swap so it is not
+ * counted against them.
+ *
+ * Returns `{ overrideAudit }` where `overrideAudit` is null, or an async
+ * `(shiftId) => void` to call once the assignment is committed (records the
+ * WEEKLY_HOURS_LIMIT_OVERRIDE audit). Throws `statusConflict` (409) /
+ * `forbidden` (403) with `.code` on failure, matching the existing flows.
+ */
+async function validateWorkerAssignment({
+  worker, agencyId, startTime, endTime, actor = null, data = {}, excludeShiftId = null, selfClaim = false,
+}) {
+  const overlap = await prisma.shift.findFirst({
+    where: {
+      agencyId,
+      workerId: worker.id,
+      status: { not: 'CANCELLED' },
+      startTime: { lt: endTime },
+      endTime: { gt: startTime },
+      ...(excludeShiftId ? { id: { not: excludeShiftId } } : {}),
+    },
+    select: { id: true },
+  });
+  if (overlap) throw statusConflict('Worker already has an overlapping shift');
+
+  const leaveConflicts = await leaveRequestService.checkLeaveConflict(worker.id, startTime, endTime, agencyId);
+  if (leaveConflicts.length > 0) throw statusConflict('Worker is on approved leave during this shift');
+
+  const overrideAudit = await assertWeeklyHoursOk({
+    worker, agencyId, startTime, endTime, data, actor, excludeShiftId, selfClaim,
+  });
+  return { overrideAudit };
+}
+
 async function createShift(data, createdById, agencyId, actor = null) {
   const startTime = new Date(data.startTime);
   const endTime = new Date(data.endTime);
@@ -602,4 +644,5 @@ module.exports = {
   cancelShift, updateShift,
   openShift, claimShift, dropShift, listOpenShiftsForWorker, listClaims,
   effectiveEligibleRoles, findEligibleWorkers,
+  assertWeeklyHoursOk, validateWorkerAssignment,
 };

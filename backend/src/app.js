@@ -24,6 +24,7 @@ const auditLogRoutes = require('./routes/auditLogs');
 const activityRoutes = require('./routes/activity');
 const announcementRoutes = require('./routes/announcements');
 const rightToWorkRoutes = require('./routes/rightToWork');
+const shiftChangeRoutes = require('./routes/shiftChange');
 const errorHandler = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimit');
 const config = require('./config');
@@ -147,6 +148,7 @@ app.use('/audit-logs', auditLogRoutes);
 app.use('/activity', activityRoutes);
 app.use('/announcements', announcementRoutes);
 app.use('/right-to-work', rightToWorkRoutes);
+app.use('/shift-change', shiftChangeRoutes);
 
 // 404 handler
 app.use((req, res) => {

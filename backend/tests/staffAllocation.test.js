@@ -27,14 +27,24 @@ let hrB;
 let wB;
 let houseB;
 
-// Anchor everything to Monday ~10:00 in the agency A timezone (Europe/London),
-// well inside the current agency week and DST-safe.
-const weekA = agencyWeekRange('Europe/London', new Date());
-const MON10 = new Date(weekA.start.getTime() + 10 * HOUR);
-const weekParam = (() => {
+// `MON10` (Monday ~10:00 Europe/London of the CURRENT agency week) and
+// `weekParam` (that same week, as YYYY-MM-DD for the ?week= query) are
+// recomputed in beforeEach from ONE `new Date()` snapshot — never frozen at
+// module load. Freezing them let the fixtures drift across the agency-week
+// boundary if the suite ran long (the same class of flake fixed earlier in
+// dashboardToday.test.js). Deriving both from a single per-test snapshot keeps
+// the (shift instant, ?week= param) pair consistent no matter when the suite
+// runs. `currentStatus` tests additionally need "now" to fall inside that week,
+// which it does because the queried week IS the current one.
+let weekA;
+let MON10;
+let weekParam;
+beforeEach(() => {
+  weekA = agencyWeekRange('Europe/London', new Date());
+  MON10 = new Date(weekA.start.getTime() + 10 * HOUR);
   const { year, month, day } = ymdInZone('Europe/London', new Date(weekA.start.getTime() + 12 * HOUR));
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-})();
+  weekParam = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+});
 
 async function mkUser(agencyId, role, tag, contractedHours = null) {
   return prisma.user.create({
@@ -387,7 +397,12 @@ describe('retiming an assigned shift respects the weekly limit', () => {
 
 describe('status / availability semantics', () => {
   test('without a proposed shift, currentStatus is ON/OFF only and availability is null', async () => {
-    await mkShift({ agencyId: agencyA.id, houseId: houseA1.id, workerId: wA1.id, startMs: Date.now() - HOUR, hours: 4 }); // on shift now
+    // Started 30 min ago, but never before this agency week's start — so the
+    // "on shift now" window is always inside the week the endpoint queries,
+    // even in the first minutes of Monday.
+    const weekStart = agencyWeekRange('Europe/London', new Date()).start.getTime();
+    const startedNow = Math.max(weekStart + 60_000, Date.now() - 30 * 60_000);
+    await mkShift({ agencyId: agencyA.id, houseId: houseA1.id, workerId: wA1.id, startMs: startedNow, hours: 4 }); // on shift now
     const res = await alloc(hrA);
     const on = rowFor(res, wA1.id);
     const off = rowFor(res, wA2.id);

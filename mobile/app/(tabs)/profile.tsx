@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   PencilSimple, CaretRight, SignOut,
   Bell, User, Phone, Envelope, CalendarDots,
-  BookOpen, IdentificationCard, Megaphone, ShieldCheck,
+  BookOpen, IdentificationCard, Megaphone, ShieldCheck, ArrowsClockwise,
 } from 'phosphor-react-native';
 import { useAuthStore } from '../../store/authStore';
 import { getMe, getMyTraining, getMyDbs } from '../../services/profileService';
@@ -257,6 +257,13 @@ export default function ProfileScreen() {
             title="Personal Information"
             subtitle="Update your personal details"
             onPress={() => router.push('/profile/personal')}
+          />
+          <MenuRow
+            iconBg="rgba(0,95,86,0.09)"
+            icon={<ArrowsClockwise size={18} color={D.emerald} weight="regular" />}
+            title="Shift Requests"
+            subtitle="Cover and swap requests"
+            onPress={() => router.push('/shift-requests')}
           />
           <MenuRow
             iconBg="rgba(245,158,11,0.10)"
