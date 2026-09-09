@@ -21,7 +21,9 @@ function makeController(entity) {
     },
 
     async options(req, res) {
-      ok(res, await service.options(entity, agencyIdFor(req)));
+      // `departmentId` is only meaningful for jobTitle; the service ignores it
+      // for the other entities.
+      ok(res, await service.options(entity, agencyIdFor(req), { departmentId: req.query.departmentId }));
     },
 
     async getOne(req, res) {

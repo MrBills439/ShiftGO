@@ -131,6 +131,71 @@ describe('Job Titles', () => {
     expect((await as(mgrA).post('/job-titles', { name: 'Nope Title' })).status).toBe(403);
     expect((await as(hrB).patch(`/job-titles/${jt.id}`, { name: 'nope' })).status).toBe(404);
   });
+
+  test('create persists departmentId; editing the department re-links, does not error', async () => {
+    const { body: { data: it } } = await as(hrA).post('/departments', { name: 'IT' });
+    const { body: { data: eng } } = await as(hrA).post('/departments', { name: 'Engineering' });
+
+    const created = await as(hrA).post('/job-titles', { name: 'Developer', departmentId: it.id });
+    expect(created.status).toBe(201);
+    expect(created.body.data).toMatchObject({ departmentId: it.id, department: { id: it.id, name: 'IT' } });
+
+    const moved = await as(hrA).patch(`/job-titles/${created.body.data.id}`, { departmentId: eng.id });
+    expect(moved.status).toBe(200);
+    expect(moved.body.data).toMatchObject({ departmentId: eng.id, department: { id: eng.id, name: 'Engineering' } });
+
+    // clearing the department is allowed (back to legacy / unassigned)
+    const cleared = await as(hrA).patch(`/job-titles/${created.body.data.id}`, { departmentId: null });
+    expect(cleared.body.data.departmentId).toBeNull();
+  });
+
+  test('GET /job-titles/options filters by department, excludes inactive, carries departmentId', async () => {
+    const { body: { data: care } } = await as(hrA).post('/departments', { name: 'Care' });
+    const { body: { data: it } } = await as(hrA).post('/departments', { name: 'IT' });
+    const { body: { data: sw } } = await as(hrA).post('/job-titles', { name: 'Support Worker', departmentId: care.id });
+    await as(hrA).post('/job-titles', { name: 'PBS Lead', departmentId: care.id });
+    const { body: { data: dev } } = await as(hrA).post('/job-titles', { name: 'Developer', departmentId: it.id });
+    await as(hrA).post('/job-titles', { name: 'Unassigned Title' }); // departmentId: null
+
+    // unfiltered: every active title, each with a departmentId field
+    const all = await as(wkrA).get('/job-titles/options');
+    expect(all.status).toBe(200);
+    expect(all.body.data).toHaveLength(4);
+    expect(all.body.data.every((o) => 'departmentId' in o)).toBe(true);
+
+    // filtered by Care → only Care titles
+    const careOpts = await as(wkrA).get(`/job-titles/options?departmentId=${care.id}`);
+    expect(careOpts.body.data.map((o) => o.name).sort()).toEqual(['PBS Lead', 'Support Worker']);
+    expect(careOpts.body.data.every((o) => o.departmentId === care.id)).toBe(true);
+
+    // deactivate the Care Support Worker → drops out of both lists
+    await as(hrA).post(`/job-titles/${sw.id}/deactivate`);
+    const careOpts2 = await as(wkrA).get(`/job-titles/options?departmentId=${care.id}`);
+    expect(careOpts2.body.data.map((o) => o.name)).toEqual(['PBS Lead']);
+    const all2 = await as(wkrA).get('/job-titles/options');
+    expect(all2.body.data.map((o) => o.name)).not.toContain('Support Worker');
+
+    // filtered by IT → only Developer
+    const itOpts = await as(wkrA).get(`/job-titles/options?departmentId=${it.id}`);
+    expect(itOpts.body.data.map((o) => o.name)).toEqual(['Developer']);
+    expect(dev.departmentId).toBe(it.id);
+  });
+
+  test("a cross-agency departmentId cannot filter or discover this agency's titles", async () => {
+    const { body: { data: careA } } = await as(hrA).post('/departments', { name: 'Care' });
+    await as(hrA).post('/job-titles', { name: 'Support Worker', departmentId: careA.id });
+    const { body: { data: careB } } = await as(hrB).post('/departments', { name: 'Care' });
+    await as(hrB).post('/job-titles', { name: 'B Only Title', departmentId: careB.id });
+
+    // agency A filtering by agency B's department → empty, no error, no leak
+    const res = await as(hrA).get(`/job-titles/options?departmentId=${careB.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+
+    // agency A's unfiltered options never contain agency B titles
+    const all = await as(hrA).get('/job-titles/options');
+    expect(all.body.data.map((o) => o.name)).not.toContain('B Only Title');
+  });
 });
 
 // ─────────────────────────── LOCATIONS ─────────────────────────────────────

@@ -268,7 +268,7 @@ async function updateUser(req, res) {
   }
   // Whole-Workforce Phase 1: HR / management may also edit employment metadata.
   try {
-    Object.assign(data, await buildEmploymentData(req.body, agencyId, { userId: req.params.id }));
+    Object.assign(data, await buildEmploymentData(req.body, agencyId, { userId: req.params.id, existing }));
   } catch (err) {
     if (err.statusCode) return fail(res, err.message, err.statusCode, err.code ? { code: err.code } : {});
     throw err;

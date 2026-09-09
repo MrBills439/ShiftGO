@@ -43,6 +43,7 @@ export interface OrgOption {
   id: string;
   name: string;
   type?: LocationType;
+  departmentId?: string | null; // job-title options carry this for client-side filtering
 }
 
 export interface AuthUser {

@@ -67,6 +67,18 @@ export default function StaffPage() {
   const { data: jobTitleOptions = [] } = useJobTitleOptions(isHrOrManager);
   const { data: locationOptions = [] } = useLocationOptions(isHrOrManager);
   const managerCandidates = users; // scoped to same agency by the API
+
+  // Department → Job Title link. Job-title options carry departmentId, so the
+  // pickers filter client-side (instant, no refetch). The backend still
+  // enforces the pairing on submit.
+  const jobTitlesForDept = (deptId: string) =>
+    deptId ? jobTitleOptions.filter((j) => j.departmentId === deptId) : [];
+  const jobTitleFitsDept = (jobTitleId: string, deptId: string) => {
+    if (!jobTitleId) return true;
+    const jt = jobTitleOptions.find((j) => j.id === jobTitleId);
+    if (!jt) return true; // inactive / unknown — leave legacy assignments alone
+    return jt.departmentId == null || jt.departmentId === deptId;
+  };
   const createUser = useCreateUser();
   const assignWorker = useAssignWorker();
   const deactivateUser = useDeactivateUser();
@@ -128,6 +140,21 @@ export default function StaffPage() {
       toast.error(err.response?.data?.message ?? 'Failed to update employment details');
     }
   }
+
+  // Job-title choices for the Edit modal: the selected department's active
+  // titles, plus the currently-assigned title kept visible even if it is
+  // legacy / unassigned / inactive / from another department (a later
+  // JobTitle re-parent) so opening + saving never silently drops it.
+  const editJobTitleChoices = useMemo(() => {
+    const base = employmentForm.departmentId
+      ? jobTitleOptions.filter((j) => j.departmentId === employmentForm.departmentId)
+      : [];
+    const currentId = employmentForm.jobTitleId;
+    if (!currentId || base.some((j) => j.id === currentId)) return base;
+    const known = jobTitleOptions.find((j) => j.id === currentId);
+    const name = known?.name ?? employmentOpen?.jobTitle?.name ?? 'Current title';
+    return [{ id: currentId, name: `${name} (current)`, departmentId: known?.departmentId ?? null }, ...base];
+  }, [jobTitleOptions, employmentForm.departmentId, employmentForm.jobTitleId, employmentOpen]);
 
   const canViewStaff = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
   const canManageStaff = ['HR', 'MANAGER'].includes(user?.role ?? '');
@@ -615,15 +642,29 @@ export default function StaffPage() {
             <p className="text-[11px] font-semibold uppercase tracking-widest text-fg-muted">Employment</p>
             <div className="grid grid-cols-2 gap-3">
               <FieldShell label="Department">
-                <UiSelect value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+                <UiSelect
+                  value={form.departmentId}
+                  onChange={(e) => {
+                    const departmentId = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      departmentId,
+                      jobTitleId: jobTitleFitsDept(f.jobTitleId, departmentId) ? f.jobTitleId : '',
+                    }));
+                  }}
+                >
                   <option value="">—</option>
                   {departmentOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </UiSelect>
               </FieldShell>
-              <FieldShell label="Job title">
-                <UiSelect value={form.jobTitleId} onChange={(e) => setForm({ ...form, jobTitleId: e.target.value })}>
+              <FieldShell label="Job title" hint={!form.departmentId ? 'Select a department first.' : undefined}>
+                <UiSelect
+                  value={form.jobTitleId}
+                  disabled={!form.departmentId}
+                  onChange={(e) => setForm({ ...form, jobTitleId: e.target.value })}
+                >
                   <option value="">—</option>
-                  {jobTitleOptions.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+                  {jobTitlesForDept(form.departmentId).map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
                 </UiSelect>
               </FieldShell>
             </div>
@@ -796,15 +837,32 @@ export default function StaffPage() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <FieldShell label="Department">
-              <UiSelect value={employmentForm.departmentId} onChange={(e) => setEmploymentForm({ ...employmentForm, departmentId: e.target.value })}>
+              <UiSelect
+                value={employmentForm.departmentId}
+                onChange={(e) => {
+                  const departmentId = e.target.value;
+                  setEmploymentForm((f) => ({
+                    ...f,
+                    departmentId,
+                    jobTitleId: jobTitleFitsDept(f.jobTitleId, departmentId) ? f.jobTitleId : '',
+                  }));
+                }}
+              >
                 <option value="">—</option>
                 {departmentOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </UiSelect>
             </FieldShell>
-            <FieldShell label="Job title">
-              <UiSelect value={employmentForm.jobTitleId} onChange={(e) => setEmploymentForm({ ...employmentForm, jobTitleId: e.target.value })}>
+            <FieldShell
+              label="Job title"
+              hint={!employmentForm.departmentId && !employmentForm.jobTitleId ? 'Select a department first.' : undefined}
+            >
+              <UiSelect
+                value={employmentForm.jobTitleId}
+                disabled={!employmentForm.departmentId && !employmentForm.jobTitleId}
+                onChange={(e) => setEmploymentForm({ ...employmentForm, jobTitleId: e.target.value })}
+              >
                 <option value="">—</option>
-                {jobTitleOptions.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+                {editJobTitleChoices.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
               </UiSelect>
             </FieldShell>
           </div>

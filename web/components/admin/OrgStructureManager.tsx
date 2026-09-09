@@ -150,9 +150,12 @@ export function OrgStructureManager({ entity }: { entity: Entity }) {
           )}
 
           {entity === 'jobTitle' && (
-            <FieldShell label="Default department (optional — a suggestion only)">
+            <FieldShell
+              label="Department"
+              hint="Groups this job title and pre-filters it when adding an employee. It never grants system access. Leave unassigned only for legacy titles."
+            >
               <UiSelect value={formVal.departmentId} onChange={(e) => setFormVal({ ...formVal, departmentId: e.target.value })}>
-                <option value="">—</option>
+                <option value="">No department (unassigned)</option>
                 {deptOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </UiSelect>
             </FieldShell>

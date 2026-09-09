@@ -130,8 +130,27 @@ async function list(entity, agencyId, { includeInactive = false } = {}) {
 }
 
 /** Minimal id+name list of ACTIVE records — safe for any authenticated user to
- *  populate a picker. Never leaks another agency's records. */
-async function options(entity, agencyId) {
+ *  populate a picker. Never leaks another agency's records.
+ *
+ *  Job titles also carry `departmentId` (so a form can filter client-side) and
+ *  accept an optional `departmentId` filter. A departmentId that is not in the
+ *  caller's agency yields an empty list — never an error, never any signal
+ *  about another agency's data. */
+async function options(entity, agencyId, { departmentId } = {}) {
+  if (entity === 'jobTitle') {
+    let deptWhere = {};
+    if (departmentId) {
+      const d = await prisma.department.findFirst({ where: { id: departmentId, agencyId }, select: { id: true } });
+      if (!d) return [];
+      deptWhere = { departmentId };
+    }
+    return prisma.jobTitle.findMany({
+      where: { agencyId, active: true, ...deptWhere },
+      select: { id: true, name: true, departmentId: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   const c = cfg(entity);
   const rows = await prisma[c.model].findMany({
     where: { agencyId, active: true },

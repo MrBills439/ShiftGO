@@ -157,11 +157,79 @@ describe('employment validation on PATCH /users/:id', () => {
     await prisma.user.update({ where: { id: hrB.id }, data: { employeeNumber: null } });
   });
 
-  test('JobTitle.departmentId is only a suggestion — HR may assign a different department', async () => {
-    const res = await as(hrA).patch(`/users/${wkrA.id}`, { jobTitleId: jtSupportA.id, departmentId: deptOpsA.id });
+  test('a matching Department + Job Title pair is accepted', async () => {
+    const res = await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptCareA.id, jobTitleId: jtSupportA.id });
     expect(res.status).toBe(200);
+    expect(res.body.data.department.id).toBe(deptCareA.id);
     expect(res.body.data.jobTitle.id).toBe(jtSupportA.id);
-    expect(res.body.data.department.id).toBe(deptOpsA.id); // NOT silently forced back to Care
+  });
+
+  test('a Job Title from another department is rejected with JOB_TITLE_DEPARTMENT_MISMATCH', async () => {
+    // jtSupportA belongs to Care; pairing it with Operations must fail.
+    const res = await as(hrA).patch(`/users/${wkrA.id}`, { jobTitleId: jtSupportA.id, departmentId: deptOpsA.id });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('JOB_TITLE_DEPARTMENT_MISMATCH');
+  });
+
+  test('a legacy Job Title with no department fits any department', async () => {
+    const jtLegacy = await prisma.jobTitle.create({ data: { agencyId: agencyA.id, name: `Legacy ${suffix}` } });
+    const res = await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptOpsA.id, jobTitleId: jtLegacy.id });
+    expect(res.status).toBe(200);
+    expect(res.body.data.department.id).toBe(deptOpsA.id);
+    expect(res.body.data.jobTitle.id).toBe(jtLegacy.id);
+  });
+
+  test('changing only the department to one incompatible with the existing job title is rejected', async () => {
+    await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptCareA.id, jobTitleId: jtSupportA.id });
+    const res = await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptOpsA.id }); // job title stays = Care's
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('JOB_TITLE_DEPARTMENT_MISMATCH');
+  });
+
+  test('POST /users with a matching Department + Job Title succeeds and stages both', async () => {
+    mockInvitationId = `inv_match_${suffix}`;
+    const email = `newhire-match-${suffix}@shiftgo.test`;
+    const res = await as(hrA).post('/users', {
+      name: 'Matched Hire', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id,
+    });
+    expect(res.status).toBe(201);
+    const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
+    expect(pending).toMatchObject({ departmentId: deptCareA.id, jobTitleId: jtSupportA.id });
+  });
+
+  test('POST /users with a mismatched Department + Job Title is rejected before any invite', async () => {
+    const clerkClient = require('../src/utils/clerkClient');
+    clerkClient.organizations.createOrganizationInvitation.mockClear();
+    const res = await as(hrA).post('/users', {
+      name: 'Bad Pair', email: `newhire-badpair-${suffix}@shiftgo.test`, role: 'WORKER',
+      departmentId: deptOpsA.id, jobTitleId: jtSupportA.id, // jtSupportA = Care
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('JOB_TITLE_DEPARTMENT_MISMATCH');
+    expect(clerkClient.organizations.createOrganizationInvitation).not.toHaveBeenCalled();
+    expect(await prisma.pendingEmployee.count({ where: { agencyId: agencyA.id } })).toBe(0);
+  });
+
+  test("re-parenting a Job Title's department does NOT mutate existing employees and does not block unrelated edits", async () => {
+    const deptIT = await prisma.department.create({ data: { agencyId: agencyA.id, name: `IT ${suffix}` } });
+    const deptEng = await prisma.department.create({ data: { agencyId: agencyA.id, name: `Engineering ${suffix}` } });
+    const jtDev = await prisma.jobTitle.create({ data: { agencyId: agencyA.id, name: `Developer ${suffix}`, departmentId: deptIT.id } });
+
+    // employee: IT / Developer (consistent)
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptIT.id, jobTitleId: jtDev.id })).status).toBe(200);
+
+    // HR re-parents the Developer title to Engineering
+    expect((await as(hrA).patch(`/job-titles/${jtDev.id}`, { departmentId: deptEng.id })).status).toBe(200);
+
+    // the employee is untouched
+    const after = await as(hrA).get(`/users/${wkrA.id}`);
+    expect(after.body.data.departmentId).toBe(deptIT.id);
+    expect(after.body.data.jobTitleId).toBe(jtDev.id);
+
+    // an unrelated edit still saves even though the pair is now technically stale
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { contractedHours: 21 })).status).toBe(200);
+    // and re-sending the same (now-stale) pair is not treated as a new mismatch
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptIT.id, jobTitleId: jtDev.id })).status).toBe(200);
   });
 });
 
@@ -389,9 +457,10 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
     const email = `newhire-staledept-${suffix}@shiftgo.test`;
     mockInvitationId = `inv_stale_${suffix}`;
     const tmpDept = await prisma.department.create({ data: { agencyId: agencyA.id, name: `Temp ${suffix}` } });
+    const jtTmp = await prisma.jobTitle.create({ data: { agencyId: agencyA.id, name: `Temp Title ${suffix}`, departmentId: tmpDept.id } });
     await as(hrA).post('/users', {
       name: 'Stale Dept', email, role: 'WORKER',
-      departmentId: tmpDept.id, jobTitleId: jtSupportA.id, employeeNumber: 'STALE-1',
+      departmentId: tmpDept.id, jobTitleId: jtTmp.id, employeeNumber: 'STALE-1',
     });
     await prisma.department.update({ where: { id: tmpDept.id }, data: { active: false } });
 
@@ -401,7 +470,7 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
 
     const user = await prisma.user.findUnique({ where: { clerkUserId } });
     expect(user.departmentId).toBeNull();          // deactivated dept not applied
-    expect(user.jobTitleId).toBe(jtSupportA.id);   // valid field still applied
+    expect(user.jobTitleId).toBe(jtTmp.id);        // still-active field applied
     expect(user.employeeNumber).toBe('STALE-1');
 
     const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
@@ -410,6 +479,7 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
     expect(pending.consumedAt).not.toBeNull();
 
     await prisma.user.delete({ where: { clerkUserId } });
+    await prisma.jobTitle.delete({ where: { id: jtTmp.id } });
     await prisma.department.delete({ where: { id: tmpDept.id } });
   });
 
