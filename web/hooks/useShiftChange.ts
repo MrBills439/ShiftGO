@@ -46,7 +46,10 @@ interface PendingResponse {
 }
 
 /** Manager/HR — requests awaiting approval (or filter to APPROVED / REJECTED). */
-export function usePendingShiftChanges(status: 'PENDING_MANAGER' | 'APPROVED' | 'REJECTED' = 'PENDING_MANAGER') {
+export function usePendingShiftChanges(
+  status: 'PENDING_MANAGER' | 'APPROVED' | 'REJECTED' = 'PENDING_MANAGER',
+  enabled = true,
+) {
   return useQuery<PendingResponse>({
     queryKey: ['shift-change', 'pending', status],
     queryFn: async () => {
@@ -54,6 +57,7 @@ export function usePendingShiftChanges(status: 'PENDING_MANAGER' | 'APPROVED' | 
       return data.data;
     },
     staleTime: 15_000,
+    enabled,
   });
 }
 

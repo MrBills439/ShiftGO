@@ -11,6 +11,8 @@ import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import { useShifts, useCreateShift, useUpdateShift, useDeleteShift, useOpenShift, useAvailableShifts, useClaimShift, useDropShift } from '@/hooks/useShifts';
+import { usePendingShiftChanges } from '@/hooks/useShiftChange';
+import { ShiftRequestsPanel } from '@/components/shifts/ShiftRequestsPanel';
 import { useHouses } from '@/hooks/useHouses';
 import { useUsers } from '@/hooks/useWorkers';
 import { useAuthStore } from '@/store/authStore';
@@ -361,6 +363,10 @@ function ManageShiftsView() {
   const toast = useToast();
 
   const isStaff = user?.role === 'TEAM_LEADER';
+  const isManagerLevel = ['HR', 'MANAGER'].includes(user?.role ?? '');
+  const [view, setView] = useState<'shifts' | 'requests'>('shifts');
+  const { data: pendingReq } = usePendingShiftChanges('PENDING_MANAGER', isManagerLevel);
+  const pendingCount = pendingReq?.items?.length ?? 0;
   const { data: availableShifts = [], isLoading: availableLoading } = useAvailableShifts(isStaff);
   const claimShift = useClaimShift();
   const [claimId, setClaimId] = useState<string | null>(null);
@@ -483,13 +489,44 @@ function ManageShiftsView() {
       <Header
         title="Shifts"
         subtitle="Manage and schedule worker shifts across all houses"
-        action={canCreate && (
+        action={view === 'shifts' && canCreate && (
           <button onClick={() => setOpen(true)} className="btn-primary">
             <PlusIcon size={16} /> New Shift
           </button>
         )}
       />
 
+      {isManagerLevel && (
+        <div className="inline-flex rounded-lg border border-outline-variant bg-surface p-1 mb-6">
+          {([['shifts', 'Shifts'], ['requests', 'Requests']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              className={clsx(
+                'rounded-md px-4 py-1.5 text-sm font-semibold transition-colors',
+                view === key ? 'bg-primary text-white' : 'text-on-surface-variant hover:text-on-surface',
+              )}
+            >
+              {label}
+              {key === 'requests' && pendingCount > 0 && (
+                <span
+                  className={clsx(
+                    'ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold',
+                    view === key ? 'bg-white/25 text-white' : 'bg-primary/10 text-primary',
+                  )}
+                >
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isManagerLevel && view === 'requests' ? (
+        <ShiftRequestsPanel />
+      ) : (
+      <>
       {isStaff && (availableLoading || availableShifts.length > 0) && (
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-on-surface mb-3">Open Shifts — Available to Claim</h2>
@@ -651,6 +688,8 @@ function ManageShiftsView() {
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
 
       <Modal open={open} onClose={closeCreate} title={editingId ? 'Edit Shift' : 'Create Shift'}>

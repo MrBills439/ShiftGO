@@ -4,7 +4,6 @@ import { usePathname } from 'next/navigation';
 import {
   SquaresFourIcon, CalendarBlankIcon, BuildingsIcon, UsersIcon,
   ListChecksIcon, SignOutIcon, ShieldCheckIcon, UserCircleIcon, MegaphoneIcon,
-  ArrowsClockwiseIcon,
 } from '@phosphor-icons/react';
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/store/authStore';
@@ -23,7 +22,6 @@ const NAV: NavItem[] = [
   { href: '/dashboard',                label: 'Today',         icon: SquaresFourIcon },
   { href: '/dashboard/operations',     label: 'Operations',    icon: SquaresFourIcon, roles: ['HR', 'MANAGER'] },
   { href: '/dashboard/rota',           label: 'Schedule',      icon: CalendarBlankIcon, roles: ['HR', 'MANAGER'] },
-  { href: '/dashboard/shift-requests', label: 'Shift Requests', icon: ArrowsClockwiseIcon, roles: ['HR', 'MANAGER'] },
   { href: '/dashboard/shifts',         label: 'Shifts',        icon: CalendarBlankIcon },
   // Workers reach their own leave from the Profile page; managers/leads keep it in nav for approvals.
   { href: '/dashboard/leave',          label: 'Leave',         icon: CalendarBlankIcon, roles: ['HR', 'MANAGER', 'TEAM_LEADER'] },
