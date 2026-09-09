@@ -16,16 +16,25 @@ import { DataTable } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { FieldShell, Select as UiSelect, Input as UiInput } from '@/components/ui/Input';
 import { API_BASE } from '@/lib/api';
-import { useUsers, useCreateUser, useAssignWorker, useDeactivateUser, useUpdateUser, type UserStatus } from '@/hooks/useWorkers';
+import { useUsers, useCreateUser, useAssignWorker, useDeactivateUser, useUpdateUser, type UserStatus, type UserFilters } from '@/hooks/useWorkers';
 import { useHouses } from '@/hooks/useHouses';
+import {
+  useDepartmentOptions, useJobTitleOptions, useLocationOptions,
+  WORK_PATTERN_LABELS, EMPLOYMENT_TYPE_LABELS,
+} from '@/hooks/useOrgStructure';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
 import { ROLE_LABELS, ROLE_META, initials } from '@/lib/roles';
 import { clsx } from 'clsx';
 import { AllocationView } from '@/components/staff/AllocationView';
-import type { Role, User } from '@/types';
+import type { Role, User, WorkPatternType, EmploymentType } from '@/types';
 
 const ROLE_OPTIONS: Role[] = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
+// WORKER is displayed as "Employee" — it is the standard system-access tier,
+// not a job. Job titles / departments carry the real "what do they do".
+const ACCESS_LABELS: Record<Role, string> = { ...ROLE_LABELS, WORKER: 'Employee' };
+const WORK_PATTERN_OPTIONS: WorkPatternType[] = ['ROTA', 'FIXED', 'FLEXIBLE'];
+const EMPLOYMENT_TYPE_OPTIONS: EmploymentType[] = ['PERMANENT', 'BANK', 'CONTRACTOR'];
 
 export default function StaffPage() {
   const user = useAuthStore((s) => s.user);
@@ -33,13 +42,31 @@ export default function StaffPage() {
   const [view, setView] = useState<'directory' | 'allocation'>('directory');
   const [statusFilter, setStatusFilter] = useState<UserStatus>('ACTIVE');
   const [roleFilter, setRoleFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+  const [jobTitleFilter, setJobTitleFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [employmentFilter, setEmploymentFilter] = useState('');
+  const [patternFilter, setPatternFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Team leaders can only ever list workers (matches the backend's restriction) —
   // force that filter for them; HR/Manager keep fetching the full roster as before.
   const isTeamLeader = user?.role === 'TEAM_LEADER';
-  const { data: users = [], isLoading } = useUsers(isTeamLeader ? 'WORKER' : undefined, statusFilter);
+  const isHrOrManager = ['HR', 'MANAGER'].includes(user?.role ?? '');
+  const userFilters: UserFilters = {
+    ...(isTeamLeader ? { role: 'WORKER' } : roleFilter ? { role: roleFilter } : {}),
+    ...(deptFilter ? { departmentId: deptFilter } : {}),
+    ...(jobTitleFilter ? { jobTitleId: jobTitleFilter } : {}),
+    ...(locationFilter ? { primaryLocationId: locationFilter } : {}),
+    ...(employmentFilter ? { employmentType: employmentFilter } : {}),
+    ...(patternFilter ? { workPatternType: patternFilter } : {}),
+  };
+  const { data: users = [], isLoading } = useUsers(userFilters, statusFilter);
   const { data: houses = [] } = useHouses();
+  const { data: departmentOptions = [] } = useDepartmentOptions(isHrOrManager);
+  const { data: jobTitleOptions = [] } = useJobTitleOptions(isHrOrManager);
+  const { data: locationOptions = [] } = useLocationOptions(isHrOrManager);
+  const managerCandidates = users; // scoped to same agency by the API
   const createUser = useCreateUser();
   const assignWorker = useAssignWorker();
   const deactivateUser = useDeactivateUser();
@@ -49,23 +76,56 @@ export default function StaffPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState<{ id: string; name: string } | null>(null);
   const [deactivateOpen, setDeactivateOpen] = useState<{ id: string; name: string; email: string } | null>(null);
-  const [hoursOpen, setHoursOpen] = useState<{ id: string; name: string; contractedHours: number | null } | null>(null);
-  const [hoursValue, setHoursValue] = useState('');
-  const [form, setForm] = useState({ name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER' as Role });
+  const [employmentOpen, setEmploymentOpen] = useState<User | null>(null);
+  const emptyEmployment = {
+    employeeNumber: '', departmentId: '', jobTitleId: '', primaryLocationId: '',
+    lineManagerId: '', contractedHours: '', workPatternType: 'ROTA' as WorkPatternType, employmentType: '' as '' | EmploymentType,
+  };
+  const [employmentForm, setEmploymentForm] = useState(emptyEmployment);
+  const [form, setForm] = useState({
+    name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER' as Role, ...emptyEmployment,
+  });
   const [assignHouseId, setAssignHouseId] = useState('');
   const [deactivationReason, setDeactivationReason] = useState('');
   const [deactivationError, setDeactivationError] = useState('');
   const [createError, setCreateError] = useState('');
 
-  async function handleUpdateHours(e: React.FormEvent) {
+  function openEmployment(u: User) {
+    setEmploymentForm({
+      employeeNumber: u.employeeNumber ?? '',
+      departmentId: u.departmentId ?? '',
+      jobTitleId: u.jobTitleId ?? '',
+      primaryLocationId: u.primaryLocationId ?? '',
+      lineManagerId: u.lineManagerId ?? '',
+      contractedHours: u.contractedHours != null ? String(u.contractedHours) : '',
+      workPatternType: u.workPatternType ?? 'ROTA',
+      employmentType: (u.employmentType ?? '') as '' | EmploymentType,
+    });
+    setEmploymentOpen(u);
+  }
+
+  // "" -> null so the API clears a field; a value is sent as-is.
+  const nn = (v: string) => (v === '' ? null : v);
+
+  async function handleSaveEmployment(e: React.FormEvent) {
     e.preventDefault();
-    if (!hoursOpen) return;
+    if (!employmentOpen) return;
     try {
-      await updateUser.mutateAsync({ id: hoursOpen.id, contractedHours: hoursValue ? parseFloat(hoursValue) : null });
-      setHoursOpen(null);
-      toast.success('Contracted hours updated');
-    } catch {
-      toast.error('Failed to update contracted hours');
+      await updateUser.mutateAsync({
+        id: employmentOpen.id,
+        employeeNumber: nn(employmentForm.employeeNumber),
+        departmentId: nn(employmentForm.departmentId),
+        jobTitleId: nn(employmentForm.jobTitleId),
+        primaryLocationId: nn(employmentForm.primaryLocationId),
+        lineManagerId: nn(employmentForm.lineManagerId),
+        contractedHours: employmentForm.contractedHours === '' ? null : parseFloat(employmentForm.contractedHours),
+        workPatternType: employmentForm.workPatternType,
+        employmentType: (nn(employmentForm.employmentType) as EmploymentType | null),
+      });
+      setEmploymentOpen(null);
+      toast.success('Employment details updated');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to update employment details');
     }
   }
 
@@ -94,18 +154,26 @@ export default function StaffPage() {
     };
   }, [users]);
 
-  // Filter users based on search and role
+  // Server already applies role / department / job title / location / pattern /
+  // employment-type filters; the search box is client-side over the result.
   const filteredUsers = useMemo(() => {
-    let items = users;
-    if (roleFilter) items = items.filter((u) => u.role === roleFilter);
-    if (searchTerm) {
-      const query = searchTerm.toLowerCase();
-      items = items.filter((u) => u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query));
-    }
-    return items;
-  }, [users, roleFilter, searchTerm]);
+    if (!searchTerm) return users;
+    const query = searchTerm.toLowerCase();
+    return users.filter(
+      (u) => u.name.toLowerCase().includes(query)
+        || u.email.toLowerCase().includes(query)
+        || (u.employeeNumber ?? '').toLowerCase().includes(query),
+    );
+  }, [users, searchTerm]);
 
-  const activeFilterCount = (roleFilter ? 1 : 0) + (searchTerm ? 1 : 0);
+  const activeFilterCount =
+    (roleFilter ? 1 : 0) + (deptFilter ? 1 : 0) + (jobTitleFilter ? 1 : 0) + (locationFilter ? 1 : 0)
+    + (employmentFilter ? 1 : 0) + (patternFilter ? 1 : 0) + (searchTerm ? 1 : 0);
+
+  function clearFilters() {
+    setRoleFilter(''); setDeptFilter(''); setJobTitleFilter(''); setLocationFilter('');
+    setEmploymentFilter(''); setPatternFilter(''); setSearchTerm('');
+  }
 
   if (user && !canViewStaff) return null;
 
@@ -126,12 +194,19 @@ export default function StaffPage() {
         email: form.email.trim(),
         role: form.role,
         ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
-        temporaryPassword: form.temporaryPassword,
+        ...(form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
+        ...(form.departmentId ? { departmentId: form.departmentId } : {}),
+        ...(form.jobTitleId ? { jobTitleId: form.jobTitleId } : {}),
+        ...(form.primaryLocationId ? { primaryLocationId: form.primaryLocationId } : {}),
+        ...(form.lineManagerId ? { lineManagerId: form.lineManagerId } : {}),
+        ...(form.contractedHours ? { contractedHours: parseFloat(form.contractedHours) } : {}),
+        workPatternType: form.workPatternType,
+        ...(form.employmentType ? { employmentType: form.employmentType } : {}),
       };
       await createUser.mutateAsync(body);
       setCreateOpen(false);
-      setForm({ name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER' });
-      toast.success('Staff member created successfully');
+      setForm({ name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER', ...emptyEmployment });
+      toast.success('Invitation sent — employment details will apply once they accept');
     } catch (e: any) {
       setCreateError(errorMessage(e));
     }
@@ -286,13 +361,13 @@ export default function StaffPage() {
       </div>
 
       {/* Filters */}
-      <FilterBar activeCount={activeFilterCount} onClear={() => { setRoleFilter(''); setSearchTerm(''); }}>
+      <FilterBar activeCount={activeFilterCount} onClear={clearFilters}>
         <FieldShell label="Search">
           <div className="relative">
             <MagnifyingGlassIcon size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
             <UiInput
               type="text"
-              placeholder="Name or email…"
+              placeholder="Name, email or employee no…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-8"
@@ -300,14 +375,48 @@ export default function StaffPage() {
           </div>
         </FieldShell>
         {!isTeamLeader && (
-          <FieldShell label="Role">
+          <FieldShell label="System access">
             <UiSelect value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
-              <option value="">All roles</option>
+              <option value="">All</option>
               {ROLE_OPTIONS.map((r) => (
-                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                <option key={r} value={r}>{ACCESS_LABELS[r]}</option>
               ))}
             </UiSelect>
           </FieldShell>
+        )}
+        {isHrOrManager && (
+          <>
+            <FieldShell label="Department">
+              <UiSelect value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
+                <option value="">All</option>
+                {departmentOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </UiSelect>
+            </FieldShell>
+            <FieldShell label="Job title">
+              <UiSelect value={jobTitleFilter} onChange={(e) => setJobTitleFilter(e.target.value)}>
+                <option value="">All</option>
+                {jobTitleOptions.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+              </UiSelect>
+            </FieldShell>
+            <FieldShell label="Location">
+              <UiSelect value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}>
+                <option value="">All</option>
+                {locationOptions.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </UiSelect>
+            </FieldShell>
+            <FieldShell label="Employment">
+              <UiSelect value={employmentFilter} onChange={(e) => setEmploymentFilter(e.target.value)}>
+                <option value="">All</option>
+                {EMPLOYMENT_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{EMPLOYMENT_TYPE_LABELS[t]}</option>)}
+              </UiSelect>
+            </FieldShell>
+            <FieldShell label="Work pattern">
+              <UiSelect value={patternFilter} onChange={(e) => setPatternFilter(e.target.value)}>
+                <option value="">All</option>
+                {WORK_PATTERN_OPTIONS.map((t) => <option key={t} value={t}>{WORK_PATTERN_LABELS[t]}</option>)}
+              </UiSelect>
+            </FieldShell>
+          </>
         )}
       </FilterBar>
 
@@ -347,19 +456,52 @@ export default function StaffPage() {
             ),
           },
           {
+            id: 'employeeNumber',
+            header: 'Emp. no.',
+            sortValue: (u) => u.employeeNumber ?? '',
+            accessor: (u) => <span className="tabular-nums text-fg-muted">{u.employeeNumber || '—'}</span>,
+          },
+          {
+            id: 'jobTitle',
+            header: 'Job Title',
+            sortValue: (u) => u.jobTitle?.name ?? '',
+            className: 'min-w-[140px]',
+            accessor: (u) => <span className="text-fg">{u.jobTitle?.name || '—'}</span>,
+          },
+          {
+            id: 'department',
+            header: 'Department',
+            sortValue: (u) => u.department?.name ?? '',
+            accessor: (u) => <span className="text-fg-muted">{u.department?.name || '—'}</span>,
+          },
+          {
+            id: 'location',
+            header: 'Primary Location',
+            sortValue: (u) => u.primaryLocation?.name ?? '',
+            className: 'min-w-[150px]',
+            accessor: (u) => <span className="text-fg-muted">{u.primaryLocation?.name || '—'}</span>,
+          },
+          {
             id: 'role',
-            header: 'Role',
+            header: 'System Access',
             sortValue: (u) => u.role,
             accessor: (u) => (
               <span className={clsx('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold', ROLE_META[u.role].badgeClass)}>
-                {ROLE_LABELS[u.role]}
+                {ACCESS_LABELS[u.role]}
               </span>
             ),
           },
           {
-            id: 'contact',
-            header: 'Contact',
-            accessor: (u) => <span className="text-fg-muted">{u.phone || '—'}</span>,
+            id: 'employmentType',
+            header: 'Employment',
+            sortValue: (u) => u.employmentType ?? '',
+            accessor: (u) => <span className="text-fg-muted">{u.employmentType ? EMPLOYMENT_TYPE_LABELS[u.employmentType] : '—'}</span>,
+          },
+          {
+            id: 'workPattern',
+            header: 'Pattern',
+            sortValue: (u) => u.workPatternType ?? 'ROTA',
+            accessor: (u) => <span className="text-fg-muted">{WORK_PATTERN_LABELS[u.workPatternType ?? 'ROTA']}</span>,
           },
           {
             id: 'hours',
@@ -401,13 +543,10 @@ export default function StaffPage() {
               <div className="flex items-center justify-end gap-1">
                 {canManageStaff && u.status !== 'DEACTIVATED' && (
                   <button
-                    onClick={() => {
-                      setHoursOpen({ id: u.id, name: u.name, contractedHours: u.contractedHours ?? null });
-                      setHoursValue(u.contractedHours != null ? String(u.contractedHours) : '');
-                    }}
+                    onClick={() => openEmployment(u)}
                     className="p-1.5 rounded text-fg-muted hover:text-primary hover:bg-primary/10 transition-colors"
-                    aria-label={`Edit hours for ${u.name}`}
-                    title="Edit contracted hours"
+                    aria-label={`Edit employment details for ${u.name}`}
+                    title="Edit employment details"
                   >
                     <PencilSimpleIcon size={15} />
                   </button>
@@ -445,61 +584,91 @@ export default function StaffPage() {
       )}
 
       {/* Create Modal */}
-      <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="Add Staff Member">
-        <form onSubmit={handleCreate} className="space-y-4">
-          <LoadingOverlay show={createUser.isPending} label="Creating staff member…" />
-          <p className="text-sm text-fg-muted">Create a new staff member account. They will receive login details via email.</p>
+      <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="Add Employee">
+        <form onSubmit={handleCreate} className="space-y-5">
+          <LoadingOverlay show={createUser.isPending} label="Sending invitation…" />
+          <p className="text-sm text-fg-muted">
+            An invitation is emailed to the person. The employment details below apply automatically once they accept.
+          </p>
 
-          <FieldShell label="Full Name *">
-            <UiInput
-              type="text"
-              placeholder="Jane Smith"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-            />
-          </FieldShell>
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-fg-muted">Personal</p>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldShell label="Full name *">
+                <UiInput type="text" placeholder="Jane Smith" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+              </FieldShell>
+              <FieldShell label="Employee number">
+                <UiInput type="text" placeholder="E-1042" value={form.employeeNumber} onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })} />
+              </FieldShell>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldShell label="Email *">
+                <UiInput type="email" placeholder="jane@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+              </FieldShell>
+              <FieldShell label="Phone">
+                <UiInput type="tel" placeholder="+44 7700 900123" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              </FieldShell>
+            </div>
+          </div>
 
-          <FieldShell label="Email *">
-            <UiInput
-              type="email"
-              placeholder="jane@company.com"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              required
-            />
-          </FieldShell>
-
-          <div className="grid grid-cols-2 gap-3">
-            <FieldShell label="Phone (optional)">
-              <UiInput
-                type="tel"
-                placeholder="+44 7700 900123"
-                value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              />
-            </FieldShell>
-            <FieldShell label="Role *">
-              <UiSelect
-                value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
-              >
-                {creatableRoles.map((r) => (
-                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                ))}
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-fg-muted">Employment</p>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldShell label="Department">
+                <UiSelect value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+                  <option value="">—</option>
+                  {departmentOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </UiSelect>
+              </FieldShell>
+              <FieldShell label="Job title">
+                <UiSelect value={form.jobTitleId} onChange={(e) => setForm({ ...form, jobTitleId: e.target.value })}>
+                  <option value="">—</option>
+                  {jobTitleOptions.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+                </UiSelect>
+              </FieldShell>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldShell label="Employment type">
+                <UiSelect value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value as EmploymentType | '' })}>
+                  <option value="">—</option>
+                  {EMPLOYMENT_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{EMPLOYMENT_TYPE_LABELS[t]}</option>)}
+                </UiSelect>
+              </FieldShell>
+              <FieldShell label="Contracted hours / week">
+                <UiInput type="number" min="0" max="168" step="0.5" placeholder="37.5" value={form.contractedHours} onChange={(e) => setForm({ ...form, contractedHours: e.target.value })} />
+              </FieldShell>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FieldShell label="Primary location">
+                <UiSelect value={form.primaryLocationId} onChange={(e) => setForm({ ...form, primaryLocationId: e.target.value })}>
+                  <option value="">—</option>
+                  {locationOptions.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </UiSelect>
+              </FieldShell>
+              <FieldShell label="Work pattern">
+                <UiSelect value={form.workPatternType} onChange={(e) => setForm({ ...form, workPatternType: e.target.value as WorkPatternType })}>
+                  {WORK_PATTERN_OPTIONS.map((t) => <option key={t} value={t}>{WORK_PATTERN_LABELS[t]}</option>)}
+                </UiSelect>
+              </FieldShell>
+            </div>
+            <FieldShell label="Line manager">
+              <UiSelect value={form.lineManagerId} onChange={(e) => setForm({ ...form, lineManagerId: e.target.value })}>
+                <option value="">—</option>
+                {managerCandidates.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </UiSelect>
             </FieldShell>
           </div>
 
-          <FieldShell label="Temporary Password *" hint="They must change this password on first login.">
-            <UiInput
-              type="password"
-              placeholder="Must be at least 8 characters"
-              value={form.temporaryPassword}
-              onChange={(e) => setForm({ ...form, temporaryPassword: e.target.value })}
-              required
-            />
-          </FieldShell>
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-fg-muted">Access</p>
+            <FieldShell label="System permission *" hint="Standard system access is “Employee”. Job title / department describe the role.">
+              <UiSelect value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+                {creatableRoles.map((r) => (
+                  <option key={r} value={r}>{ACCESS_LABELS[r]}</option>
+                ))}
+              </UiSelect>
+            </FieldShell>
+          </div>
 
           {createError && (
             <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
@@ -519,7 +688,7 @@ export default function StaffPage() {
               type="submit"
               disabled={createUser.isPending}
             >
-              {createUser.isPending ? 'Creating…' : 'Create Staff Member'}
+              {createUser.isPending ? 'Sending…' : 'Send Invitation'}
             </Button>
           </div>
         </form>
@@ -611,25 +780,63 @@ export default function StaffPage() {
         </form>
       </Modal>
 
-      {/* Edit Hours Modal */}
-      <Modal open={!!hoursOpen} onClose={() => setHoursOpen(null)} title={`Contracted Hours — ${hoursOpen?.name}`}>
-        <form onSubmit={handleUpdateHours} className="space-y-4">
+      {/* Edit Employment Modal */}
+      <Modal open={!!employmentOpen} onClose={() => setEmploymentOpen(null)} title={`Employment — ${employmentOpen?.name ?? ''}`}>
+        <form onSubmit={handleSaveEmployment} className="space-y-4">
           <LoadingOverlay show={updateUser.isPending} label="Saving…" />
-          <FieldShell label="Contracted hours per week" hint="Leave blank to clear">
-            <UiInput
-              type="number"
-              min="0"
-              max="168"
-              step="0.5"
-              placeholder="e.g. 37.5"
-              value={hoursValue}
-              onChange={(e) => setHoursValue(e.target.value)}
-            />
-          </FieldShell>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldShell label="Employee number">
+              <UiInput type="text" value={employmentForm.employeeNumber}
+                onChange={(e) => setEmploymentForm({ ...employmentForm, employeeNumber: e.target.value })} />
+            </FieldShell>
+            <FieldShell label="Contracted hours / week" hint="Blank to clear">
+              <UiInput type="number" min="0" max="168" step="0.5" value={employmentForm.contractedHours}
+                onChange={(e) => setEmploymentForm({ ...employmentForm, contractedHours: e.target.value })} />
+            </FieldShell>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldShell label="Department">
+              <UiSelect value={employmentForm.departmentId} onChange={(e) => setEmploymentForm({ ...employmentForm, departmentId: e.target.value })}>
+                <option value="">—</option>
+                {departmentOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </UiSelect>
+            </FieldShell>
+            <FieldShell label="Job title">
+              <UiSelect value={employmentForm.jobTitleId} onChange={(e) => setEmploymentForm({ ...employmentForm, jobTitleId: e.target.value })}>
+                <option value="">—</option>
+                {jobTitleOptions.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+              </UiSelect>
+            </FieldShell>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldShell label="Primary location">
+              <UiSelect value={employmentForm.primaryLocationId} onChange={(e) => setEmploymentForm({ ...employmentForm, primaryLocationId: e.target.value })}>
+                <option value="">—</option>
+                {locationOptions.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </UiSelect>
+            </FieldShell>
+            <FieldShell label="Work pattern">
+              <UiSelect value={employmentForm.workPatternType} onChange={(e) => setEmploymentForm({ ...employmentForm, workPatternType: e.target.value as WorkPatternType })}>
+                {WORK_PATTERN_OPTIONS.map((t) => <option key={t} value={t}>{WORK_PATTERN_LABELS[t]}</option>)}
+              </UiSelect>
+            </FieldShell>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FieldShell label="Employment type">
+              <UiSelect value={employmentForm.employmentType} onChange={(e) => setEmploymentForm({ ...employmentForm, employmentType: e.target.value as EmploymentType | '' })}>
+                <option value="">—</option>
+                {EMPLOYMENT_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{EMPLOYMENT_TYPE_LABELS[t]}</option>)}
+              </UiSelect>
+            </FieldShell>
+            <FieldShell label="Line manager">
+              <UiSelect value={employmentForm.lineManagerId} onChange={(e) => setEmploymentForm({ ...employmentForm, lineManagerId: e.target.value })}>
+                <option value="">—</option>
+                {managerCandidates.filter((m) => m.id !== employmentOpen?.id).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </UiSelect>
+            </FieldShell>
+          </div>
           <div className="flex gap-2 justify-end pt-4">
-            <Button variant="secondary" onClick={() => setHoursOpen(null)}>
-              Cancel
-            </Button>
+            <Button variant="secondary" onClick={() => setEmploymentOpen(null)}>Cancel</Button>
             <Button variant="primary" type="submit" disabled={updateUser.isPending}>
               {updateUser.isPending ? 'Saving…' : 'Save'}
             </Button>

@@ -25,6 +25,7 @@ const activityRoutes = require('./routes/activity');
 const announcementRoutes = require('./routes/announcements');
 const rightToWorkRoutes = require('./routes/rightToWork');
 const shiftChangeRoutes = require('./routes/shiftChange');
+const orgStructureRoutes = require('./routes/orgStructure');
 const errorHandler = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimit');
 const config = require('./config');
@@ -149,6 +150,9 @@ app.use('/activity', activityRoutes);
 app.use('/announcements', announcementRoutes);
 app.use('/right-to-work', rightToWorkRoutes);
 app.use('/shift-change', shiftChangeRoutes);
+app.use('/departments', orgStructureRoutes.departments);
+app.use('/job-titles', orgStructureRoutes.jobTitles);
+app.use('/locations', orgStructureRoutes.locations);
 
 // 404 handler
 app.use((req, res) => {

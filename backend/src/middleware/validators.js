@@ -7,6 +7,9 @@ const SHIFT_TYPES = ['LONG_DAY', 'MID_DAY', 'WAKE_NIGHT', 'SLEEP_IN'];
 const TIMESHEET_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
 const TRAINING_STATUSES = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'EXPIRED'];
 const DBS_STATUSES = ['PENDING', 'CLEAR', 'FLAGGED', 'EXPIRED'];
+const WORK_PATTERN_TYPES = ['ROTA', 'FIXED', 'FLEXIBLE'];
+const EMPLOYMENT_TYPES = ['PERMANENT', 'BANK', 'CONTRACTOR'];
+const LOCATION_TYPES = ['CARE_SERVICE', 'SUPPORTED_LIVING', 'RESIDENTIAL_HOME', 'OFFICE', 'MAINTENANCE_BASE', 'OTHER'];
 
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -51,6 +54,18 @@ const optionalIsoDate = (name, label) =>
     .optional({ nullable: true, checkFalsy: true })
     .isISO8601()
     .withMessage(`${label} must be a valid ISO 8601 date`);
+
+// Whole-Workforce Phase 1: optional employment metadata accepted on user
+// create + update. Every field is optional; existing callers are unaffected.
+const employmentBody = [
+  body('employeeNumber').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 40 }).withMessage('Employee number must be 40 characters or fewer'),
+  body('departmentId').optional({ nullable: true, checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('departmentId must be a valid id'),
+  body('jobTitleId').optional({ nullable: true, checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('jobTitleId must be a valid id'),
+  body('primaryLocationId').optional({ nullable: true, checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('primaryLocationId must be a valid id'),
+  body('lineManagerId').optional({ nullable: true, checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('lineManagerId must be a valid id'),
+  body('workPatternType').optional({ nullable: true, checkFalsy: true }).isIn(WORK_PATTERN_TYPES).withMessage('workPatternType must be ROTA, FIXED or FLEXIBLE'),
+  body('employmentType').optional({ nullable: true, checkFalsy: true }).isIn(EMPLOYMENT_TYPES).withMessage('employmentType must be PERMANENT, BANK or CONTRACTOR'),
+];
 
 // Weekly scheduled-hours override on a shift assignment (create / update).
 const weeklyOverrideBody = [
@@ -170,6 +185,8 @@ const validators = {
       .trim()
       .isLength({ max: 40 })
       .withMessage('Phone must be 40 characters or fewer'),
+    // ── Whole-Workforce Phase 1: optional employment fields ──
+    ...employmentBody,
     handleValidationErrors,
   ],
 
@@ -182,6 +199,11 @@ const validators = {
       .optional()
       .isIn(USER_STATUSES)
       .withMessage('User status must be ACTIVE or DEACTIVATED'),
+    query('departmentId').optional({ checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('departmentId must be valid'),
+    query('jobTitleId').optional({ checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('jobTitleId must be valid'),
+    query('primaryLocationId').optional({ checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('primaryLocationId must be valid'),
+    query('workPatternType').optional({ checkFalsy: true }).isIn(WORK_PATTERN_TYPES).withMessage('invalid workPatternType'),
+    query('employmentType').optional({ checkFalsy: true }).isIn(EMPLOYMENT_TYPES).withMessage('invalid employmentType'),
     ...pagination,
     handleValidationErrors,
   ],
@@ -197,6 +219,8 @@ const validators = {
       .optional({ nullable: true, checkFalsy: true })
       .isFloat({ min: 0, max: 168 })
       .withMessage('Contracted hours must be between 0 and 168'),
+    // ── Whole-Workforce Phase 1: HR may also edit employment metadata here ──
+    ...employmentBody,
     handleValidationErrors,
   ],
 
@@ -987,6 +1011,55 @@ const validators = {
     query('page').optional().isInt({ min: 1, max: 10_000 }).withMessage('page must be a positive integer'),
     query('pageSize').optional().isInt({ min: 1, max: 50 }).withMessage('pageSize must be 1–50'),
     query('status').optional().isIn(['PENDING_MANAGER', 'APPROVED', 'REJECTED']).withMessage('invalid status filter'),
+    handleValidationErrors,
+  ],
+
+  // ─── Whole-Workforce Phase 1: organisation structure ────────────────────
+  orgIdParam: [
+    ...idParam('id', 'ID'),
+    handleValidationErrors,
+  ],
+  createDepartment: [
+    body('name').trim().notEmpty().withMessage('Department name is required').isLength({ min: 2, max: 80 }).withMessage('Name must be 2–80 characters'),
+    body('code').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 20 }).withMessage('Code must be 20 characters or fewer'),
+    handleValidationErrors,
+  ],
+  updateDepartment: [
+    ...idParam('id', 'Department ID'),
+    body('name').optional().trim().isLength({ min: 2, max: 80 }).withMessage('Name must be 2–80 characters'),
+    body('code').optional({ nullable: true }).trim().isLength({ max: 20 }).withMessage('Code must be 20 characters or fewer'),
+    handleValidationErrors,
+  ],
+  createJobTitle: [
+    body('name').trim().notEmpty().withMessage('Job title name is required').isLength({ min: 2, max: 100 }).withMessage('Name must be 2–100 characters'),
+    body('departmentId').optional({ nullable: true, checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('departmentId must be a valid id'),
+    handleValidationErrors,
+  ],
+  updateJobTitle: [
+    ...idParam('id', 'Job title ID'),
+    body('name').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Name must be 2–100 characters'),
+    body('departmentId').optional({ nullable: true }).trim().isLength({ min: 5 }).withMessage('departmentId must be a valid id'),
+    handleValidationErrors,
+  ],
+  createLocation: [
+    body('name').trim().notEmpty().withMessage('Location name is required').isLength({ min: 2, max: 120 }).withMessage('Name must be 2–120 characters'),
+    body('type').notEmpty().withMessage('Location type is required').isIn(LOCATION_TYPES).withMessage('Invalid location type'),
+    body('address').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 300 }),
+    body('latitude').optional({ nullable: true, checkFalsy: true }).isFloat({ min: -90, max: 90 }).withMessage('Latitude must be between -90 and 90'),
+    body('longitude').optional({ nullable: true, checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180'),
+    body('geofenceRadius').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1, max: 5000 }).withMessage('Geofence radius must be 1–5000 metres'),
+    body('timezone').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }),
+    handleValidationErrors,
+  ],
+  updateLocation: [
+    ...idParam('id', 'Location ID'),
+    body('name').optional().trim().isLength({ min: 2, max: 120 }).withMessage('Name must be 2–120 characters'),
+    body('type').optional().isIn(LOCATION_TYPES).withMessage('Invalid location type'),
+    body('address').optional({ nullable: true }).trim().isLength({ max: 300 }),
+    body('latitude').optional({ nullable: true, checkFalsy: true }).isFloat({ min: -90, max: 90 }).withMessage('Latitude must be between -90 and 90'),
+    body('longitude').optional({ nullable: true, checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180'),
+    body('geofenceRadius').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1, max: 5000 }).withMessage('Geofence radius must be 1–5000 metres'),
+    body('timezone').optional({ nullable: true }).trim().isLength({ max: 64 }),
     handleValidationErrors,
   ],
 };

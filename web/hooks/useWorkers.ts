@@ -1,8 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Role, User } from '@/types';
+import { Role, User, WorkPatternType, EmploymentType } from '@/types';
 
 export type UserStatus = 'ACTIVE' | 'DEACTIVATED';
+
+// Whole-Workforce Phase 1: optional employment fields on create / update.
+export type EmploymentInput = {
+  employeeNumber?: string | null;
+  departmentId?: string | null;
+  jobTitleId?: string | null;
+  primaryLocationId?: string | null;
+  lineManagerId?: string | null;
+  contractedHours?: number | null;
+  workPatternType?: WorkPatternType;
+  employmentType?: EmploymentType | null;
+};
 
 export type CreateUserInput = {
   name: string;
@@ -11,13 +23,27 @@ export type CreateUserInput = {
   phone?: string;
   password?: string;
   temporaryPassword?: string;
+} & EmploymentInput;
+
+export type UserFilters = {
+  role?: string;
+  status?: UserStatus;
+  departmentId?: string;
+  jobTitleId?: string;
+  primaryLocationId?: string;
+  workPatternType?: string;
+  employmentType?: string;
 };
 
-export function useUsers(role?: string, status: UserStatus = 'ACTIVE', enabled = true) {
+export function useUsers(roleOrFilters?: string | UserFilters, status: UserStatus = 'ACTIVE', enabled = true) {
+  const filters: UserFilters = typeof roleOrFilters === 'string' || roleOrFilters === undefined
+    ? { role: roleOrFilters as string | undefined, status }
+    : { status, ...roleOrFilters };
+  const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
   return useQuery<User[]>({
-    queryKey: ['users', role, status],
+    queryKey: ['users', params],
     queryFn: async () => {
-      const { data } = await api.get('/users', { params: { ...(role ? { role } : {}), status } });
+      const { data } = await api.get('/users', { params });
       return data.data;
     },
     staleTime: 60_000,
@@ -37,8 +63,7 @@ export function useCreateUser() {
 export function useUpdateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, contractedHours }: { id: string; contractedHours: number | null }) =>
-      api.patch(`/users/${id}`, { contractedHours }),
+    mutationFn: ({ id, ...body }: { id: string } & EmploymentInput) => api.patch(`/users/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
 }

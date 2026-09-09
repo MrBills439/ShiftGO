@@ -8,6 +8,8 @@ import { useHouses, useUpdateGeofence } from '@/hooks/useHouses';
 import { useUsers } from '@/hooks/useWorkers';
 import { useAgency, useUpdateAgencySettings } from '@/hooks/useAgency';
 import { useToast } from '@/hooks/useToast';
+import { OrgStructureManager } from '@/components/admin/OrgStructureManager';
+import { clsx } from 'clsx';
 
 export default function AdminPage() {
   const { user, isLoading } = useAuthStore();
@@ -21,6 +23,7 @@ export default function AdminPage() {
   const [globalRadius, setGlobalRadius] = useState('50');
   const [maxHours, setMaxHours] = useState('');
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<'general' | 'organisation'>('general');
 
   useEffect(() => {
     if (!isLoading && user && user.role !== 'HR') router.replace('/dashboard');
@@ -66,6 +69,31 @@ export default function AdminPage() {
     <div>
       <Header title="Admin Panel" subtitle="Global platform settings — HR access only" />
 
+      <div className="inline-flex rounded-lg border border-outline-variant bg-surface p-1 mb-6">
+        {(['general', 'organisation'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={clsx(
+              'rounded-md px-4 py-1.5 text-sm font-semibold capitalize transition-colors',
+              tab === t ? 'bg-primary text-white' : 'text-on-surface-variant hover:text-on-surface',
+            )}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'organisation' && (
+        <div className="grid lg:grid-cols-2 gap-6 items-start">
+          <OrgStructureManager entity="department" />
+          <OrgStructureManager entity="jobTitle" />
+          <div className="lg:col-span-2"><OrgStructureManager entity="location" /></div>
+        </div>
+      )}
+
+      {tab === 'general' && (
+      <>
       <div className="grid lg:grid-cols-4 gap-4 mb-8">
         {[
           { label: 'Total Users', value: allUsers.length,   icon: UsersIcon,      color: 'bg-[#e6f4f0] text-primary' },
@@ -183,6 +211,8 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

@@ -1,5 +1,50 @@
 export type Role = 'HR' | 'MANAGER' | 'TEAM_LEADER' | 'WORKER';
 
+// ── Whole-Workforce Phase 1: employment structure ──
+export type LocationType =
+  | 'CARE_SERVICE' | 'SUPPORTED_LIVING' | 'RESIDENTIAL_HOME' | 'OFFICE' | 'MAINTENANCE_BASE' | 'OTHER';
+export type WorkPatternType = 'ROTA' | 'FIXED' | 'FLEXIBLE';
+export type EmploymentType = 'PERMANENT' | 'BANK' | 'CONTRACTOR';
+
+export interface Department {
+  id: string;
+  name: string;
+  code: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobTitle {
+  id: string;
+  name: string;
+  active: boolean;
+  departmentId: string | null;
+  department: { id: string; name: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Location {
+  id: string;
+  name: string;
+  type: LocationType;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  geofenceRadius: number | null;
+  timezone: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrgOption {
+  id: string;
+  name: string;
+  type?: LocationType;
+}
+
 export interface AuthUser {
   id: string;
   agencyId: string;
@@ -38,6 +83,18 @@ export interface User {
   deactivatedById?: string | null;
   deactivationReason?: string | null;
   createdAt: string;
+  // ── Whole-Workforce Phase 1 (all optional; a bare user has them null) ──
+  employeeNumber?: string | null;
+  workPatternType?: WorkPatternType;
+  employmentType?: EmploymentType | null;
+  departmentId?: string | null;
+  jobTitleId?: string | null;
+  primaryLocationId?: string | null;
+  lineManagerId?: string | null;
+  department?: { id: string; name: string } | null;
+  jobTitle?: { id: string; name: string } | null;
+  primaryLocation?: { id: string; name: string; type: LocationType } | null;
+  lineManager?: { id: string; name: string } | null;
 }
 
 export type ShiftType = 'LONG_DAY' | 'MID_DAY' | 'WAKE_NIGHT' | 'SLEEP_IN';

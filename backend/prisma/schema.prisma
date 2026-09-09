@@ -123,6 +123,32 @@ enum ShiftChangeRecipientResponse {
   DECLINED
 }
 
+// ─── Whole-Workforce Phase 1: employment structure ────────────────────────
+// These enums describe EMPLOYMENT, not authorization. The Role enum
+// (WORKER/TEAM_LEADER/MANAGER/HR) is the only authorization concept and is
+// unchanged.
+
+enum LocationType {
+  CARE_SERVICE
+  SUPPORTED_LIVING
+  RESIDENTIAL_HOME
+  OFFICE
+  MAINTENANCE_BASE
+  OTHER
+}
+
+enum WorkPatternType {
+  ROTA // rota-based shifts (the existing behaviour; default for every user)
+  FIXED // repeating fixed hours (office). No behaviour attached in Phase 1.
+  FLEXIBLE // no fixed pattern. No behaviour attached in Phase 1.
+}
+
+enum EmploymentType {
+  PERMANENT
+  BANK
+  CONTRACTOR
+}
+
 enum AccrualMethod {
   FLAT_RATE // fixed hours awarded per completed pay period
   HOURLY // hours earned as a fraction of actual hours worked
@@ -176,6 +202,10 @@ model Agency {
   leaveBalances        LeaveBalance[]
   leaveLedgerEntries   LeaveLedgerEntry[]
   shiftChangeRequests  ShiftChangeRequest[]
+  departments          Department[]
+  jobTitles            JobTitle[]
+  locations            Location[]
+  pendingEmployees     PendingEmployee[]
 }
 
 model User {
@@ -199,6 +229,16 @@ model User {
   deactivationReason String?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
+
+  // ── Whole-Workforce Phase 1: employment information (all nullable / defaulted;
+  //    additive — no existing behaviour depends on any of these). ──
+  employeeNumber    String?
+  departmentId      String?
+  jobTitleId        String?
+  primaryLocationId String?
+  lineManagerId     String?
+  workPatternType   WorkPatternType @default(ROTA)
+  employmentType    EmploymentType?
 
   managedHouses         House[]              @relation("ManagerHouses")
   workerHouses          HouseWorker[]
@@ -229,12 +269,22 @@ model User {
   shiftChangesRequested ShiftChangeRequest[] @relation("ShiftChangeRequester")
   shiftChangesTargeted  ShiftChangeRequest[] @relation("ShiftChangeTarget")
   shiftChangesManaged   ShiftChangeRequest[] @relation("ShiftChangeManager")
+  department            Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  jobTitle             JobTitle?            @relation(fields: [jobTitleId], references: [id], onDelete: SetNull)
+  primaryLocation      Location?            @relation("UserPrimaryLocation", fields: [primaryLocationId], references: [id], onDelete: SetNull)
+  lineManager          User?                @relation("UserLineManager", fields: [lineManagerId], references: [id])
+  directReports        User[]               @relation("UserLineManager")
 
   agency Agency @relation(fields: [agencyId], references: [id])
 
+  @@unique([agencyId, employeeNumber])
   @@index([agencyId])
   @@index([status])
   @@index([deactivatedById])
+  @@index([agencyId, departmentId])
+  @@index([agencyId, jobTitleId])
+  @@index([agencyId, primaryLocationId])
+  @@index([lineManagerId])
 }
 
 model House {
@@ -248,10 +298,17 @@ model House {
   autoConfirm    Boolean  @default(false)
   managerId      String?
   assignedHours  Float?
+  // Whole-Workforce Phase 1: every House is now backed by a Location row (1:1,
+  // set by the backfill migration). The House's OWN latitude/longitude/
+  // geofenceRadius remain AUTHORITATIVE for care clock-in in Phase 1 — nothing
+  // in clockService reads Location yet. This is a link for the directory /
+  // reporting only.
+  locationId     String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   manager            User?               @relation("ManagerHouses", fields: [managerId], references: [id])
+  location           Location?           @relation(fields: [locationId], references: [id], onDelete: SetNull)
   workers            HouseWorker[]
   teamLeaders        HouseTeamLeader[]
   shifts             Shift[]
@@ -263,6 +320,7 @@ model House {
   agency Agency @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
+  @@index([locationId])
 }
 
 model SupportedPerson {
@@ -737,4 +795,109 @@ model ShiftChangeRequest {
   @@index([targetWorkerId, status])
   @@index([primaryShiftId])
   @@index([swapShiftId])
+}
+
+// ─── Whole-Workforce Phase 1: Organisation structure ─────────────────────────
+// Department / JobTitle / Location describe how a company is organised. They are
+// tenant-scoped, company-editable, and carry NO authorization meaning. Prefer
+// `active = false` (deactivation) over hard delete for referenced records.
+
+model Department {
+  id        String   @id @default(cuid())
+  agencyId  String
+  name      String
+  code      String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agency    Agency     @relation(fields: [agencyId], references: [id])
+  users     User[]
+  jobTitles JobTitle[]
+
+  @@unique([agencyId, name])
+  @@index([agencyId, active])
+}
+
+model JobTitle {
+  id           String   @id @default(cuid())
+  agencyId     String
+  name         String
+  // Suggested default department for people with this title. A SUGGESTION only —
+  // HR may put a user with this title in a different department. Never an
+  // authorization constraint.
+  departmentId String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agency     Agency      @relation(fields: [agencyId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  users      User[]
+
+  @@unique([agencyId, name])
+  @@index([agencyId, active])
+}
+
+model Location {
+  id             String       @id @default(cuid())
+  agencyId       String
+  name           String
+  type           LocationType
+  address        String?
+  latitude       Float?
+  longitude      Float?
+  // Phase 1: NOT used for clock-in. Care attendance still reads House's own
+  // geofence fields. This is for the directory / future generalised attendance.
+  geofenceRadius Int?
+  timezone       String? // null => inherit Agency.timezone
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  agency       Agency @relation(fields: [agencyId], references: [id])
+  houses       House[]
+  primaryUsers User[] @relation("UserPrimaryLocation")
+
+  @@index([agencyId, active])
+}
+
+// Server-side staging for HR-created employees. Employment data is written here
+// (never into client-controlled Clerk metadata) when the invitation is sent,
+// and consumed by the organizationMembership webhook once the person accepts.
+// `consumedAt` makes consumption idempotent under duplicate webhook delivery;
+// the (agencyId, email) pair scopes it so another agency can never adopt it.
+model PendingEmployee {
+  id                String          @id @default(cuid())
+  agencyId          String
+  email             String // always stored lower-cased
+  invitationId      String? // Clerk organization invitation id
+  role              Role
+  employeeNumber    String?
+  departmentId      String?
+  jobTitleId        String?
+  primaryLocationId String?
+  lineManagerId     String?
+  contractedHours   Float?
+  workPatternType   WorkPatternType @default(ROTA)
+  employmentType    EmploymentType?
+  invitedById       String?
+  consumedAt        DateTime?
+  // Set true when the membership webhook could not apply every staged field
+  // (employee-number clash, or a department/job title/location/line manager that
+  // was removed or deactivated between invite and acceptance). The User + auth
+  // membership are still created; this flags that HR must finish the setup.
+  needsReview       Boolean         @default(false)
+  reviewNote        String?
+  expiresAt         DateTime
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Staging data only — no history value, so it follows the agency lifecycle.
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@unique([agencyId, email])
+  @@index([agencyId, consumedAt])
+  @@index([agencyId, needsReview])
+  @@index([expiresAt])
 }

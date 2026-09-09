@@ -117,6 +117,9 @@ export interface DbsCheck {
   createdAt: string;
 }
 
+export type WorkPatternType = 'ROTA' | 'FIXED' | 'FLEXIBLE';
+export type EmploymentType = 'PERMANENT' | 'BANK' | 'CONTRACTOR';
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -130,6 +133,14 @@ export interface UserProfile {
   onboardedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  // ── Whole-Workforce Phase 1: read-only employment info (may be null) ──
+  employeeNumber?: string | null;
+  workPatternType?: WorkPatternType;
+  employmentType?: EmploymentType | null;
+  department?: { id: string; name: string } | null;
+  jobTitle?: { id: string; name: string } | null;
+  primaryLocation?: { id: string; name: string; type: string } | null;
+  lineManager?: { id: string; name: string } | null;
 }
 
 export type ClockType = 'IN' | 'OUT';

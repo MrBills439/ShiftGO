@@ -63,11 +63,100 @@ async function handleMembershipUpsert(data) {
     return;
   }
 
-  await prisma.user.upsert({
+  const user = await prisma.user.upsert({
     where: { clerkUserId },
     update: { agencyId: agency.id, role, name, email, status: 'ACTIVE' },
     create: { clerkUserId, agencyId: agency.id, role, name, email, status: 'ACTIVE' },
   });
+
+  // Whole-Workforce Phase 1: apply any HR-staged employment data for THIS
+  // agency + email. Idempotent under duplicate delivery (consumedAt guard);
+  // an unrelated agency's pending row is never matched.
+  await consumePendingEmployee(user, agency.id, email).catch((err) =>
+    console.error('[webhook] failed to apply pending employment data:', err.message),
+  );
+}
+
+/**
+ * Merge a staged PendingEmployee onto a freshly-created/updated User.
+ * - matched by (agencyId, lower-cased email) AND consumedAt IS NULL
+ * - a staged department / job title / location / line manager that was removed
+ *   or deactivated between invite and acceptance is skipped (never an FK failure)
+ *   and the row is marked needsReview so HR can finish the setup
+ * - a clashing employee number is skipped the same way
+ * - always marks the row consumed, so a webhook retry is a no-op
+ * The User + auth membership are always created regardless.
+ */
+async function consumePendingEmployee(user, agencyId, email) {
+  const pending = await prisma.pendingEmployee.findFirst({
+    where: { agencyId, email: email.toLowerCase(), consumedAt: null },
+  });
+  if (!pending) return;
+
+  const data = {};
+  const skipped = [];
+  if (pending.contractedHours != null) data.contractedHours = pending.contractedHours;
+  if (pending.workPatternType) data.workPatternType = pending.workPatternType;
+  if (pending.employmentType) data.employmentType = pending.employmentType;
+  if (pending.employeeNumber) data.employeeNumber = pending.employeeNumber;
+
+  if (pending.departmentId) {
+    const d = await prisma.department.findFirst({ where: { id: pending.departmentId, agencyId, active: true }, select: { id: true } });
+    if (d) data.departmentId = d.id;
+    else skipped.push('department (no longer available)');
+  }
+  if (pending.jobTitleId) {
+    const j = await prisma.jobTitle.findFirst({ where: { id: pending.jobTitleId, agencyId, active: true }, select: { id: true } });
+    if (j) data.jobTitleId = j.id;
+    else skipped.push('job title (no longer available)');
+  }
+  if (pending.primaryLocationId) {
+    const l = await prisma.location.findFirst({ where: { id: pending.primaryLocationId, agencyId, active: true }, select: { id: true } });
+    if (l) data.primaryLocationId = l.id;
+    else skipped.push('primary location (no longer available)');
+  }
+  if (pending.lineManagerId) {
+    const m = pending.lineManagerId === user.id
+      ? null
+      : await prisma.user.findFirst({ where: { id: pending.lineManagerId, agencyId, status: 'ACTIVE' }, select: { id: true } });
+    if (m) data.lineManagerId = m.id;
+    else skipped.push('line manager (no longer valid)');
+  }
+
+  const finish = async (extraSkips = []) => {
+    const allSkips = [...skipped, ...extraSkips];
+    await prisma.pendingEmployee.update({
+      where: { id: pending.id },
+      data: {
+        consumedAt: new Date(),
+        needsReview: allSkips.length > 0,
+        reviewNote: allSkips.length > 0
+          ? `Onboarding applied without: ${allSkips.join('; ')}. HR to set these on the user.`
+          : null,
+      },
+    });
+    if (allSkips.length > 0) {
+      console.warn(`[webhook] pending employee for ${email} in agency ${agencyId} needs HR review: ${allSkips.join('; ')}`);
+    }
+  };
+
+  try {
+    if (Object.keys(data).length > 0) {
+      await prisma.user.update({ where: { id: user.id }, data });
+    }
+    await finish();
+  } catch (err) {
+    // A duplicate employee number (someone else took it since the invite) must
+    // not brick onboarding — apply everything else, leave the number unset, and
+    // flag the row for HR.
+    if (err.code === 'P2002') {
+      const { employeeNumber, ...rest } = data;
+      if (Object.keys(rest).length > 0) await prisma.user.update({ where: { id: user.id }, data: rest });
+      await finish([`employee number "${employeeNumber}" (already in use)`]);
+      return;
+    }
+    throw err;
+  }
 }
 
 async function handleMembershipDeleted(data) {

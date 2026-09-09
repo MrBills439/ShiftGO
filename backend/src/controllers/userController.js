@@ -20,6 +20,23 @@ function safeAvatarFsPath(webPath) {
 }
 const clerkClient = require('../utils/clerkClient');
 const { ROLE_TO_ORG_ROLE } = require('../utils/clerkRoles');
+const { buildEmploymentData, rethrowP2002 } = require('../services/employmentService');
+
+// Whole-Workforce Phase 1: employment scalars + related-record labels. Selected
+// (not deep-included) so a directory page never N+1s.
+const employmentSelect = {
+  employeeNumber: true,
+  workPatternType: true,
+  employmentType: true,
+  departmentId: true,
+  jobTitleId: true,
+  primaryLocationId: true,
+  lineManagerId: true,
+  department: { select: { id: true, name: true } },
+  jobTitle: { select: { id: true, name: true } },
+  primaryLocation: { select: { id: true, name: true, type: true } },
+  lineManager: { select: { id: true, name: true } },
+};
 
 const userSelect = {
   id: true,
@@ -35,6 +52,7 @@ const userSelect = {
   deactivatedById: true,
   deactivationReason: true,
   createdAt: true,
+  ...employmentSelect,
 };
 
 const meSelect = {
@@ -42,6 +60,7 @@ const meSelect = {
   phone: true, bio: true, profilePicture: true, address: true, contractedHours: true,
   onboardedAt: true, createdAt: true, updatedAt: true,
   agency: { select: { name: true } },
+  ...employmentSelect,
 };
 
 /** True when `name` is missing or is really just the email address — the state
@@ -80,8 +99,17 @@ async function backfillNameFromClerk(user) {
 }
 
 async function listUsers(req, res) {
-  const { role, status = 'ACTIVE' } = req.query;
-  const where = { agencyId: agencyIdFor(req), status, ...(role ? { role } : {}) };
+  const { role, status = 'ACTIVE', departmentId, jobTitleId, primaryLocationId, workPatternType, employmentType } = req.query;
+  const where = {
+    agencyId: agencyIdFor(req),
+    status,
+    ...(role ? { role } : {}),
+    ...(departmentId ? { departmentId } : {}),
+    ...(jobTitleId ? { jobTitleId } : {}),
+    ...(primaryLocationId ? { primaryLocationId } : {}),
+    ...(workPatternType ? { workPatternType } : {}),
+    ...(employmentType ? { employmentType } : {}),
+  };
   const users = await prisma.user.findMany({ where, select: userSelect, orderBy: { name: 'asc' } });
   ok(res, users);
 }
@@ -101,16 +129,73 @@ async function createUser(req, res) {
     return fail(res, 'Managers cannot create HR accounts', 403);
   }
 
+  // Whole-Workforce Phase 1: validate employment references belong to THIS
+  // agency BEFORE we create a Clerk invitation for a payload we can't honour.
+  let employmentData;
+  try {
+    employmentData = await buildEmploymentData(req.body, agencyId);
+  } catch (err) {
+    if (err.statusCode) return fail(res, err.message, err.statusCode, err.code ? { code: err.code } : {});
+    throw err;
+  }
+  const contractedHours =
+    req.body.contractedHours === undefined || req.body.contractedHours === '' || req.body.contractedHours === null
+      ? undefined
+      : Number(req.body.contractedHours);
+
   const agency = await prisma.agency.findUnique({ where: { id: agencyId }, select: { clerkOrgId: true } });
   if (!agency?.clerkOrgId) return fail(res, 'Agency is not linked to a Clerk organization', 409);
 
-  const existing = await prisma.user.findUnique({ where: { email: req.body.email } });
+  const email = String(req.body.email).trim().toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return fail(res, 'Email already in use');
+
+  // Reject a duplicate employee number up front (the DB unique also guards it
+  // at consumption time).
+  if (employmentData.employeeNumber) {
+    const dupe = await prisma.user.findFirst({
+      where: { agencyId, employeeNumber: employmentData.employeeNumber }, select: { id: true },
+    });
+    if (dupe) return fail(res, 'That employee number is already used in your agency', 409, { code: 'DUPLICATE_EMPLOYEE_NUMBER' });
+  }
 
   // Staff onboarding sends a Clerk organization invitation rather than creating
   // a local password — the User row is created by the organizationMembership
   // webhook once the invite is accepted.
   //
+  // Prisma and Clerk cannot share a transaction, so the two writes are ordered
+  // so the recoverable one runs first:
+  //   1. stage the employment data (never in client-controlled Clerk metadata);
+  //   2. create the Clerk invitation;
+  //   3. attach the invitation id to the staging row.
+  // If (1) fails, no invitation goes out. If (2) fails, a staging row we just
+  // created is rolled back. An invitation must never succeed while the HR
+  // employment data is silently lost.
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const priorPending = await prisma.pendingEmployee.findUnique({
+    where: { agencyId_email: { agencyId, email } },
+    select: { id: true },
+  });
+  try {
+    await prisma.pendingEmployee.upsert({
+      where: { agencyId_email: { agencyId, email } },
+      create: {
+        agencyId, email, role: req.body.role, invitedById: req.user.id,
+        expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
+        contractedHours, ...employmentData,
+      },
+      update: {
+        role: req.body.role, invitedById: req.user.id,
+        expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
+        consumedAt: null, needsReview: false, reviewNote: null, invitationId: null,
+        contractedHours: contractedHours ?? null, ...employmentData,
+      },
+    });
+  } catch (err) {
+    console.error('[users/create] failed to stage pending employee:', err.message);
+    return fail(res, 'Could not save the employment details — no invitation was sent. Please try again.', 500);
+  }
+
   // No inviterUserId: Clerk checks that user's own org-role permissions for this
   // action, and the org:hr/org:manager custom roles in this Clerk instance
   // currently have zero permissions granted (a Dashboard config gap, not
@@ -121,10 +206,17 @@ async function createUser(req, res) {
   try {
     invitation = await clerkClient.organizations.createOrganizationInvitation({
       organizationId: agency.clerkOrgId,
-      emailAddress: req.body.email,
+      emailAddress: email,
       role: ROLE_TO_ORG_ROLE[req.body.role],
     });
   } catch (err) {
+    // Roll back a staging row we created for this call; leave a pre-existing one
+    // (its data is still the latest HR intent, and its old invitation may live).
+    if (!priorPending) {
+      await prisma.pendingEmployee
+        .deleteMany({ where: { agencyId, email } })
+        .catch((e) => console.error('[users/create] could not roll back staging row:', e.message));
+    }
     const clerkError = err.errors?.[0];
     if (clerkError?.code === 'organization_membership_quota_exceeded') {
       return fail(res, 'Your organization has reached its member limit for this Clerk plan. Remove an unused pending invite or upgrade the plan, then try again.', 403);
@@ -135,27 +227,117 @@ async function createUser(req, res) {
     throw err;
   }
 
+  try {
+    await prisma.pendingEmployee.update({
+      where: { agencyId_email: { agencyId, email } },
+      data: { invitationId: invitation.id },
+    });
+    // Opportunistic, bounded housekeeping — clear this agency's consumed /
+    // long-expired staging rows, but never one still awaiting HR review. No cron.
+    await prisma.pendingEmployee.deleteMany({
+      where: {
+        agencyId, needsReview: false,
+        OR: [{ consumedAt: { not: null } }, { expiresAt: { lt: new Date(Date.now() - THIRTY_DAYS_MS) } }],
+      },
+    });
+  } catch (err) {
+    console.error('[users/create] could not attach invitation id / run cleanup:', err.message);
+    // The employment data is safely staged and the invitation is out; the
+    // invitation id is non-critical metadata. Do not fail the request.
+  }
+
   await createAuditLog({
     ...auditContext(req),
     action: 'USER_INVITED',
     entityType: 'OrganizationInvitation',
     entityId: invitation.id,
-    newValue: { email: req.body.email, name: req.body.name, role: req.body.role },
+    newValue: { email, name: req.body.name, role: req.body.role, hasEmploymentData: Object.keys(employmentData).length > 0 },
   });
-  created(res, { invitationId: invitation.id, email: req.body.email, role: req.body.role, status: invitation.status });
+  created(res, { invitationId: invitation.id, email, role: req.body.role, status: invitation.status });
 }
 
 async function updateUser(req, res) {
   const agencyId = agencyIdFor(req);
-  const existing = await prisma.user.findFirst({ where: { id: req.params.id, agencyId } });
+  const existing = await prisma.user.findFirst({ where: { id: req.params.id, agencyId }, select: userSelect });
   if (!existing) return notFound(res);
 
-  const user = await prisma.user.update({
-    where: { id: req.params.id },
-    data: { contractedHours: req.body.contractedHours },
-    select: userSelect,
+  const data = {};
+  if (req.body.contractedHours !== undefined) {
+    data.contractedHours =
+      req.body.contractedHours === '' || req.body.contractedHours === null ? null : Number(req.body.contractedHours);
+  }
+  // Whole-Workforce Phase 1: HR / management may also edit employment metadata.
+  try {
+    Object.assign(data, await buildEmploymentData(req.body, agencyId, { userId: req.params.id }));
+  } catch (err) {
+    if (err.statusCode) return fail(res, err.message, err.statusCode, err.code ? { code: err.code } : {});
+    throw err;
+  }
+
+  let user;
+  try {
+    user = await prisma.user.update({ where: { id: req.params.id }, data, select: userSelect });
+  } catch (err) {
+    try { rethrowP2002(err); } catch (mapped) {
+      if (mapped.statusCode) return fail(res, mapped.message, mapped.statusCode, mapped.code ? { code: mapped.code } : {});
+      throw mapped;
+    }
+    throw err;
+  }
+
+  await createAuditLog({
+    ...auditContext(req),
+    action: 'USER_UPDATED',
+    entityType: 'User',
+    entityId: user.id,
+    oldValue: existing,
+    newValue: user,
   });
   ok(res, user);
+}
+
+// ─── Whole-Workforce Phase 1 (hardening): onboarding rows that need HR ────
+// A PendingEmployee is flagged needsReview when the membership webhook could
+// not apply every staged field (employee-number clash, or a
+// department/job title/location/line manager removed or deactivated between
+// invite and acceptance). The User + auth membership already exist — these are
+// the employment details HR still has to set on the person by hand.
+async function listOnboardingReview(req, res) {
+  const agencyId = agencyIdFor(req);
+  const rows = await prisma.pendingEmployee.findMany({
+    where: { agencyId, needsReview: true },
+    orderBy: { updatedAt: 'desc' },
+    select: {
+      id: true, email: true, role: true, reviewNote: true,
+      employeeNumber: true, departmentId: true, jobTitleId: true,
+      primaryLocationId: true, lineManagerId: true, contractedHours: true,
+      workPatternType: true, employmentType: true,
+      consumedAt: true, createdAt: true, updatedAt: true,
+    },
+  });
+  ok(res, rows);
+}
+
+// HR marks an onboarding-review row handled once they've set the details on the
+// user. The next opportunistic cleanup then sweeps the (consumed) row.
+async function resolveOnboardingReview(req, res) {
+  const agencyId = agencyIdFor(req);
+  const row = await prisma.pendingEmployee.findFirst({
+    where: { id: req.params.id, agencyId }, select: { id: true },
+  });
+  if (!row) return notFound(res);
+  const updated = await prisma.pendingEmployee.update({
+    where: { id: row.id }, data: { needsReview: false, reviewNote: null },
+    select: { id: true, email: true, needsReview: true },
+  });
+  await createAuditLog({
+    ...auditContext(req),
+    action: 'ONBOARDING_REVIEW_RESOLVED',
+    entityType: 'PendingEmployee',
+    entityId: row.id,
+    newValue: { email: updated.email },
+  });
+  ok(res, updated);
 }
 
 async function deactivateUser(req, res) {
@@ -380,4 +562,5 @@ async function updateFcmToken(req, res) {
 module.exports = {
   listUsers, getUser, createUser, updateUser, deactivateUser, getMe, updateMe, completeOnboarding, uploadAvatar,
   removeAvatar, assignWorkerToHouse, assignTeamLeaderToHouse, updateFcmToken,
+  listOnboardingReview, resolveOnboardingReview,
 };

@@ -22,6 +22,11 @@ const listUsersGuard = (req, res, next) => {
   return atLeast('MANAGER')(req, res, next);
 };
 
+// Whole-Workforce Phase 1 (hardening): onboarding rows the webhook could not
+// fully apply. Declared before '/:id' so the literal path is not read as an id.
+router.get('/onboarding-review', atLeast('MANAGER'), asyncHandler(ctrl.listOnboardingReview));
+router.post('/onboarding-review/:id/resolve', validators.orgIdParam, allow('HR'), asyncHandler(ctrl.resolveOnboardingReview));
+
 router.get('/', validators.listUsers, listUsersGuard, asyncHandler(ctrl.listUsers));
 router.post('/', validators.createUser, atLeast('MANAGER'), asyncHandler(ctrl.createUser));
 router.post('/:id/deactivate', validators.deactivateUser, atLeast('MANAGER'), asyncHandler(ctrl.deactivateUser));

@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   ArrowLeft, User, Envelope, Phone, MapPin,
   Clock, Camera, Check, Lock, Trash,
+  Briefcase, Buildings, IdentificationBadge, CalendarBlank, UserSquare,
 } from 'phosphor-react-native';
 import { getMe, updateMe, uploadAvatar, removeAvatar } from '../../services/profileService';
 import { API_BASE_URL } from '../../services/api';
@@ -278,6 +279,49 @@ export default function PersonalInfoScreen() {
               icon={<Clock size={17} color={D.light} weight="regular" />}
               value={profile?.contractedHours != null ? `${profile.contractedHours} hrs / week` : 'Not set'}
               hint="Set by your manager or HR."
+            />
+          </View>
+
+          {/* Employment — read-only, managed by HR */}
+          <View style={s.card}>
+            <ReadonlyRow
+              label="EMPLOYEE NUMBER"
+              icon={<IdentificationBadge size={17} color={D.light} weight="regular" />}
+              value={profile?.employeeNumber ?? 'Not set'}
+            />
+            <ReadonlyRow
+              label="DEPARTMENT"
+              icon={<Buildings size={17} color={D.light} weight="regular" />}
+              value={profile?.department?.name ?? 'Not set'}
+            />
+            <ReadonlyRow
+              label="JOB TITLE"
+              icon={<Briefcase size={17} color={D.light} weight="regular" />}
+              value={profile?.jobTitle?.name ?? 'Not set'}
+            />
+            <ReadonlyRow
+              label="PRIMARY LOCATION"
+              icon={<MapPin size={17} color={D.light} weight="regular" />}
+              value={profile?.primaryLocation?.name ?? 'Not set'}
+            />
+            <ReadonlyRow
+              label="EMPLOYMENT TYPE"
+              icon={<UserSquare size={17} color={D.light} weight="regular" />}
+              value={
+                profile?.employmentType
+                  ? profile.employmentType.charAt(0) + profile.employmentType.slice(1).toLowerCase()
+                  : 'Not set'
+              }
+            />
+            <ReadonlyRow
+              label="WORK PATTERN"
+              icon={<CalendarBlank size={17} color={D.light} weight="regular" />}
+              value={
+                profile?.workPatternType
+                  ? profile.workPatternType.charAt(0) + profile.workPatternType.slice(1).toLowerCase()
+                  : 'Rota'
+              }
+              hint="Managed by HR."
             />
           </View>
 
