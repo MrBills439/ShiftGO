@@ -426,6 +426,23 @@ async function deactivateUser(req, res) {
   if (!oldUser) return notFound(res);
   if (oldUser.status === 'DEACTIVATED') return fail(res, 'User is already deactivated', 409);
 
+  // Active-attendance safety: never deactivate someone mid-shift. We do NOT
+  // auto-clock-out and do NOT mutate attendance — just block with a clear error.
+  const [openMonitors, inProgressShifts] = await Promise.all([
+    prisma.attendanceMonitor.count({ where: { agencyId, workerId: id, closedAt: null } }),
+    prisma.shift.count({ where: { agencyId, workerId: id, status: 'IN_PROGRESS' } }),
+  ]);
+  if (openMonitors > 0 || inProgressShifts > 0) {
+    return fail(
+      res,
+      'This employee is currently clocked in or has an active shift. Resolve the active attendance before deactivation.',
+      409,
+      { code: 'EMPLOYEE_CURRENTLY_WORKING' },
+    );
+  }
+
+  // Historical and future shifts are left untouched — future assigned shifts are
+  // surfaced for HR via GET /users/:id/offboarding-preview, not modified here.
   const user = await prisma.user.update({
     where: { id },
     data: {
@@ -448,6 +465,75 @@ async function deactivateUser(req, res) {
   });
 
   ok(res, user);
+}
+
+/**
+ * POST /users/:id/reactivate — HR only. DEACTIVATED -> ACTIVE, clearing the
+ * deactivation metadata. Nothing else changes: role, employment fields, Clerk
+ * identity/membership, and all history (shifts, timesheets, training, DBS, RTW,
+ * audit) are preserved, and the same User.id is reused.
+ */
+async function reactivateUser(req, res) {
+  const agencyId = agencyIdFor(req);
+  const { id } = req.params;
+
+  const target = await prisma.user.findFirst({ where: { id, agencyId }, select: userSelect });
+  if (!target) return notFound(res); // cross-agency / unknown look identical
+
+  if (target.status === 'ACTIVE') {
+    return fail(res, 'This employee is already active.', 400, { code: 'ALREADY_ACTIVE' });
+  }
+
+  const user = await prisma.user.update({
+    where: { id },
+    data: {
+      status: 'ACTIVE',
+      deactivatedAt: null,
+      deactivatedById: null,
+      deactivationReason: null,
+      // fcmToken stays null — the device re-registers on next sign-in.
+    },
+    select: userSelect,
+  });
+
+  await createAuditLog({
+    ...auditContext(req),
+    action: 'USER_REACTIVATED',
+    entityType: 'User',
+    entityId: user.id,
+    oldValue: {
+      status: 'DEACTIVATED',
+      deactivatedAt: target.deactivatedAt,
+      deactivatedById: target.deactivatedById,
+      deactivationReason: target.deactivationReason,
+    },
+    newValue: { status: 'ACTIVE' },
+  });
+
+  ok(res, user);
+}
+
+/**
+ * GET /users/:id/offboarding-preview — HR/MANAGER. Small awareness payload shown
+ * before deactivation. Operational counts only — no personal / compliance detail.
+ */
+async function offboardingPreview(req, res) {
+  const agencyId = agencyIdFor(req);
+  const { id } = req.params;
+
+  const target = await prisma.user.findFirst({ where: { id, agencyId }, select: { id: true, role: true, status: true } });
+  if (!target) return notFound(res);
+
+  const now = new Date();
+  const [futureShiftCount, inProgressShiftCount, trainingCount] = await Promise.all([
+    prisma.shift.count({
+      where: { agencyId, workerId: id, startTime: { gt: now }, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+    }),
+    prisma.shift.count({ where: { agencyId, workerId: id, status: 'IN_PROGRESS' } }),
+    prisma.training.count({ where: { agencyId, userId: id } }),
+  ]);
+
+  ok(res, { futureShiftCount, inProgressShiftCount, trainingCount, role: target.role, status: target.status });
 }
 
 /**
@@ -731,4 +817,5 @@ module.exports = {
   listUsers, getUser, createUser, updateUser, deactivateUser, getMe, updateMe, completeOnboarding, uploadAvatar,
   removeAvatar, assignWorkerToHouse, assignTeamLeaderToHouse, updateFcmToken,
   listOnboardingReview, resolveOnboardingReview, changeSystemAccess,
+  reactivateUser, offboardingPreview,
 };

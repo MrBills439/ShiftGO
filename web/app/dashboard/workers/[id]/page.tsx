@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  ArrowLeftIcon, PencilSimpleIcon, UserMinusIcon, WarningCircleIcon, UsersThreeIcon, ShieldCheckIcon,
+  ArrowLeftIcon, PencilSimpleIcon, UserMinusIcon, ArrowCounterClockwiseIcon,
+  WarningCircleIcon, UsersThreeIcon, ShieldCheckIcon,
 } from '@phosphor-icons/react';
 import { clsx } from 'clsx';
 import { Card } from '@/components/ui/Card';
@@ -14,7 +15,10 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { FieldShell, Select as UiSelect, Input as UiInput, Textarea as UiTextarea } from '@/components/ui/Input';
 import { API_BASE } from '@/lib/api';
-import { useUser, useUsers, useUpdateUser, useDeactivateUser, useChangeSystemAccess } from '@/hooks/useWorkers';
+import {
+  useUser, useUsers, useUpdateUser, useDeactivateUser, useChangeSystemAccess,
+  useReactivateUser, useOffboardingPreview,
+} from '@/hooks/useWorkers';
 import { useDepartmentOptions, useJobTitleOptions, useLocationOptions, WORK_PATTERN_LABELS, EMPLOYMENT_TYPE_LABELS } from '@/hooks/useOrgStructure';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
@@ -66,6 +70,7 @@ export default function EmployeeDetailPage() {
   const { data: employee, isLoading, isError } = useUser(id, canManage);
   const [tab, setTab] = useState<Tab>('overview');
   const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const [reactivateOpen, setReactivateOpen] = useState(false);
 
   if (me && !canManage) return null;
 
@@ -130,20 +135,27 @@ export default function EmployeeDetailPage() {
               <Button variant="secondary" size="sm" icon={<PencilSimpleIcon size={14} />} onClick={() => setTab('employment')}>
                 Edit Employee
               </Button>
-              {!deactivated && (
+              {!deactivated ? (
                 <Button variant="danger" size="sm" icon={<UserMinusIcon size={14} />} onClick={() => setDeactivateOpen(true)}>
                   Deactivate
                 </Button>
-              )}
+              ) : isHr ? (
+                <Button variant="primary" size="sm" icon={<ArrowCounterClockwiseIcon size={14} />} onClick={() => setReactivateOpen(true)}>
+                  Reactivate Employee
+                </Button>
+              ) : null}
             </div>
           )}
         </div>
 
         {deactivated && (
           <div className="mt-4 rounded-lg border border-danger-border bg-danger-bg/50 p-3 text-sm text-danger-text">
-            Deactivated {fmtDate(employee.deactivatedAt)}
-            {employee.deactivatedBy?.name ? ` by ${employee.deactivatedBy.name}` : ''}
-            {employee.deactivationReason ? ` — ${employee.deactivationReason}` : ''}
+            <p className="font-semibold">Deactivated</p>
+            <p className="mt-0.5">
+              {fmtDate(employee.deactivatedAt)}
+              {employee.deactivatedBy?.name ? ` · by ${employee.deactivatedBy.name}` : ''}
+            </p>
+            {employee.deactivationReason && <p className="mt-1">Reason: {employee.deactivationReason}</p>}
           </div>
         )}
       </Card>
@@ -176,6 +188,11 @@ export default function EmployeeDetailPage() {
         employee={employee}
         onClose={() => setDeactivateOpen(false)}
         onDone={() => { setDeactivateOpen(false); }}
+      />
+      <ReactivateModal
+        open={reactivateOpen}
+        employee={employee}
+        onClose={() => setReactivateOpen(false)}
       />
     </div>
   );
@@ -526,6 +543,7 @@ function DeactivateModal({
 }: { open: boolean; employee: User; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const deactivate = useDeactivateUser();
+  const preview = useOffboardingPreview(employee.id, open);
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
 
@@ -542,6 +560,7 @@ function DeactivateModal({
     }
   }
 
+  const p = preview.data;
   return (
     <Modal open={open} onClose={onClose} title={`Deactivate ${employee.name}`}>
       <form onSubmit={submit} className="space-y-4">
@@ -549,6 +568,26 @@ function DeactivateModal({
         <div className="rounded-lg border border-warning-border bg-warning-bg/50 p-3 text-sm text-warning-text">
           Login and API access are blocked. All historical data is kept.
         </div>
+
+        {/* Impact summary — awareness, not blocking */}
+        <div className="rounded-lg border border-border bg-surface-subtle p-3 text-sm">
+          <p className="mb-1 font-semibold text-fg">This employee currently has</p>
+          {preview.isLoading ? (
+            <p className="text-fg-muted">Checking…</p>
+          ) : preview.isError || !p ? (
+            <p className="text-fg-muted">Impact summary unavailable.</p>
+          ) : (
+            <ul className="space-y-0.5 text-fg-muted">
+              <li>• {p.futureShiftCount} upcoming assigned shift{p.futureShiftCount === 1 ? '' : 's'}</li>
+              {p.inProgressShiftCount > 0 && (
+                <li className="font-semibold text-danger">• {p.inProgressShiftCount} shift currently in progress — deactivation will be blocked</li>
+              )}
+              <li>• {p.trainingCount} training record{p.trainingCount === 1 ? '' : 's'}</li>
+              <li>• System access: {ACCESS_LABELS[p.role]}</li>
+            </ul>
+          )}
+        </div>
+
         <FieldShell label="Reason *">
           <UiTextarea rows={3} value={reason} onChange={(e) => { setReason(e.target.value); setErr(''); }} required />
         </FieldShell>
@@ -556,6 +595,52 @@ function DeactivateModal({
         <div className="flex justify-end gap-2 border-t border-border pt-4">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="danger" disabled={deactivate.isPending}>Deactivate</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ─────────────────────────── Reactivate ───────────────────────────
+function ReactivateModal({ open, employee, onClose }: { open: boolean; employee: User; onClose: () => void }) {
+  const toast = useToast();
+  const reactivate = useReactivateUser(employee.id);
+  const [confirmed, setConfirmed] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => { if (open) { setConfirmed(false); setErr(''); } }, [open]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr('');
+    try {
+      await reactivate.mutateAsync();
+      toast.success(`${employee.name} reactivated`);
+      onClose();
+    } catch (e: any) {
+      const code = e?.response?.data?.code;
+      setErr((e?.response?.data?.message ?? 'Could not reactivate this employee') + (code ? ` (${code})` : ''));
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Reactivate Employee">
+      <form onSubmit={submit} className="space-y-4">
+        <LoadingOverlay show={reactivate.isPending} label="Reactivating…" />
+        <p className="text-sm text-fg-muted">
+          This employee will return to active staff status. Their employment record, system access,
+          and history will be preserved.
+        </p>
+        <label className="flex items-start gap-2 text-sm text-fg-muted">
+          <input type="checkbox" className="mt-0.5" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          I want to reactivate {employee.name}.
+        </label>
+        {err && <p className="text-sm text-danger">{err}</p>}
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={!confirmed || reactivate.isPending}>
+            {reactivate.isPending ? 'Reactivating…' : 'Reactivate Employee'}
+          </Button>
         </div>
       </form>
     </Modal>

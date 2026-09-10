@@ -108,6 +108,37 @@ export function useDeactivateUser() {
   });
 }
 
+/** POST /users/:id/reactivate — HR only. DEACTIVATED → ACTIVE, history preserved. */
+export function useReactivateUser(userId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post(`/users/${userId}/reactivate`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] }); // prefix → detail + directory
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+    },
+  });
+}
+
+export type OffboardingPreview = {
+  futureShiftCount: number;
+  inProgressShiftCount: number;
+  trainingCount: number;
+  role: Role;
+  status: UserStatus;
+};
+
+/** GET /users/:id/offboarding-preview — awareness counts before deactivation. */
+export function useOffboardingPreview(userId: string, enabled = true) {
+  return useQuery<OffboardingPreview>({
+    queryKey: ['users', 'offboarding-preview', userId],
+    queryFn: async () => (await api.get(`/users/${userId}/offboarding-preview`)).data.data,
+    enabled: enabled && !!userId,
+    retry: false,
+    staleTime: 10_000,
+  });
+}
+
 /** PATCH /users/:id/system-access — HR only. Syncs the Clerk org role + User.role. */
 export function useChangeSystemAccess(userId: string) {
   const qc = useQueryClient();

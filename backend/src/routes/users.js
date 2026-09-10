@@ -30,6 +30,9 @@ router.post('/onboarding-review/:id/resolve', validators.orgIdParam, allow('HR')
 router.get('/', validators.listUsers, listUsersGuard, asyncHandler(ctrl.listUsers));
 router.post('/', validators.createUser, atLeast('MANAGER'), asyncHandler(ctrl.createUser));
 router.post('/:id/deactivate', validators.deactivateUser, atLeast('MANAGER'), asyncHandler(ctrl.deactivateUser));
+// Employee Lifecycle V1 — offboarding awareness + reactivation.
+router.get('/:id/offboarding-preview', validators.getUser, atLeast('MANAGER'), asyncHandler(ctrl.offboardingPreview));
+router.post('/:id/reactivate', validators.reactivateUser, allow('HR'), asyncHandler(ctrl.reactivateUser));
 router.get('/:id', validators.getUser, atLeast('MANAGER'), asyncHandler(ctrl.getUser));
 router.patch('/:id', validators.updateUser, atLeast('MANAGER'), asyncHandler(ctrl.updateUser));
 // System Access / Role Management V1 — HR only; keeps Clerk org role + User.role in sync.

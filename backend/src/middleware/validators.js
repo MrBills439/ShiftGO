@@ -257,6 +257,12 @@ const validators = {
     handleValidationErrors,
   ],
 
+  // Employee Lifecycle V1 — no body; dedicated, HR-only, not PATCH /users/:id.
+  reactivateUser: [
+    ...idParam('id', 'User ID'),
+    handleValidationErrors,
+  ],
+
   updateMe: [
     body('name')
       .optional()
