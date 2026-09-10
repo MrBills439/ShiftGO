@@ -450,6 +450,99 @@ async function deactivateUser(req, res) {
   ok(res, user);
 }
 
+/**
+ * System Access / Role Management V1 — PATCH /users/:id/system-access (HR only).
+ *
+ * Clerk is updated FIRST; the local User.role is written ONLY after Clerk
+ * succeeds. If Clerk fails, nothing local changes. If Clerk succeeds but the
+ * local write fails, we return 500 and rely on the organizationMembership.*
+ * webhook to reconcile User.role (it is idempotent). The Clerk<->ShiftGO role
+ * map is the single one in utils/clerkRoles (ROLE_TO_ORG_ROLE).
+ */
+async function changeSystemAccess(req, res) {
+  const agencyId = agencyIdFor(req);
+  const { id } = req.params;
+  const newRole = req.body.role;
+
+  const orgRole = ROLE_TO_ORG_ROLE[newRole];
+  if (!orgRole) return fail(res, 'Unknown system-access role', 400, { code: 'INVALID_ROLE' });
+
+  // Tenant scope: an unknown id and a cross-agency id are the same 404.
+  const target = await prisma.user.findFirst({
+    where: { id, agencyId },
+    select: { id: true, role: true, status: true, clerkUserId: true, name: true },
+  });
+  if (!target) return notFound(res);
+
+  if (target.status === 'DEACTIVATED') {
+    return fail(res, 'Reactivate this employee before changing their system access.', 400, { code: 'USER_DEACTIVATED' });
+  }
+  if (target.role === newRole) {
+    return fail(res, 'That employee already has this system access.', 400, { code: 'SAME_ROLE' });
+  }
+  // Keep at least one active HR for the agency (checked before the self guard so
+  // a sole HR trying to self-downgrade gets the more actionable message).
+  if (target.role === 'HR' && newRole !== 'HR') {
+    const activeHr = await prisma.user.count({ where: { agencyId, role: 'HR', status: 'ACTIVE' } });
+    if (activeHr <= 1) {
+      return fail(res, 'At least one active HR user must remain for the agency.', 400, { code: 'LAST_HR_REQUIRED' });
+    }
+  }
+  // V1: HR cannot change their own system access (prevents accidental lock-out).
+  if (target.id === req.user.id) {
+    return fail(res, 'You cannot change your own system access.', 403, { code: 'SELF_ROLE_CHANGE' });
+  }
+  if (!target.clerkUserId) {
+    return fail(res, 'This employee has not accepted their invitation yet, so their system access cannot be changed.', 409, { code: 'NO_CLERK_IDENTITY' });
+  }
+
+  const agency = await prisma.agency.findUnique({ where: { id: agencyId }, select: { clerkOrgId: true } });
+  if (!agency?.clerkOrgId) {
+    return fail(res, 'Your agency is not linked to a Clerk organization.', 409, { code: 'AGENCY_NOT_LINKED' });
+  }
+
+  // 1) Clerk first. `organizationId` pins the change to THIS agency's org, so
+  //    another agency's membership can never be touched.
+  try {
+    await clerkClient.organizations.updateOrganizationMembership({
+      organizationId: agency.clerkOrgId,
+      userId: target.clerkUserId,
+      role: orgRole,
+    });
+  } catch (err) {
+    const code = err.errors?.[0]?.code;
+    if (code === 'resource_not_found' || err.status === 404 || err.statusCode === 404) {
+      return fail(res, 'This employee is not a member of your Clerk organization.', 409, { code: 'NO_CLERK_MEMBERSHIP' });
+    }
+    console.error('[users/system-access] Clerk membership update failed:', err.message);
+    return fail(res, 'Could not update system access with the identity provider. No change was made.', 502, { code: 'CLERK_UPDATE_FAILED' });
+  }
+
+  // 2) Local role — ONLY now.
+  let updated;
+  try {
+    updated = await prisma.user.update({ where: { id: target.id }, data: { role: newRole }, select: userSelect });
+  } catch (err) {
+    // Clerk changed but the DB write failed. Do not hide it — the membership
+    // webhook will reconcile User.role when it arrives.
+    console.error('[users/system-access] CRITICAL: Clerk role updated but local DB write failed', JSON.stringify({
+      agencyId, actorId: req.user.id, targetId: target.id, oldRole: target.role, newRole, error: err.message,
+    }));
+    return fail(res, 'System access was changed with the identity provider but the local record failed to save. It will reconcile automatically.', 500, { code: 'LOCAL_SYNC_FAILED' });
+  }
+
+  await createAuditLog({
+    ...auditContext(req),
+    action: 'USER_SYSTEM_ACCESS_CHANGED',
+    entityType: 'User',
+    entityId: target.id,
+    oldValue: { role: target.role },
+    newValue: { role: newRole },
+  });
+
+  ok(res, updated);
+}
+
 async function getMe(req, res) {
   let user = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
   if (!user) return notFound(res);
@@ -637,5 +730,5 @@ async function updateFcmToken(req, res) {
 module.exports = {
   listUsers, getUser, createUser, updateUser, deactivateUser, getMe, updateMe, completeOnboarding, uploadAvatar,
   removeAvatar, assignWorkerToHouse, assignTeamLeaderToHouse, updateFcmToken,
-  listOnboardingReview, resolveOnboardingReview,
+  listOnboardingReview, resolveOnboardingReview, changeSystemAccess,
 };

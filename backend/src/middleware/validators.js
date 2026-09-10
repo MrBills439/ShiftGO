@@ -236,6 +236,15 @@ const validators = {
     handleValidationErrors,
   ],
 
+  // System Access / Role Management V1 — dedicated, HR-only, NOT the normal PATCH.
+  changeSystemAccess: [
+    ...idParam('id', 'User ID'),
+    body('role')
+      .notEmpty().withMessage('Role is required')
+      .isIn(ROLES).withMessage('Role must be WORKER, TEAM_LEADER, MANAGER, or HR'),
+    handleValidationErrors,
+  ],
+
   deactivateUser: [
     ...idParam('id', 'User ID'),
     body('reason')

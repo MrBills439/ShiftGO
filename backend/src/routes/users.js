@@ -32,6 +32,8 @@ router.post('/', validators.createUser, atLeast('MANAGER'), asyncHandler(ctrl.cr
 router.post('/:id/deactivate', validators.deactivateUser, atLeast('MANAGER'), asyncHandler(ctrl.deactivateUser));
 router.get('/:id', validators.getUser, atLeast('MANAGER'), asyncHandler(ctrl.getUser));
 router.patch('/:id', validators.updateUser, atLeast('MANAGER'), asyncHandler(ctrl.updateUser));
+// System Access / Role Management V1 — HR only; keeps Clerk org role + User.role in sync.
+router.patch('/:id/system-access', validators.changeSystemAccess, allow('HR'), asyncHandler(ctrl.changeSystemAccess));
 router.post('/assign/worker', validators.assignWorkerToHouse, atLeast('TEAM_LEADER'), asyncHandler(ctrl.assignWorkerToHouse));
 router.post('/assign/team-leader', validators.assignTeamLeaderToHouse, allow('HR'), asyncHandler(ctrl.assignTeamLeaderToHouse));
 

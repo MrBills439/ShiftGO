@@ -108,6 +108,15 @@ export function useDeactivateUser() {
   });
 }
 
+/** PATCH /users/:id/system-access — HR only. Syncs the Clerk org role + User.role. */
+export function useChangeSystemAccess(userId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (role: Role) => api.patch(`/users/${userId}/system-access`, { role }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }), // prefix → detail + list
+  });
+}
+
 export function useAssignWorker() {
   const qc = useQueryClient();
   return useMutation({

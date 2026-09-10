@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  ArrowLeftIcon, PencilSimpleIcon, UserMinusIcon, WarningCircleIcon, UsersThreeIcon,
+  ArrowLeftIcon, PencilSimpleIcon, UserMinusIcon, WarningCircleIcon, UsersThreeIcon, ShieldCheckIcon,
 } from '@phosphor-icons/react';
 import { clsx } from 'clsx';
 import { Card } from '@/components/ui/Card';
@@ -14,7 +14,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { FieldShell, Select as UiSelect, Input as UiInput, Textarea as UiTextarea } from '@/components/ui/Input';
 import { API_BASE } from '@/lib/api';
-import { useUser, useUsers, useUpdateUser, useDeactivateUser } from '@/hooks/useWorkers';
+import { useUser, useUsers, useUpdateUser, useDeactivateUser, useChangeSystemAccess } from '@/hooks/useWorkers';
 import { useDepartmentOptions, useJobTitleOptions, useLocationOptions, WORK_PATTERN_LABELS, EMPLOYMENT_TYPE_LABELS } from '@/hooks/useOrgStructure';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
@@ -29,7 +29,8 @@ const ROLE_VARIANT: Record<Role, 'hr' | 'manager' | 'team_leader' | 'worker'> = 
 };
 const WORK_PATTERN_OPTIONS: WorkPatternType[] = ['ROTA', 'FIXED', 'FLEXIBLE'];
 const EMPLOYMENT_TYPE_OPTIONS: EmploymentType[] = ['PERMANENT', 'BANK', 'CONTRACTOR'];
-const TABS = ['overview', 'employment', 'personal', 'compliance', 'training'] as const;
+const ROLE_ORDER: Role[] = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
+const TABS = ['overview', 'employment', 'personal', 'access', 'compliance', 'training'] as const;
 type Tab = (typeof TABS)[number];
 
 const fmtDate = (iso?: string | null) =>
@@ -166,6 +167,7 @@ export default function EmployeeDetailPage() {
       {tab === 'overview' && <OverviewPanel employee={employee} />}
       {tab === 'employment' && <EmploymentPanel employee={employee} />}
       {tab === 'personal' && <PersonalPanel employee={employee} />}
+      {tab === 'access' && <SystemAccessPanel employee={employee} isHr={isHr} isSelf={employee.id === me?.id} />}
       {tab === 'compliance' && <EmployeeComplianceTab userId={employee.id} isHr={isHr} />}
       {tab === 'training' && <EmployeeTrainingTab userId={employee.id} canManage={canManage} />}
 
@@ -409,6 +411,112 @@ function PersonalPanel({ employee }: { employee: User }) {
         </div>
       </form>
     </Card>
+  );
+}
+
+// ─────────────────────────── System Access ───────────────────────────
+function SystemAccessPanel({ employee, isHr, isSelf }: { employee: User; isHr: boolean; isSelf: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <ShieldCheckIcon size={18} className="text-brand-600" />
+        <h3 className="text-sm font-semibold text-fg">System access</h3>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-lg font-semibold text-fg">{ACCESS_LABELS[employee.role]}</span>
+        <Badge variant={ROLE_VARIANT[employee.role]} label={ACCESS_LABELS[employee.role]} dot={false} />
+      </div>
+      <p className="mt-2 max-w-prose text-sm text-fg-muted">
+        System access controls what this employee can see and manage in ShiftGO. It is separate from
+        their job title — a Registered Manager can hold “Employee” access, and vice versa.
+      </p>
+      {isHr && (
+        <div className="mt-4">
+          {isSelf ? (
+            <p className="text-xs text-fg-subtle">You can’t change your own system access.</p>
+          ) : (
+            <Button variant="secondary" size="sm" icon={<PencilSimpleIcon size={14} />} onClick={() => setOpen(true)}>
+              Change System Access
+            </Button>
+          )}
+        </div>
+      )}
+      <RoleChangeModal open={open} employee={employee} onClose={() => setOpen(false)} />
+    </Card>
+  );
+}
+
+function RoleChangeModal({ open, employee, onClose }: { open: boolean; employee: User; onClose: () => void }) {
+  const toast = useToast();
+  const change = useChangeSystemAccess(employee.id);
+  const [role, setRole] = useState<Role>(employee.role);
+  const [confirmed, setConfirmed] = useState(false);
+  const [err, setErr] = useState('');
+
+  // reset when reopened
+  useEffect(() => {
+    if (open) { setRole(employee.role); setConfirmed(false); setErr(''); }
+  }, [open, employee.role]);
+
+  const changed = role !== employee.role;
+  const grantingHr = role === 'HR' && employee.role !== 'HR';
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!changed) return;
+    setErr('');
+    try {
+      await change.mutateAsync(role);
+      toast.success(`System access updated to ${ACCESS_LABELS[role]}.`);
+      onClose();
+    } catch (e: any) {
+      const code = e?.response?.data?.code;
+      setErr(e?.response?.data?.message ?? 'Could not change system access.' + (code ? ` (${code})` : ''));
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Change system access — ${employee.name}`}>
+      <form onSubmit={submit} className="space-y-4">
+        <LoadingOverlay show={change.isPending} label="Updating access…" />
+        <div className="grid grid-cols-2 gap-3">
+          <FieldShell label="Current access">
+            <UiInput type="text" value={ACCESS_LABELS[employee.role]} disabled readOnly />
+          </FieldShell>
+          <FieldShell label="New access">
+            <UiSelect value={role} onChange={(e) => setRole(e.target.value as Role)}>
+              {ROLE_ORDER.map((r) => <option key={r} value={r}>{ACCESS_LABELS[r]}</option>)}
+            </UiSelect>
+          </FieldShell>
+        </div>
+
+        <div className="rounded-lg border border-warning-border bg-warning-bg/50 p-3 text-sm text-warning-text">
+          Changing system access changes what this employee can view and manage in ShiftGO.
+        </div>
+        {grantingHr && (
+          <div className="rounded-lg border border-danger-border bg-danger-bg/50 p-3 text-sm text-danger-text">
+            <strong>HR access is broad.</strong> An HR user can add and offboard employees, change
+            system access, edit compliance records, and manage agency settings. Only grant it to
+            people who need it.
+          </div>
+        )}
+
+        <label className="flex items-start gap-2 text-sm text-fg-muted">
+          <input type="checkbox" className="mt-0.5" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          I understand this changes what {employee.name} can do in ShiftGO.
+        </label>
+
+        {err && <p className="text-sm text-danger">{err}</p>}
+
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" disabled={!changed || !confirmed || change.isPending}>
+            {change.isPending ? 'Updating…' : 'Update access'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
