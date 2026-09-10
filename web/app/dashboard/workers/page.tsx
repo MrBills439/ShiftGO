@@ -189,9 +189,10 @@ export default function StaffPage() {
     );
   }, [users, searchTerm]);
 
+  // Count only the collapsible filters — search sits outside the toggle.
   const activeFilterCount =
     (roleFilter ? 1 : 0) + (deptFilter ? 1 : 0) + (jobTitleFilter ? 1 : 0) + (locationFilter ? 1 : 0)
-    + (employmentFilter ? 1 : 0) + (patternFilter ? 1 : 0) + (searchTerm ? 1 : 0);
+    + (employmentFilter ? 1 : 0) + (patternFilter ? 1 : 0);
 
   function clearFilters() {
     setRoleFilter(''); setDeptFilter(''); setJobTitleFilter(''); setLocationFilter('');
@@ -349,19 +350,24 @@ export default function StaffPage() {
       </div>
 
       {/* Filters */}
-      <FilterBar activeCount={activeFilterCount} onClear={clearFilters}>
-        <FieldShell label="Search">
-          <div className="relative">
-            <MagnifyingGlassIcon size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-            <UiInput
-              type="text"
-              placeholder="Name, email or employee no…"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8"
-            />
-          </div>
-        </FieldShell>
+      <FilterBar
+        activeCount={activeFilterCount}
+        onClear={clearFilters}
+        search={
+          <FieldShell label="Search">
+            <div className="relative">
+              <MagnifyingGlassIcon size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+              <UiInput
+                type="text"
+                placeholder="Name, email or employee no…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+          </FieldShell>
+        }
+      >
         {!isTeamLeader && (
           <FieldShell label="System access">
             <UiSelect value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>

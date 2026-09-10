@@ -132,7 +132,15 @@ export default function DesignSystemPage() {
         </div>
       </section>
 
-      <FilterBar activeCount={2} onClear={() => undefined}>
+      <FilterBar
+        activeCount={2}
+        onClear={() => undefined}
+        search={
+          <FieldShell label="Search">
+            <Input placeholder="Worker, house, rota note" />
+          </FieldShell>
+        }
+      >
         <FieldShell label="Status">
           <Select defaultValue="PENDING">
             <option value="">All statuses</option>
@@ -147,9 +155,6 @@ export default function DesignSystemPage() {
         </FieldShell>
         <FieldShell label="From">
           <Input type="date" defaultValue="2026-06-28" />
-        </FieldShell>
-        <FieldShell label="Search">
-          <Input placeholder="Worker, house, rota note" />
         </FieldShell>
       </FilterBar>
 
