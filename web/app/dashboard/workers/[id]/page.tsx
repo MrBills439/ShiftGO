@@ -566,7 +566,8 @@ function DeactivateModal({
       <form onSubmit={submit} className="space-y-4">
         <LoadingOverlay show={deactivate.isPending} label="Deactivating…" />
         <div className="rounded-lg border border-warning-border bg-warning-bg/50 p-3 text-sm text-warning-text">
-          Login and API access are blocked. All historical data is kept.
+          Deactivating this employee will immediately revoke their ShiftGO sign-in sessions and block
+          future access. Historical records will be preserved.
         </div>
 
         {/* Impact summary — awareness, not blocking */}
@@ -628,8 +629,8 @@ function ReactivateModal({ open, employee, onClose }: { open: boolean; employee:
       <form onSubmit={submit} className="space-y-4">
         <LoadingOverlay show={reactivate.isPending} label="Reactivating…" />
         <p className="text-sm text-fg-muted">
-          This employee will return to active staff status. Their employment record, system access,
-          and history will be preserved.
+          Reactivating this employee will restore their ability to sign in. Their employment record,
+          system access and history will be preserved.
         </p>
         <label className="flex items-start gap-2 text-sm text-fg-muted">
           <input type="checkbox" className="mt-0.5" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />

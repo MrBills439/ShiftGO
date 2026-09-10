@@ -3,6 +3,13 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-access-secret';
 process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'test-refresh-secret';
 process.env.RATE_LIMIT_DISABLED = 'true';
 
+// Account Suspension / Clerk Security V1 — deactivation now bans the user in
+// Clerk before flipping the local status. Stub it so tests never hit the network.
+jest.mock('../src/utils/clerkClient', () => ({
+  organizations: {},
+  users: { banUser: jest.fn(async () => ({})), unbanUser: jest.fn(async () => ({})) },
+}));
+
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
 const app = require('../src/app');
@@ -77,6 +84,7 @@ describe('Staff offboarding and deactivation', () => {
         email: `offboarding-target-worker-${suffix}@shiftgo.test`,
         passwordHash: await hash(testPassword),
         role: 'WORKER',
+        clerkUserId: `clerk_offboard_target_${suffix}`,
         fcmToken: 'test-device-token',
       },
     });

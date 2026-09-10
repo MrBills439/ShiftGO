@@ -422,12 +422,17 @@ async function deactivateUser(req, res) {
 
   if (id === req.user.id) return fail(res, 'You cannot deactivate your own account', 409);
 
-  const oldUser = await prisma.user.findFirst({ where: { id, agencyId }, select: userSelect });
+  const oldUser = await prisma.user.findFirst({
+    where: { id, agencyId },
+    select: { ...userSelect, clerkUserId: true },
+  });
   if (!oldUser) return notFound(res);
   if (oldUser.status === 'DEACTIVATED') return fail(res, 'User is already deactivated', 409);
 
   // Active-attendance safety: never deactivate someone mid-shift. We do NOT
   // auto-clock-out and do NOT mutate attendance — just block with a clear error.
+  // This runs BEFORE any Clerk call, so a currently-working employee is never
+  // banned in Clerk.
   const [openMonitors, inProgressShifts] = await Promise.all([
     prisma.attendanceMonitor.count({ where: { agencyId, workerId: id, closedAt: null } }),
     prisma.shift.count({ where: { agencyId, workerId: id, status: 'IN_PROGRESS' } }),
@@ -441,19 +446,65 @@ async function deactivateUser(req, res) {
     );
   }
 
+  // Account Suspension / Clerk Security V1 — Clerk is the first mutation, and the
+  // local status is flipped ONLY after the Clerk ban succeeds. banUser revokes
+  // every live Clerk session for this user and blocks future sign-in; auth.js's
+  // DEACTIVATED check remains as independent defence-in-depth. The Clerk id is
+  // always this tenant-scoped row's own clerkUserId — never a client value.
+  if (!oldUser.clerkUserId) {
+    return fail(
+      res,
+      'This employee has no linked sign-in identity, so their access cannot be suspended.',
+      409,
+      { code: 'NO_CLERK_IDENTITY' },
+    );
+  }
+
+  try {
+    await clerkClient.users.banUser(oldUser.clerkUserId);
+  } catch (err) {
+    console.error('[users/deactivate] Clerk ban failed:', err.message);
+    return fail(
+      res,
+      'Could not suspend this employee’s sign-in with the identity provider. No change was made.',
+      502,
+      { code: 'CLERK_SUSPENSION_FAILED' },
+    );
+  }
+
   // Historical and future shifts are left untouched — future assigned shifts are
   // surfaced for HR via GET /users/:id/offboarding-preview, not modified here.
-  const user = await prisma.user.update({
-    where: { id },
-    data: {
-      status: 'DEACTIVATED',
-      deactivatedAt: new Date(),
-      deactivatedById: req.user.id,
-      deactivationReason: reason,
-      fcmToken: null,
-    },
-    select: userSelect,
-  });
+  let user;
+  try {
+    user = await prisma.user.update({
+      where: { id },
+      data: {
+        status: 'DEACTIVATED',
+        deactivatedAt: new Date(),
+        deactivatedById: req.user.id,
+        deactivationReason: reason,
+        fcmToken: null,
+      },
+      select: userSelect,
+    });
+  } catch (err) {
+    // Split-brain: the Clerk ban succeeded but the local write failed. We do
+    // NOT auto-unban as a compensating action — a rollback unban can itself
+    // fail, and restoring sign-in for someone HR has chosen to offboard is the
+    // more dangerous outcome. The ban stands (access is already denied), the
+    // local row stays ACTIVE, and this is logged loudly for manual
+    // reconciliation. Re-running deactivate once the DB is healthy is safe:
+    // banUser is idempotent.
+    console.error('[users/deactivate] CRITICAL: Clerk ban succeeded but local DB update failed', JSON.stringify({
+      event: 'LOCAL_SYNC_FAILED', severity: 'high', agencyId, actorId: req.user.id, targetId: id, error: err.message,
+    }));
+    return fail(
+      res,
+      'Sign-in was suspended with the identity provider but the local record failed to save. Please retry.',
+      500,
+      { code: 'LOCAL_SYNC_FAILED' },
+    );
+  }
 
   await createAuditLog({
     ...auditContext(req),
@@ -472,29 +523,74 @@ async function deactivateUser(req, res) {
  * deactivation metadata. Nothing else changes: role, employment fields, Clerk
  * identity/membership, and all history (shifts, timesheets, training, DBS, RTW,
  * audit) are preserved, and the same User.id is reused.
+ *
+ * Account Suspension / Clerk Security V1 — the Clerk unban is the first
+ * mutation; the local status is flipped ONLY after it succeeds. unbanUser lifts
+ * the sign-in block without touching the user's organization membership or role.
  */
 async function reactivateUser(req, res) {
   const agencyId = agencyIdFor(req);
   const { id } = req.params;
 
-  const target = await prisma.user.findFirst({ where: { id, agencyId }, select: userSelect });
+  const target = await prisma.user.findFirst({
+    where: { id, agencyId },
+    select: { ...userSelect, clerkUserId: true },
+  });
   if (!target) return notFound(res); // cross-agency / unknown look identical
 
   if (target.status === 'ACTIVE') {
     return fail(res, 'This employee is already active.', 400, { code: 'ALREADY_ACTIVE' });
   }
 
-  const user = await prisma.user.update({
-    where: { id },
-    data: {
-      status: 'ACTIVE',
-      deactivatedAt: null,
-      deactivatedById: null,
-      deactivationReason: null,
-      // fcmToken stays null — the device re-registers on next sign-in.
-    },
-    select: userSelect,
-  });
+  if (!target.clerkUserId) {
+    return fail(
+      res,
+      'This employee has no linked sign-in identity, so their access cannot be restored.',
+      409,
+      { code: 'NO_CLERK_IDENTITY' },
+    );
+  }
+
+  try {
+    await clerkClient.users.unbanUser(target.clerkUserId);
+  } catch (err) {
+    console.error('[users/reactivate] Clerk unban failed:', err.message);
+    return fail(
+      res,
+      'Could not restore this employee’s sign-in with the identity provider. No change was made.',
+      502,
+      { code: 'CLERK_REACTIVATION_FAILED' },
+    );
+  }
+
+  let user;
+  try {
+    user = await prisma.user.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        deactivatedAt: null,
+        deactivatedById: null,
+        deactivationReason: null,
+        // fcmToken stays null — the device re-registers on next sign-in.
+      },
+      select: userSelect,
+    });
+  } catch (err) {
+    // Split-brain: the Clerk unban succeeded but the local write failed. The
+    // local row is still DEACTIVATED, so auth.js keeps blocking this user
+    // (fail-closed). We do NOT auto re-ban — re-running reactivate once the DB
+    // is healthy is safe (unbanUser is idempotent).
+    console.error('[users/reactivate] CRITICAL: Clerk unban succeeded but local DB update failed', JSON.stringify({
+      event: 'LOCAL_SYNC_FAILED', severity: 'high', agencyId, actorId: req.user.id, targetId: id, error: err.message,
+    }));
+    return fail(
+      res,
+      'Sign-in was restored with the identity provider but the local record failed to save. Please retry.',
+      500,
+      { code: 'LOCAL_SYNC_FAILED' },
+    );
+  }
 
   await createAuditLog({
     ...auditContext(req),

@@ -16,6 +16,8 @@ jest.mock('../src/utils/clerkClient', () => ({
   },
   users: {
     getUser: jest.fn(async () => mockClerkUser),
+    banUser: jest.fn(async () => ({})),
+    unbanUser: jest.fn(async () => ({})),
   },
 }));
 jest.mock('@clerk/express/webhooks', () => ({ verifyWebhook: jest.fn() }));
@@ -879,7 +881,9 @@ describe('Employee Detail V1', () => {
   });
 
   test('existing deactivation behaviour is unchanged and surfaces on the detail response', async () => {
-    const victim = await mkUser(agencyA.id, 'WORKER', `det-deact-${Math.random().toString(16).slice(2)}`);
+    const victim = await mkUser(agencyA.id, 'WORKER', `det-deact-${Math.random().toString(16).slice(2)}`, {
+      clerkUserId: `clerk_victim_${Math.random().toString(16).slice(2)}`,
+    });
     const d = await as(hrA).post(`/users/${victim.id}/deactivate`, { reason: 'Left the company' });
     expect(d.status).toBe(200);
 
