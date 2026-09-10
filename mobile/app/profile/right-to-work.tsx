@@ -8,7 +8,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import * as DocumentPicker from 'expo-document-picker';
 import {
   ArrowLeft, ShieldCheck, ShieldWarning, Warning, ArrowSquareOut,
   FileArrowUp, FileText, CheckCircle,
@@ -113,6 +112,20 @@ export default function RightToWorkScreen() {
 
   // PDF documents only — this deliberately does NOT open the photo library.
   async function pickDocument() {
+    // Loaded lazily: `expo-document-picker`'s native module throws at import time
+    // when it isn't compiled into the running binary (dev build predating the
+    // package). Degrade to a clear message instead of crashing the screen.
+    let DocumentPicker: typeof import('expo-document-picker');
+    try {
+      DocumentPicker = require('expo-document-picker');
+    } catch {
+      Alert.alert(
+        'Update required',
+        'Uploading a document needs a newer build of the ShiftGO app. Please update the app, then try again. You can still save your share code above.',
+      );
+      return;
+    }
+
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       multiple: false,
