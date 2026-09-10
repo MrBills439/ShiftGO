@@ -16,24 +16,27 @@ export type EmploymentInput = {
   employmentType?: EmploymentType | null;
 };
 
-// HR Onboarding V1: personal + emergency-contact fields, staged in PendingEmployee
-// and applied to the User by the membership webhook. All optional except name/email.
-export type OnboardingInput = {
+// Personal + emergency-contact fields. On create they are staged in
+// PendingEmployee and applied by the webhook; on update (PATCH /users/:id) they
+// are written straight to the User. `name`/`email` are never included.
+export type PersonalInput = {
+  phone?: string | null;
   address?: string | null;
   employmentStartDate?: string | null; // ISO date ("YYYY-MM-DD")
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
   emergencyContactRelationship?: string | null;
 };
+/** @deprecated kept as an alias — use PersonalInput */
+export type OnboardingInput = PersonalInput;
 
 export type CreateUserInput = {
   name: string;
   email: string;
   role: Role;
-  phone?: string;
   password?: string;
   temporaryPassword?: string;
-} & EmploymentInput & OnboardingInput;
+} & EmploymentInput & PersonalInput;
 
 export type UserFilters = {
   role?: string;
@@ -62,6 +65,20 @@ export function useUsers(roleOrFilters?: string | UserFilters, status: UserStatu
   });
 }
 
+/** One employee (GET /users/:id) — MANAGER+ only; a bad / cross-agency id 404s. */
+export function useUser(id: string | undefined, enabled = true) {
+  return useQuery<User>({
+    queryKey: ['users', 'detail', id],
+    queryFn: async () => {
+      const { data } = await api.get(`/users/${id}`);
+      return data.data;
+    },
+    enabled: enabled && !!id,
+    retry: false, // a 404 is a real answer, not a transient failure
+    staleTime: 30_000,
+  });
+}
+
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
@@ -73,7 +90,8 @@ export function useCreateUser() {
 export function useUpdateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: string } & EmploymentInput) => api.patch(`/users/${id}`, body),
+    mutationFn: ({ id, ...body }: { id: string } & EmploymentInput & PersonalInput) => api.patch(`/users/${id}`, body),
+    // ['users'] is a prefix of both ['users', params] and ['users','detail',id].
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
 }

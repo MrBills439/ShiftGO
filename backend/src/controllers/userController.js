@@ -23,6 +23,19 @@ const { ROLE_TO_ORG_ROLE } = require('../utils/clerkRoles');
 const { buildEmploymentData, rethrowP2002 } = require('../services/employmentService');
 const { generateEmployeeId } = require('../services/employeeIdService');
 
+/** "" / whitespace / non-string → null; otherwise the trimmed string. */
+const trimOrNull = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+/** ISO date string → Date; null for empty / invalid. */
+const parseDateOrNull = (v) => {
+  if (v === undefined || v === null || v === '') return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+// Personal + emergency-contact scalars editable on user create AND update.
+// name/email are deliberately excluded (name follows Clerk sync rules; email is
+// immutable). Only keys present in the request body are touched.
+const PERSONAL_STRING_KEYS = ['phone', 'address', 'emergencyContactName', 'emergencyContactPhone', 'emergencyContactRelationship'];
+
 // Whole-Workforce Phase 1: employment scalars + related-record labels. Selected
 // (not deep-included) so a directory page never N+1s.
 const employmentSelect = {
@@ -56,11 +69,13 @@ const userSelect = {
   role: true,
   status: true,
   phone: true,
+  address: true,
   profilePicture: true,
   contractedHours: true,
   deactivatedAt: true,
   deactivatedById: true,
   deactivationReason: true,
+  deactivatedBy: { select: { id: true, name: true } },
   createdAt: true,
   ...employmentSelect,
   ...onboardingSelect,
@@ -202,20 +217,12 @@ async function createUser(req, res) {
   // Only keys actually present in the request are staged — a retry that omits a
   // field leaves the previously staged value in place (same semantics as the
   // employment fields). `name` is always present (required by the validator).
-  const trimOrNull = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
-  const parseDateOrNull = (v) => {
-    if (v === undefined || v === null || v === '') return null;
-    const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? null : d;
-  };
   const personalStaging = {};
   if (req.body.name !== undefined) personalStaging.name = trimOrNull(req.body.name);
-  if (req.body.phone !== undefined) personalStaging.phone = trimOrNull(req.body.phone);
-  if (req.body.address !== undefined) personalStaging.address = trimOrNull(req.body.address);
+  for (const key of PERSONAL_STRING_KEYS) {
+    if (req.body[key] !== undefined) personalStaging[key] = trimOrNull(req.body[key]);
+  }
   if (req.body.employmentStartDate !== undefined) personalStaging.employmentStartDate = parseDateOrNull(req.body.employmentStartDate);
-  if (req.body.emergencyContactName !== undefined) personalStaging.emergencyContactName = trimOrNull(req.body.emergencyContactName);
-  if (req.body.emergencyContactPhone !== undefined) personalStaging.emergencyContactPhone = trimOrNull(req.body.emergencyContactPhone);
-  if (req.body.emergencyContactRelationship !== undefined) personalStaging.emergencyContactRelationship = trimOrNull(req.body.emergencyContactRelationship);
 
   // Staff onboarding sends a Clerk organization invitation rather than creating
   // a local password — the User row is created by the organizationMembership
@@ -327,6 +334,13 @@ async function updateUser(req, res) {
     data.contractedHours =
       req.body.contractedHours === '' || req.body.contractedHours === null ? null : Number(req.body.contractedHours);
   }
+  // Employee Detail V1: HR / management may edit personal + emergency-contact
+  // scalars here. name/email are NOT accepted via this route. Only keys present
+  // in the body are touched — omitted fields keep their current value.
+  for (const key of PERSONAL_STRING_KEYS) {
+    if (req.body[key] !== undefined) data[key] = trimOrNull(req.body[key]);
+  }
+  if (req.body.employmentStartDate !== undefined) data.employmentStartDate = parseDateOrNull(req.body.employmentStartDate);
   // Whole-Workforce Phase 1: HR / management may also edit employment metadata.
   try {
     Object.assign(data, await buildEmploymentData(req.body, agencyId, { userId: req.params.id, existing }));

@@ -67,7 +67,12 @@ afterEach(async () => {
   await prisma.user.deleteMany({ where: { agencyId: { in: [agencyA.id, agencyB.id] }, email: { contains: 'newhire' } } });
   await prisma.user.updateMany({
     where: { id: { in: [wkrA.id, mgrA.id] } },
-    data: { departmentId: null, jobTitleId: null, primaryLocationId: null, lineManagerId: null, employeeNumber: null, employmentType: null, workPatternType: 'ROTA', contractedHours: null },
+    data: {
+      departmentId: null, jobTitleId: null, primaryLocationId: null, lineManagerId: null,
+      employeeNumber: null, employmentType: null, workPatternType: 'ROTA', contractedHours: null,
+      phone: null, address: null, employmentStartDate: null,
+      emergencyContactName: null, emergencyContactPhone: null, emergencyContactRelationship: null,
+    },
   });
 });
 
@@ -767,5 +772,123 @@ describe('HR Onboarding V1', () => {
     expect(pendingA.consumedAt).toBeNull();
 
     await prisma.user.deleteMany({ where: { clerkUserId } });
+  });
+});
+
+// ═════════════════ Employee Detail V1 — GET /users/:id + personal edits ═════════════════
+describe('Employee Detail V1', () => {
+  test('GET /users/:id returns identity, employment, personal, emergency contact + deactivation metadata (same agency)', async () => {
+    await as(hrA).patch(`/users/${wkrA.id}`, {
+      departmentId: deptCareA.id, jobTitleId: jtSupportA.id, primaryLocationId: locHouseA.id,
+      contractedHours: 32, employmentType: 'PERMANENT', workPatternType: 'FIXED',
+      phone: '+44 7700 900500', address: '9 Elm Road',
+      employmentStartDate: '2026-11-03',
+      emergencyContactName: 'Dana Kin', emergencyContactPhone: '+44 7700 900600', emergencyContactRelationship: 'Parent',
+    });
+
+    const res = await as(mgrA).get(`/users/${wkrA.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      id: wkrA.id, name: wkrA.name, email: wkrA.email, role: 'WORKER', status: 'ACTIVE',
+      phone: '+44 7700 900500', address: '9 Elm Road',
+      contractedHours: 32, employmentType: 'PERMANENT', workPatternType: 'FIXED',
+      emergencyContactName: 'Dana Kin', emergencyContactPhone: '+44 7700 900600', emergencyContactRelationship: 'Parent',
+      department: { id: deptCareA.id, name: 'Care' },
+      jobTitle: { id: jtSupportA.id, name: 'Support Worker' },
+      primaryLocation: { id: locHouseA.id, name: 'Canterbury House' },
+    });
+    expect(new Date(res.body.data.employmentStartDate).toISOString().slice(0, 10)).toBe('2026-11-03');
+    // deactivation metadata keys are present (null on an active user)
+    expect(res.body.data).toHaveProperty('deactivatedAt', null);
+    expect(res.body.data).toHaveProperty('deactivatedBy', null);
+    // no Clerk internals / secrets
+    expect(res.body.data).not.toHaveProperty('clerkUserId');
+    expect(res.body.data).not.toHaveProperty('passwordHash');
+  });
+
+  test('a cross-agency employee is 404 — indistinguishable from a non-existent id', async () => {
+    const crossAgency = await as(hrB).get(`/users/${wkrA.id}`);
+    const bogus = await as(hrB).get('/users/does-not-exist-000000');
+    expect(crossAgency.status).toBe(404);
+    expect(bogus.status).toBe(404);
+    expect(crossAgency.body).toEqual(bogus.body); // no existence leak
+  });
+
+  test('a WORKER cannot read another employee (roleGuard unchanged)', async () => {
+    expect((await as(wkrA).get(`/users/${mgrA.id}`)).status).toBe(403);
+  });
+
+  test('HR/Manager can edit phone / address / emergency contact via PATCH /users/:id', async () => {
+    const res = await as(mgrA).patch(`/users/${wkrA.id}`, {
+      phone: '+44 7700 900777',
+      address: '77 Maple Avenue, London',
+      emergencyContactName: 'Alex Kin',
+      emergencyContactPhone: '+44 7700 900888',
+      emergencyContactRelationship: 'Spouse',
+    });
+    expect(res.status).toBe(200);
+    const fresh = await prisma.user.findUnique({ where: { id: wkrA.id } });
+    expect(fresh).toMatchObject({
+      phone: '+44 7700 900777', address: '77 Maple Avenue, London',
+      emergencyContactName: 'Alex Kin', emergencyContactPhone: '+44 7700 900888', emergencyContactRelationship: 'Spouse',
+    });
+  });
+
+  test('omitted fields are preserved on PATCH; blank string clears a field', async () => {
+    await as(hrA).patch(`/users/${wkrA.id}`, { phone: '+44 111', address: '1 High St', emergencyContactName: 'Keep Me' });
+    // a later PATCH that only touches address must not wipe phone / emergency contact
+    await as(hrA).patch(`/users/${wkrA.id}`, { address: '2 Low St' });
+    let fresh = await prisma.user.findUnique({ where: { id: wkrA.id } });
+    expect(fresh).toMatchObject({ phone: '+44 111', address: '2 Low St', emergencyContactName: 'Keep Me' });
+    // an explicit empty string clears it
+    await as(hrA).patch(`/users/${wkrA.id}`, { phone: '' });
+    fresh = await prisma.user.findUnique({ where: { id: wkrA.id } });
+    expect(fresh.phone).toBeNull();
+    expect(fresh.emergencyContactName).toBe('Keep Me'); // still untouched
+  });
+
+  test('invalid personal-field lengths are rejected (400)', async () => {
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { address: 'x'.repeat(501) })).status).toBe(400);
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { emergencyContactName: 'x'.repeat(121) })).status).toBe(400);
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { emergencyContactPhone: 'x'.repeat(41) })).status).toBe(400);
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { emergencyContactRelationship: 'x'.repeat(81) })).status).toBe(400);
+    expect((await as(hrA).patch(`/users/${wkrA.id}`, { employmentStartDate: 'nope' })).status).toBe(400);
+  });
+
+  test('employment edits still work and Department → Job Title validation is still enforced', async () => {
+    const ok = await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptCareA.id, jobTitleId: jtSupportA.id });
+    expect(ok.status).toBe(200);
+    // jtSupportA belongs to Care — pairing it with Operations must still 400
+    const bad = await as(hrA).patch(`/users/${wkrA.id}`, { departmentId: deptOpsA.id, jobTitleId: jtSupportA.id });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe('JOB_TITLE_DEPARTMENT_MISMATCH');
+  });
+
+  test('a personal-only PATCH never touches the employee number', async () => {
+    await prisma.user.update({ where: { id: wkrA.id }, data: { employeeNumber: 'FIXED-77' } });
+    await as(hrA).patch(`/users/${wkrA.id}`, { phone: '+44 7700 900999', address: 'somewhere' });
+    const fresh = await prisma.user.findUnique({ where: { id: wkrA.id } });
+    expect(fresh.employeeNumber).toBe('FIXED-77');
+  });
+
+  test('cross-agency PATCH is blocked (404) and writes nothing', async () => {
+    const res = await as(hrB).patch(`/users/${wkrA.id}`, { phone: 'HACKED' });
+    expect(res.status).toBe(404);
+    const fresh = await prisma.user.findUnique({ where: { id: wkrA.id } });
+    expect(fresh.phone).not.toBe('HACKED');
+  });
+
+  test('existing deactivation behaviour is unchanged and surfaces on the detail response', async () => {
+    const victim = await mkUser(agencyA.id, 'WORKER', `det-deact-${Math.random().toString(16).slice(2)}`);
+    const d = await as(hrA).post(`/users/${victim.id}/deactivate`, { reason: 'Left the company' });
+    expect(d.status).toBe(200);
+
+    const detail = await as(hrA).get(`/users/${victim.id}`);
+    expect(detail.body.data.status).toBe('DEACTIVATED');
+    expect(detail.body.data.deactivationReason).toBe('Left the company');
+    expect(detail.body.data.deactivatedBy).toMatchObject({ id: hrA.id });
+    expect(detail.body.data.deactivatedAt).not.toBeNull();
+
+    await prisma.user.delete({ where: { id: victim.id } });
   });
 });

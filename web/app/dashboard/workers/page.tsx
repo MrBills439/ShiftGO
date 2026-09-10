@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   PlusIcon, MagnifyingGlassIcon, UsersThreeIcon, UserCircleMinusIcon,
-  ClockIcon, ShieldCheckIcon, PencilSimpleIcon,
+  ClockIcon, ShieldCheckIcon, PencilSimpleIcon, EyeIcon,
   BuildingsIcon, UserMinusIcon as DeactivateIcon,
 } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
@@ -443,7 +444,13 @@ export default function StaffPage() {
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="font-semibold text-fg truncate">{u.name}</p>
+                  {canManageStaff ? (
+                    <Link href={`/dashboard/workers/${u.id}`} className="block truncate font-semibold text-fg hover:text-brand-600 hover:underline">
+                      {u.name}
+                    </Link>
+                  ) : (
+                    <p className="truncate font-semibold text-fg">{u.name}</p>
+                  )}
                   <p className="text-xs text-fg-muted truncate">{u.email}</p>
                 </div>
               </div>
@@ -535,6 +542,16 @@ export default function StaffPage() {
             className: 'text-right',
             accessor: (u) => (
               <div className="flex items-center justify-end gap-1">
+                {canManageStaff && (
+                  <Link
+                    href={`/dashboard/workers/${u.id}`}
+                    className="p-1.5 rounded text-fg-muted hover:text-primary hover:bg-primary/10 transition-colors"
+                    aria-label={`Open profile for ${u.name}`}
+                    title="Open employee profile"
+                  >
+                    <EyeIcon size={15} />
+                  </Link>
+                )}
                 {canManageStaff && u.status !== 'DEACTIVATED' && (
                   <button
                     onClick={() => openEmployment(u)}

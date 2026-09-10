@@ -78,11 +78,13 @@ export interface User {
   role: Role;
   status?: 'ACTIVE' | 'DEACTIVATED';
   phone?: string | null;
+  address?: string | null;
   profilePicture?: string | null;
   contractedHours?: number | null;
   deactivatedAt?: string | null;
   deactivatedById?: string | null;
   deactivationReason?: string | null;
+  deactivatedBy?: { id: string; name: string } | null;
   createdAt: string;
   // ── Whole-Workforce Phase 1 (all optional; a bare user has them null) ──
   employeeNumber?: string | null;
