@@ -97,6 +97,17 @@ enum ShiftType {
   SLEEP_IN
 }
 
+// Office Attendance Foundation V1 — discriminates a care rota (House-backed)
+// shift from a future Location-backed work occurrence. Every existing shift and
+// every shift the current code creates is ROTA (column default). FIXED /
+// FLEXIBLE are foundation-only values: nothing creates, reads, or branches on
+// them yet.
+enum ShiftKind {
+  ROTA
+  FIXED
+  FLEXIBLE
+}
+
 enum LeaveRequestStatus {
   PENDING
   APPROVED
@@ -381,13 +392,18 @@ model HouseTeamLeader {
 model Shift {
   id                 String      @id @default(cuid())
   agencyId           String      @default("default-agency")
+  // Care rota shifts are House-backed and REQUIRED to be so. `locationId` is an
+  // Office Attendance Foundation field only — always NULL today; no create /
+  // update / rota / claim path sets it. `houseId` stays required in this phase.
   houseId            String
+  locationId         String?
   workerId           String?
   createdById        String
   startTime          DateTime
   endTime            DateTime
   date               DateTime
   shiftType          ShiftType   @default(LONG_DAY)
+  kind               ShiftKind   @default(ROTA)
   status             ShiftStatus @default(SCHEDULED)
   eligibleRoles      String[]    @default([])
   urgent             Boolean     @default(false)
@@ -397,6 +413,7 @@ model Shift {
   createdAt          DateTime    @default(now())
 
   house             House              @relation(fields: [houseId], references: [id])
+  location          Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
   worker            User?              @relation("ShiftWorker", fields: [workerId], references: [id])
   createdBy         User               @relation("ShiftCreator", fields: [createdById], references: [id])
   cancelledBy       User?              @relation("ShiftCanceller", fields: [cancelledById], references: [id])
@@ -414,6 +431,8 @@ model Shift {
   // Cross-agency time-window scan used by missedClockInJob every 5 minutes
   // (WHERE startTime BETWEEN ? AND ?), which no agency-scoped index can serve.
   @@index([startTime])
+  // Foundation: future Location-scoped shift lookups (unused today).
+  @@index([agencyId, locationId])
 }
 
 model ShiftClaim {
@@ -456,13 +475,19 @@ model ClockEvent {
   verification          String?
   mockLocationSuspected Boolean         @default(false)
 
-  worker User   @relation(fields: [workerId], references: [id])
-  house  House  @relation(fields: [houseId], references: [id])
-  shift  Shift  @relation(fields: [shiftId], references: [id])
-  agency Agency @relation(fields: [agencyId], references: [id])
+  // Office Attendance Foundation field only — always NULL today. Care clock
+  // events keep writing `houseId` exactly as before; nothing reads this yet.
+  locationId String?
+
+  worker   User      @relation(fields: [workerId], references: [id])
+  house    House     @relation(fields: [houseId], references: [id])
+  location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  shift    Shift     @relation(fields: [shiftId], references: [id])
+  agency   Agency    @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
   @@index([shiftId, type])
+  @@index([locationId])
 }
 
 // Live attendance-monitoring state for one clocked-in shift. Created on clock-in,
@@ -494,13 +519,19 @@ model AttendanceMonitor {
   createdAt                  DateTime       @default(now())
   updatedAt                  DateTime       @updatedAt
 
-  shift  Shift  @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  worker User   @relation(fields: [workerId], references: [id])
-  house  House  @relation(fields: [houseId], references: [id])
-  agency Agency @relation(fields: [agencyId], references: [id])
+  // Office Attendance Foundation field only — always NULL today. Care monitors
+  // keep writing `houseId` exactly as before; nothing reads this yet.
+  locationId String?
+
+  shift    Shift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  worker   User      @relation(fields: [workerId], references: [id])
+  house    House     @relation(fields: [houseId], references: [id])
+  location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  agency   Agency    @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
   @@index([closedAt])
+  @@index([locationId])
 }
 
 model AuditLog {
@@ -551,18 +582,24 @@ model Timesheet {
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
 
-  worker      User   @relation("WorkerTimesheets", fields: [workerId], references: [id])
-  house       House  @relation(fields: [houseId], references: [id])
-  shift       Shift  @relation(fields: [shiftId], references: [id])
-  confirmedBy User?  @relation("ConfirmedTimesheets", fields: [confirmedById], references: [id])
-  reviewedBy  User?  @relation("ReviewedTimesheets", fields: [reviewedById], references: [id])
-  agency      Agency @relation(fields: [agencyId], references: [id])
+  // Office Attendance Foundation field only — always NULL today. Care timesheets
+  // keep writing `houseId` exactly as before; nothing reads this yet.
+  locationId String?
+
+  worker      User      @relation("WorkerTimesheets", fields: [workerId], references: [id])
+  house       House     @relation(fields: [houseId], references: [id])
+  location    Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  shift       Shift     @relation(fields: [shiftId], references: [id])
+  confirmedBy User?     @relation("ConfirmedTimesheets", fields: [confirmedById], references: [id])
+  reviewedBy  User?     @relation("ReviewedTimesheets", fields: [reviewedById], references: [id])
+  agency      Agency    @relation(fields: [agencyId], references: [id])
 
   @@index([agencyId])
   @@index([agencyId, workerId]) // GET /timesheets/me
   @@index([agencyId, houseId]) // GET /timesheets/house/:id + PDF export
   @@index([agencyId, status]) // dashboard pending-timesheet list + count
   @@index([agencyId, needsReview]) // dashboard "needs review" list (rare -> true)
+  @@index([locationId])
 }
 
 model Notification {
@@ -873,6 +910,14 @@ model Location {
   agency       Agency @relation(fields: [agencyId], references: [id])
   houses       House[]
   primaryUsers User[] @relation("UserPrimaryLocation")
+
+  // Office Attendance Foundation back-relations. Nothing references a Location
+  // through any of these yet — they exist so a future Location-backed
+  // attendance phase has the relations in place. Care attendance is unaffected.
+  shifts             Shift[]
+  clockEvents        ClockEvent[]
+  attendanceMonitors AttendanceMonitor[]
+  timesheets         Timesheet[]
 
   @@index([agencyId, active])
 }
