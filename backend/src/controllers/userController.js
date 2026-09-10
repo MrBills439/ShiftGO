@@ -39,6 +39,15 @@ const employmentSelect = {
   lineManager: { select: { id: true, name: true } },
 };
 
+// HR Onboarding V1: hire date + the employee's own emergency contact. Read-only
+// here (no editor yet) — surfaced so a future profile/detail view can read them.
+const onboardingSelect = {
+  employmentStartDate: true,
+  emergencyContactName: true,
+  emergencyContactPhone: true,
+  emergencyContactRelationship: true,
+};
+
 const userSelect = {
   id: true,
   agencyId: true,
@@ -54,6 +63,7 @@ const userSelect = {
   deactivationReason: true,
   createdAt: true,
   ...employmentSelect,
+  ...onboardingSelect,
 };
 
 const meSelect = {
@@ -62,6 +72,7 @@ const meSelect = {
   onboardedAt: true, createdAt: true, updatedAt: true,
   agency: { select: { name: true } },
   ...employmentSelect,
+  ...onboardingSelect,
 };
 
 /** True when `name` is missing or is really just the email address — the state
@@ -186,6 +197,26 @@ async function createUser(req, res) {
   }
   const { employeeNumber: _customEmployeeNumber, ...employmentRest } = employmentData;
 
+  // HR Onboarding V1: personal + emergency-contact values are staged on the
+  // PendingEmployee row and applied to the User by the membership webhook.
+  // Only keys actually present in the request are staged — a retry that omits a
+  // field leaves the previously staged value in place (same semantics as the
+  // employment fields). `name` is always present (required by the validator).
+  const trimOrNull = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+  const parseDateOrNull = (v) => {
+    if (v === undefined || v === null || v === '') return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const personalStaging = {};
+  if (req.body.name !== undefined) personalStaging.name = trimOrNull(req.body.name);
+  if (req.body.phone !== undefined) personalStaging.phone = trimOrNull(req.body.phone);
+  if (req.body.address !== undefined) personalStaging.address = trimOrNull(req.body.address);
+  if (req.body.employmentStartDate !== undefined) personalStaging.employmentStartDate = parseDateOrNull(req.body.employmentStartDate);
+  if (req.body.emergencyContactName !== undefined) personalStaging.emergencyContactName = trimOrNull(req.body.emergencyContactName);
+  if (req.body.emergencyContactPhone !== undefined) personalStaging.emergencyContactPhone = trimOrNull(req.body.emergencyContactPhone);
+  if (req.body.emergencyContactRelationship !== undefined) personalStaging.emergencyContactRelationship = trimOrNull(req.body.emergencyContactRelationship);
+
   // Staff onboarding sends a Clerk organization invitation rather than creating
   // a local password — the User row is created by the organizationMembership
   // webhook once the invite is accepted.
@@ -205,13 +236,13 @@ async function createUser(req, res) {
       create: {
         agencyId, email, role: req.body.role, invitedById: req.user.id,
         expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
-        contractedHours, employeeNumber: stagedEmployeeNumber, ...employmentRest,
+        contractedHours, employeeNumber: stagedEmployeeNumber, ...employmentRest, ...personalStaging,
       },
       update: {
         role: req.body.role, invitedById: req.user.id,
         expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
         consumedAt: null, needsReview: false, reviewNote: null, invitationId: null,
-        contractedHours: contractedHours ?? null, employeeNumber: stagedEmployeeNumber, ...employmentRest,
+        contractedHours: contractedHours ?? null, employeeNumber: stagedEmployeeNumber, ...employmentRest, ...personalStaging,
       },
     });
   } catch (err) {

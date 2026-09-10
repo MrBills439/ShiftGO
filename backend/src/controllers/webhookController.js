@@ -56,7 +56,8 @@ async function handleMembershipUpsert(data) {
   const clerkUser = await clerkClient.users.getUser(clerkUserId);
   const email = clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress
     ?? clerkUser.emailAddresses[0]?.emailAddress;
-  const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || email;
+  // A REAL Clerk name, or '' when Clerk has none yet (common right after invite).
+  const clerkName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ').trim();
 
   if (!email) {
     console.warn(`[webhook] Clerk user ${clerkUserId} has no email address — skipping`);
@@ -65,8 +66,12 @@ async function handleMembershipUpsert(data) {
 
   const user = await prisma.user.upsert({
     where: { clerkUserId },
-    update: { agencyId: agency.id, role, name, email, status: 'ACTIVE' },
-    create: { clerkUserId, agencyId: agency.id, role, name, email, status: 'ACTIVE' },
+    // Sync `name` from Clerk ONLY when Clerk actually holds a real one. A blank /
+    // email-like Clerk name must never overwrite a name ShiftGO already has (HR
+    // entered it during onboarding, or a prior good sync). Same guard as
+    // handleUserUpdated. On create there is no existing row, so fall back to email.
+    update: { agencyId: agency.id, role, email, status: 'ACTIVE', ...(clerkName ? { name: clerkName } : {}) },
+    create: { clerkUserId, agencyId: agency.id, role, email, status: 'ACTIVE', name: clerkName || email },
   });
 
   // Whole-Workforce Phase 1: apply any HR-staged employment data for THIS
@@ -99,6 +104,24 @@ async function consumePendingEmployee(user, agencyId, email) {
   if (pending.workPatternType) data.workPatternType = pending.workPatternType;
   if (pending.employmentType) data.employmentType = pending.employmentType;
   if (pending.employeeNumber) data.employeeNumber = pending.employeeNumber;
+
+  // HR Onboarding V1 personal fields — no revalidation needed (free-text /
+  // dates, not agency-scoped references).
+  if (pending.phone) data.phone = pending.phone;
+  if (pending.address) data.address = pending.address;
+  if (pending.employmentStartDate) data.employmentStartDate = pending.employmentStartDate;
+  if (pending.emergencyContactName) data.emergencyContactName = pending.emergencyContactName;
+  if (pending.emergencyContactPhone) data.emergencyContactPhone = pending.emergencyContactPhone;
+  if (pending.emergencyContactRelationship) data.emergencyContactRelationship = pending.emergencyContactRelationship;
+
+  // Name authority: at INITIAL consumption a non-empty HR-staged name wins over
+  // whatever Clerk gave (often just the email until the person completes their
+  // Clerk profile). The `consumedAt` guard means this runs exactly once; after
+  // that, legitimate Clerk `user.updated` syncs continue (never with a blank).
+  const stagedName = (pending.name || '').trim();
+  if (stagedName && stagedName.toLowerCase() !== email.toLowerCase()) {
+    data.name = stagedName;
+  }
 
   if (pending.departmentId) {
     const d = await prisma.department.findFirst({ where: { id: pending.departmentId, agencyId, active: true }, select: { id: true } });

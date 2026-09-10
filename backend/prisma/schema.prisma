@@ -247,6 +247,14 @@ model User {
   workPatternType   WorkPatternType @default(ROTA)
   employmentType    EmploymentType?
 
+  // ── HR Onboarding V1 (all nullable, additive). Employment start date is the
+  //    HR-meaningful hire date (distinct from createdAt = row creation).
+  //    Emergency contact is the employee's own — NOT SupportedPerson's. ──
+  employmentStartDate          DateTime?
+  emergencyContactName         String?
+  emergencyContactPhone        String?
+  emergencyContactRelationship String?
+
   managedHouses         House[]              @relation("ManagerHouses")
   workerHouses          HouseWorker[]
   teamLeaderHouses      HouseTeamLeader[]
@@ -888,6 +896,16 @@ model PendingEmployee {
   contractedHours   Float?
   workPatternType   WorkPatternType @default(ROTA)
   employmentType    EmploymentType?
+  // ── HR Onboarding V1: personal + emergency-contact values staged here before
+  //    the Clerk invite, applied to the User by the membership webhook. All
+  //    nullable; a legacy invite without them still works. ──
+  name                         String? // HR-entered legal/display name (see name-authority rule)
+  phone                        String?
+  address                      String?
+  employmentStartDate          DateTime?
+  emergencyContactName         String?
+  emergencyContactPhone        String?
+  emergencyContactRelationship String?
   invitedById       String?
   consumedAt        DateTime?
   // Set true when the membership webhook could not apply every staged field

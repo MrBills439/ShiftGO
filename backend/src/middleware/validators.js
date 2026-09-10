@@ -187,6 +187,28 @@ const validators = {
       .withMessage('Phone must be 40 characters or fewer'),
     // ── Whole-Workforce Phase 1: optional employment fields ──
     ...employmentBody,
+    // ── HR Onboarding V1: optional personal + emergency-contact fields ──
+    body('address')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ max: 500 })
+      .withMessage('Address must be 500 characters or fewer'),
+    optionalIsoDate('employmentStartDate', 'Employment start date'),
+    body('emergencyContactName')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ max: 120 })
+      .withMessage('Emergency contact name must be 120 characters or fewer'),
+    body('emergencyContactPhone')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ max: 40 })
+      .withMessage('Emergency contact phone must be 40 characters or fewer'),
+    body('emergencyContactRelationship')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ max: 80 })
+      .withMessage('Emergency contact relationship must be 80 characters or fewer'),
     handleValidationErrors,
   ],
 

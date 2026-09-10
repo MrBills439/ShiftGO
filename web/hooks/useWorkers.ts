@@ -16,6 +16,16 @@ export type EmploymentInput = {
   employmentType?: EmploymentType | null;
 };
 
+// HR Onboarding V1: personal + emergency-contact fields, staged in PendingEmployee
+// and applied to the User by the membership webhook. All optional except name/email.
+export type OnboardingInput = {
+  address?: string | null;
+  employmentStartDate?: string | null; // ISO date ("YYYY-MM-DD")
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyContactRelationship?: string | null;
+};
+
 export type CreateUserInput = {
   name: string;
   email: string;
@@ -23,7 +33,7 @@ export type CreateUserInput = {
   phone?: string;
   password?: string;
   temporaryPassword?: string;
-} & EmploymentInput;
+} & EmploymentInput & OnboardingInput;
 
 export type UserFilters = {
   role?: string;

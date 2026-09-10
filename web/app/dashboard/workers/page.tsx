@@ -16,9 +16,8 @@ import { DataTable } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { FieldShell, Select as UiSelect, Input as UiInput } from '@/components/ui/Input';
 import { API_BASE } from '@/lib/api';
-import { useUsers, useCreateUser, useAssignWorker, useDeactivateUser, useUpdateUser, type UserStatus, type UserFilters } from '@/hooks/useWorkers';
+import { useUsers, useAssignWorker, useDeactivateUser, useUpdateUser, type UserStatus, type UserFilters } from '@/hooks/useWorkers';
 import { useHouses } from '@/hooks/useHouses';
-import { useAgency } from '@/hooks/useAgency';
 import {
   useDepartmentOptions, useJobTitleOptions, useLocationOptions,
   WORK_PATTERN_LABELS, EMPLOYMENT_TYPE_LABELS,
@@ -28,6 +27,7 @@ import { useToast } from '@/hooks/useToast';
 import { ROLE_LABELS, ROLE_META, initials } from '@/lib/roles';
 import { clsx } from 'clsx';
 import { AllocationView } from '@/components/staff/AllocationView';
+import { AddEmployeeWizard } from '@/components/staff/AddEmployeeWizard';
 import type { Role, User, WorkPatternType, EmploymentType } from '@/types';
 
 const ROLE_OPTIONS: Role[] = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
@@ -67,7 +67,6 @@ export default function StaffPage() {
   const { data: departmentOptions = [] } = useDepartmentOptions(isHrOrManager);
   const { data: jobTitleOptions = [] } = useJobTitleOptions(isHrOrManager);
   const { data: locationOptions = [] } = useLocationOptions(isHrOrManager);
-  const { data: agency } = useAgency();
   const managerCandidates = users; // scoped to same agency by the API
 
   // Department → Job Title link. Job-title options carry departmentId, so the
@@ -81,7 +80,6 @@ export default function StaffPage() {
     if (!jt) return true; // inactive / unknown — leave legacy assignments alone
     return jt.departmentId == null || jt.departmentId === deptId;
   };
-  const createUser = useCreateUser();
   const assignWorker = useAssignWorker();
   const deactivateUser = useDeactivateUser();
   const updateUser = useUpdateUser();
@@ -96,16 +94,9 @@ export default function StaffPage() {
     lineManagerId: '', contractedHours: '', workPatternType: 'ROTA' as WorkPatternType, employmentType: '' as '' | EmploymentType,
   };
   const [employmentForm, setEmploymentForm] = useState(emptyEmployment);
-  const [form, setForm] = useState({
-    name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER' as Role, ...emptyEmployment,
-  });
   const [assignHouseId, setAssignHouseId] = useState('');
   const [deactivationReason, setDeactivationReason] = useState('');
   const [deactivationError, setDeactivationError] = useState('');
-  const [createError, setCreateError] = useState('');
-  // Employee IDs are auto-generated from the agency prefix; HR opts in to typing one.
-  const [customEmpId, setCustomEmpId] = useState(false);
-  const canAutoGenerateId = !!agency?.employeeIdPrefix;
 
   function openEmployment(u: User) {
     setEmploymentForm({
@@ -208,45 +199,6 @@ export default function StaffPage() {
   }
 
   if (user && !canViewStaff) return null;
-
-  function errorMessage(e: any) {
-    const fields = e.response?.data?.error?.fields;
-    if (fields && typeof fields === 'object') {
-      return Object.values(fields).join('. ');
-    }
-    return e.response?.data?.message ?? e.response?.data?.error?.message ?? 'Failed to create user';
-  }
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    setCreateError('');
-    try {
-      const body = {
-        name: form.name.trim(),
-        email: form.email.trim(),
-        role: form.role,
-        ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
-        // Omit employeeNumber unless HR explicitly chose a custom one — the
-        // backend then auto-generates the next agency Employee ID.
-        ...(customEmpId && form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
-        ...(form.departmentId ? { departmentId: form.departmentId } : {}),
-        ...(form.jobTitleId ? { jobTitleId: form.jobTitleId } : {}),
-        ...(form.primaryLocationId ? { primaryLocationId: form.primaryLocationId } : {}),
-        ...(form.lineManagerId ? { lineManagerId: form.lineManagerId } : {}),
-        ...(form.contractedHours ? { contractedHours: parseFloat(form.contractedHours) } : {}),
-        workPatternType: form.workPatternType,
-        ...(form.employmentType ? { employmentType: form.employmentType } : {}),
-      };
-      const res = await createUser.mutateAsync(body);
-      setCreateOpen(false);
-      setForm({ name: '', email: '', phone: '', temporaryPassword: '', role: 'WORKER', ...emptyEmployment });
-      setCustomEmpId(false);
-      const empNo = (res as any)?.data?.data?.employeeNumber;
-      toast.success(empNo ? `Invitation sent — Employee ID ${empNo}` : 'Invitation sent — employment details will apply once they accept');
-    } catch (e: any) {
-      setCreateError(errorMessage(e));
-    }
-  }
 
   async function handleAssign(e: React.FormEvent) {
     e.preventDefault();
@@ -619,151 +571,16 @@ export default function StaffPage() {
         </>
       )}
 
-      {/* Create Modal */}
-      <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="Add Employee">
-        <form onSubmit={handleCreate} className="space-y-5">
-          <LoadingOverlay show={createUser.isPending} label="Sending invitation…" />
-          <p className="text-sm text-fg-muted">
-            An invitation is emailed to the person. The employment details below apply automatically once they accept.
-          </p>
-
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-fg-muted">Personal</p>
-            <div className="grid grid-cols-2 gap-3">
-              <FieldShell label="Full name *">
-                <UiInput type="text" placeholder="Jane Smith" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-              </FieldShell>
-              <FieldShell
-                label="Employee ID"
-                hint={
-                  customEmpId
-                    ? 'Custom ID — must be unique in your agency.'
-                    : canAutoGenerateId
-                      ? `Auto-generated when the invitation is sent (${agency?.nextEmployeeIdPreview}).`
-                      : 'Set an Employee ID prefix in Admin → General before adding employees.'
-                }
-              >
-                {customEmpId ? (
-                  <UiInput type="text" placeholder="E-1042" value={form.employeeNumber} onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })} />
-                ) : (
-                  <UiInput type="text" value={canAutoGenerateId ? (agency?.nextEmployeeIdPreview ?? 'Auto-generated') : 'Not available'} disabled readOnly />
-                )}
-                <label className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-muted">
-                  <input
-                    type="checkbox"
-                    checked={customEmpId}
-                    onChange={(e) => { setCustomEmpId(e.target.checked); if (!e.target.checked) setForm((f) => ({ ...f, employeeNumber: '' })); }}
-                  />
-                  Use a custom ID
-                </label>
-              </FieldShell>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <FieldShell label="Email *">
-                <UiInput type="email" placeholder="jane@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-              </FieldShell>
-              <FieldShell label="Phone">
-                <UiInput type="tel" placeholder="+44 7700 900123" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-              </FieldShell>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-fg-muted">Employment</p>
-            <div className="grid grid-cols-2 gap-3">
-              <FieldShell label="Department">
-                <UiSelect
-                  value={form.departmentId}
-                  onChange={(e) => {
-                    const departmentId = e.target.value;
-                    setForm((f) => ({
-                      ...f,
-                      departmentId,
-                      jobTitleId: jobTitleFitsDept(f.jobTitleId, departmentId) ? f.jobTitleId : '',
-                    }));
-                  }}
-                >
-                  <option value="">—</option>
-                  {departmentOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </UiSelect>
-              </FieldShell>
-              <FieldShell label="Job title" hint={!form.departmentId ? 'Select a department first.' : undefined}>
-                <UiSelect
-                  value={form.jobTitleId}
-                  disabled={!form.departmentId}
-                  onChange={(e) => setForm({ ...form, jobTitleId: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {jobTitlesForDept(form.departmentId).map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
-                </UiSelect>
-              </FieldShell>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <FieldShell label="Employment type">
-                <UiSelect value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value as EmploymentType | '' })}>
-                  <option value="">—</option>
-                  {EMPLOYMENT_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{EMPLOYMENT_TYPE_LABELS[t]}</option>)}
-                </UiSelect>
-              </FieldShell>
-              <FieldShell label="Contracted hours / week">
-                <UiInput type="number" min="0" max="168" step="0.5" placeholder="37.5" value={form.contractedHours} onChange={(e) => setForm({ ...form, contractedHours: e.target.value })} />
-              </FieldShell>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <FieldShell label="Primary location">
-                <UiSelect value={form.primaryLocationId} onChange={(e) => setForm({ ...form, primaryLocationId: e.target.value })}>
-                  <option value="">—</option>
-                  {locationOptions.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </UiSelect>
-              </FieldShell>
-              <FieldShell label="Work pattern">
-                <UiSelect value={form.workPatternType} onChange={(e) => setForm({ ...form, workPatternType: e.target.value as WorkPatternType })}>
-                  {WORK_PATTERN_OPTIONS.map((t) => <option key={t} value={t}>{WORK_PATTERN_LABELS[t]}</option>)}
-                </UiSelect>
-              </FieldShell>
-            </div>
-            <FieldShell label="Line manager">
-              <UiSelect value={form.lineManagerId} onChange={(e) => setForm({ ...form, lineManagerId: e.target.value })}>
-                <option value="">—</option>
-                {managerCandidates.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </UiSelect>
-            </FieldShell>
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-fg-muted">Access</p>
-            <FieldShell label="System permission *" hint="Standard system access is “Employee”. Job title / department describe the role.">
-              <UiSelect value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
-                {creatableRoles.map((r) => (
-                  <option key={r} value={r}>{ACCESS_LABELS[r]}</option>
-                ))}
-              </UiSelect>
-            </FieldShell>
-          </div>
-
-          {createError && (
-            <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
-              {createError}
-            </div>
-          )}
-
-          <div className="flex gap-2 justify-end pt-4">
-            <Button
-              variant="secondary"
-              onClick={() => { setCreateOpen(false); setCreateError(''); }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={createUser.isPending || (!customEmpId && !canAutoGenerateId)}
-            >
-              {createUser.isPending ? 'Sending…' : 'Send Invitation'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      {/* Add Employee — multi-step onboarding wizard (V1) */}
+      <AddEmployeeWizard
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        deptOptions={departmentOptions}
+        jobTitleOptions={jobTitleOptions}
+        locationOptions={locationOptions}
+        managers={managerCandidates}
+        creatableRoles={creatableRoles}
+      />
 
       {/* Assign House Modal */}
       <Modal

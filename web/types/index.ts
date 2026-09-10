@@ -96,6 +96,11 @@ export interface User {
   jobTitle?: { id: string; name: string } | null;
   primaryLocation?: { id: string; name: string; type: LocationType } | null;
   lineManager?: { id: string; name: string } | null;
+  // ── HR Onboarding V1 (read-only; no editor yet) ──
+  employmentStartDate?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyContactRelationship?: string | null;
 }
 
 export type ShiftType = 'LONG_DAY' | 'MID_DAY' | 'WAKE_NIGHT' | 'SLEEP_IN';

@@ -563,3 +563,209 @@ describe('onboarding hardening — onboarding-review endpoints', () => {
     await prisma.department.delete({ where: { id: tmpDept.id } });
   });
 });
+
+// ═════════════════ HR Onboarding V1 — personal + emergency contact ═════════════════
+describe('HR Onboarding V1', () => {
+  const V1 = {
+    name: 'Grace Onboarding Ltd',
+    phone: '+44 7700 900111',
+    address: '12 Oak Street, Canterbury, CT1 2AB',
+    employmentStartDate: '2026-10-01',
+    emergencyContactName: 'Sam Kin',
+    emergencyContactPhone: '+44 7700 900222',
+    emergencyContactRelationship: 'Sibling',
+  };
+  const acceptEvent = (clerkUserId, email, clerkName) => {
+    const [firstName, ...rest] = (clerkName ?? '').split(' ');
+    mockClerkUser = {
+      firstName: firstName || null,
+      lastName: rest.join(' ') || null,
+      primaryEmailAddressId: 'e1',
+      emailAddresses: [{ id: 'e1', emailAddress: email }],
+    };
+    return postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
+  };
+
+  test('a complete V1 onboarding stages every new field on PendingEmployee', async () => {
+    mockInvitationId = `inv_v1full_${suffix}`;
+    const email = `newhire-v1full-${suffix}@shiftgo.test`;
+    const res = await as(hrA).post('/users', {
+      ...V1, email, role: 'WORKER',
+      departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT',
+      primaryLocationId: locHouseA.id, lineManagerId: mgrA.id, contractedHours: 37.5, workPatternType: 'FIXED',
+    });
+    expect(res.status).toBe(201);
+
+    const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
+    expect(pending).toMatchObject({
+      name: V1.name, phone: V1.phone, address: V1.address,
+      emergencyContactName: V1.emergencyContactName,
+      emergencyContactPhone: V1.emergencyContactPhone,
+      emergencyContactRelationship: V1.emergencyContactRelationship,
+      departmentId: deptCareA.id, jobTitleId: jtSupportA.id, primaryLocationId: locHouseA.id,
+      lineManagerId: mgrA.id, contractedHours: 37.5, workPatternType: 'FIXED', employmentType: 'PERMANENT',
+    });
+    expect(new Date(pending.employmentStartDate).toISOString().slice(0, 10)).toBe('2026-10-01');
+    expect(pending.employeeNumber).toMatch(/^EMA-\d{4,}$/);
+  });
+
+  test('the webhook copies every V1 field to the User; phone is no longer dropped', async () => {
+    mockInvitationId = `inv_v1apply_${suffix}`;
+    const email = `newhire-v1apply-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'BANK' });
+
+    const clerkUserId = `user_v1apply_${suffix}`;
+    await acceptEvent(clerkUserId, email, 'Grace Onboarding Ltd');
+
+    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    expect(user).toMatchObject({
+      phone: V1.phone,
+      address: V1.address,
+      emergencyContactName: V1.emergencyContactName,
+      emergencyContactPhone: V1.emergencyContactPhone,
+      emergencyContactRelationship: V1.emergencyContactRelationship,
+      employmentType: 'BANK',
+      departmentId: deptCareA.id,
+    });
+    expect(new Date(user.employmentStartDate).toISOString().slice(0, 10)).toBe('2026-10-01');
+
+    // and it is readable through the staff API
+    const viaApi = await as(hrA).get(`/users/${user.id}`);
+    expect(viaApi.body.data).toMatchObject({
+      emergencyContactName: V1.emergencyContactName,
+      emergencyContactRelationship: V1.emergencyContactRelationship,
+    });
+  });
+
+  test('a staged HR name is preferred over an empty/email-like Clerk name at initial consumption', async () => {
+    mockInvitationId = `inv_v1name_${suffix}`;
+    const email = `newhire-v1name-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { name: 'Priya Legal Name', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
+
+    const clerkUserId = `user_v1name_${suffix}`;
+    await acceptEvent(clerkUserId, email, ''); // Clerk has NO name yet
+
+    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    expect(user.name).toBe('Priya Legal Name'); // not the email
+  });
+
+  test('a later blank Clerk name (membership.updated) cannot erase the good ShiftGO name', async () => {
+    mockInvitationId = `inv_v1nameguard_${suffix}`;
+    const email = `newhire-v1nameguard-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { name: 'Otis Legal Name', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
+    const clerkUserId = `user_v1nameguard_${suffix}`;
+    await acceptEvent(clerkUserId, email, '');
+    expect((await prisma.user.findUnique({ where: { clerkUserId } })).name).toBe('Otis Legal Name');
+
+    // a role change arrives; Clerk STILL has no name
+    await acceptEvent(clerkUserId, email, ''); // organizationMembership.created again, blank name
+    expect((await prisma.user.findUnique({ where: { clerkUserId } })).name).toBe('Otis Legal Name');
+
+    // a legitimate Clerk profile update later DOES sync a real name
+    verifyWebhook.mockResolvedValueOnce({
+      type: 'user.updated',
+      data: { id: clerkUserId, first_name: 'Otis', last_name: 'Realname', email_addresses: [{ id: 'e1', email_address: email }], primary_email_address_id: 'e1' },
+    });
+    await request(app).post('/webhooks/clerk').set('Content-Type', 'application/json').send('{}');
+    expect((await prisma.user.findUnique({ where: { clerkUserId } })).name).toBe('Otis Realname');
+  });
+
+  test('duplicate webhook delivery stays idempotent for the V1 fields', async () => {
+    mockInvitationId = `inv_v1idem_${suffix}`;
+    const email = `newhire-v1idem-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
+    const clerkUserId = `user_v1idem_${suffix}`;
+    await acceptEvent(clerkUserId, email, 'Grace Onboarding Ltd');
+    const first = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
+
+    // tamper the user, then redeliver — nothing must be re-applied
+    await prisma.user.update({ where: { clerkUserId }, data: { phone: 'CHANGED', address: 'CHANGED' } });
+    await acceptEvent(clerkUserId, email, 'Grace Onboarding Ltd');
+
+    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    expect(user.phone).toBe('CHANGED');
+    expect(user.address).toBe('CHANGED');
+    const second = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
+    expect(second.consumedAt.toISOString()).toBe(first.consumedAt.toISOString());
+  });
+
+  test('a retry updates the V1 staged values and reuses the Employee ID', async () => {
+    mockInvitationId = `inv_v1retry_${suffix}`;
+    const email = `newhire-v1retry-${suffix}@shiftgo.test`;
+    const first = await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
+    const firstNumber = first.body.data.employeeNumber;
+    expect(firstNumber).toMatch(/^EMA-\d{4,}$/);
+
+    const retry = await as(hrA).post('/users', {
+      name: 'Grace Onboarding Ltd', email, role: 'WORKER',
+      departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT',
+      phone: '+44 7700 999999', address: 'New address 42',
+    });
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.employeeNumber).toBe(firstNumber); // no fresh number burned
+
+    const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
+    expect(pending.phone).toBe('+44 7700 999999');   // updated
+    expect(pending.address).toBe('New address 42');  // updated
+    expect(pending.emergencyContactName).toBe(V1.emergencyContactName); // not re-sent -> preserved
+    expect(pending.consumedAt).toBeNull();  // consumedAt reset by the upsert
+    expect(pending.needsReview).toBe(false);
+  });
+
+  test('invalid new-field lengths and an invalid start date are rejected', async () => {
+    const base = { email: `newhire-v1bad-${suffix}@shiftgo.test`, name: 'Len Check', role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' };
+    expect((await as(hrA).post('/users', { ...base, address: 'x'.repeat(501) })).status).toBe(400);
+    expect((await as(hrA).post('/users', { ...base, emergencyContactName: 'x'.repeat(121) })).status).toBe(400);
+    expect((await as(hrA).post('/users', { ...base, emergencyContactPhone: 'x'.repeat(41) })).status).toBe(400);
+    expect((await as(hrA).post('/users', { ...base, emergencyContactRelationship: 'x'.repeat(81) })).status).toBe(400);
+    expect((await as(hrA).post('/users', { ...base, employmentStartDate: 'not-a-date' })).status).toBe(400);
+    expect(await prisma.pendingEmployee.count({ where: { agencyId: agencyA.id } })).toBe(0);
+  });
+
+  test('a legacy invite with no optional V1 fields still works end to end', async () => {
+    mockInvitationId = `inv_v1legacy_${suffix}`;
+    const email = `newhire-v1legacy-${suffix}@shiftgo.test`;
+    const res = await as(hrA).post('/users', { name: 'Bare Minimum', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
+    expect(res.status).toBe(201);
+
+    const clerkUserId = `user_v1legacy_${suffix}`;
+    await acceptEvent(clerkUserId, email, 'Bare Minimum');
+    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    expect(user.name).toBe('Bare Minimum');
+    expect(user.phone).toBeNull();
+    expect(user.address).toBeNull();
+    expect(user.employmentStartDate).toBeNull();
+    expect(user.emergencyContactName).toBeNull();
+    expect(user.emergencyContactPhone).toBeNull();
+    expect(user.emergencyContactRelationship).toBeNull();
+  });
+
+  test('existing users are unaffected — their new columns stay null', async () => {
+    const fresh = await prisma.user.findUnique({ where: { id: wkrA.id } });
+    expect(fresh.employmentStartDate).toBeNull();
+    expect(fresh.emergencyContactName).toBeNull();
+    expect(fresh.emergencyContactPhone).toBeNull();
+    expect(fresh.emergencyContactRelationship).toBeNull();
+  });
+
+  test("agency B accepting an agency-A invite does not pick up agency A's staged personal data", async () => {
+    mockInvitationId = `inv_v1cross_${suffix}`;
+    const email = `newhire-v1cross-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
+
+    const clerkUserId = `user_v1cross_${suffix}`;
+    mockClerkUser = { firstName: 'Cross', lastName: 'Join', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
+    const res = await postEvent(membershipEvent(agencyB.clerkOrgId, clerkUserId)); // joins agency B
+    expect(res.status).toBe(200);
+
+    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    expect(user.agencyId).toBe(agencyB.id);
+    expect(user.name).toBe('Cross Join'); // Clerk name, NOT agency A's staged "Grace Onboarding Ltd"
+    expect(user.phone).toBeNull();
+    expect(user.emergencyContactName).toBeNull();
+    const pendingA = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
+    expect(pendingA.consumedAt).toBeNull();
+
+    await prisma.user.deleteMany({ where: { clerkUserId } });
+  });
+});
