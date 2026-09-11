@@ -47,13 +47,18 @@ const DEFAULTS = Object.freeze({
 });
 
 /**
- * Resolve the effective config for a house (and, later, its agency).
- * @param {{ geofenceRadius?: number|null, agencyId?: string }} [house]
+ * Resolve the effective config for an attendance target (see
+ * services/attendanceTargetService). A target exposes `geofenceRadius` with the
+ * same meaning a House's own `geofenceRadius` had, so a House-backed target
+ * yields byte-identical output to the previous House-only behaviour; a target
+ * with no radius falls back to the default. This is still the seam for future
+ * per-agency / per-location overrides.
+ * @param {{ geofenceRadius?: number|null }} [target]
  */
-function attendanceConfigFor(house = {}) {
+function attendanceConfigFor(target = {}) {
   const radius =
-    Number.isFinite(house.geofenceRadius) && house.geofenceRadius > 0
-      ? house.geofenceRadius
+    Number.isFinite(target.geofenceRadius) && target.geofenceRadius > 0
+      ? target.geofenceRadius
       : DEFAULTS.defaultGeofenceRadiusM;
   return { ...DEFAULTS, geofenceRadiusM: radius };
 }

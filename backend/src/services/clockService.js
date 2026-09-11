@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const { evaluateLocation, isValidCoordinate } = require('./geofenceService');
 const { attendanceConfigFor } = require('../config/attendance');
+const { attendanceTargetFor } = require('./attendanceTargetService');
 const notificationService = require('./notificationService');
 
 // ── Reason / verification codes ────────────────────────────────────────────────
@@ -83,12 +84,16 @@ async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
 
   const shift = await prisma.shift.findFirst({
     where: { id: shiftId, houseId, workerId, ...(agencyId ? { agencyId } : {}) },
-    include: { house: true },
+    include: { house: true, location: true },
   });
   if (!shift) return reject(REASONS.FORBIDDEN);
   if (shift.status === 'CANCELLED') return reject(REASONS.SHIFT_CANCELLED);
 
-  const cfg = attendanceConfigFor(shift.house);
+  // Resolved attendance target. For a care ROTA shift this is always the House
+  // (House wins over any Location), so every value below is identical to before.
+  const target = attendanceTargetFor(shift);
+
+  const cfg = attendanceConfigFor(target);
   const now = timestamp ? new Date(timestamp) : new Date();
   const nowMs = now.getTime();
   if (
@@ -106,7 +111,7 @@ async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
   if (latitude == null || longitude == null) return reject(REASONS.LOCATION_REQUIRED);
 
   const geo = evaluateLocation({
-    latitude, longitude, accuracy, capturedAt, house: shift.house, now: nowMs,
+    latitude, longitude, accuracy, capturedAt, target, now: nowMs,
   });
   if (!geo.ok) return reject(geo.code, { geo }); // INVALID_COORDINATES | STALE_LOCATION
   if (!geo.accuracySufficient) return reject(REASONS.GPS_ACCURACY_INSUFFICIENT, { geo });
@@ -193,7 +198,7 @@ async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
     const worker = await prisma.user.findUnique({ where: { id: workerId }, select: { fcmToken: true } });
     if (worker?.fcmToken) {
       notificationService
-        .send(worker.fcmToken, { title: 'Clocked in', body: `You're clocked in at ${shift.house.name}.` })
+        .send(worker.fcmToken, { title: 'Clocked in', body: `You're clocked in at ${target.name}.` })
         .catch(() => {});
     }
   }
@@ -210,9 +215,12 @@ async function clockOut(workerId, houseId, shiftId, method, metadata = {}) {
 
   const shift = await prisma.shift.findFirst({
     where: { id: shiftId, houseId, workerId, ...(agencyId ? { agencyId } : {}) },
-    include: { house: true },
+    include: { house: true, location: true },
   });
   if (!shift) return reject(REASONS.FORBIDDEN);
+
+  // House wins for a care ROTA shift — identical to the previous behaviour.
+  const target = attendanceTargetFor(shift);
 
   const now = timestamp ? new Date(timestamp) : new Date();
   const nowMs = now.getTime();
@@ -220,7 +228,7 @@ async function clockOut(workerId, houseId, shiftId, method, metadata = {}) {
   let geo = null;
   let locationStatus = 'UNKNOWN';
   if (isValidCoordinate(latitude, longitude)) {
-    geo = evaluateLocation({ latitude, longitude, accuracy, capturedAt, house: shift.house, now: nowMs });
+    geo = evaluateLocation({ latitude, longitude, accuracy, capturedAt, target, now: nowMs });
     if (geo.ok && geo.accuracySufficient) {
       locationStatus = geo.withinGeofence ? 'ONSITE' : 'OFFSITE';
     }
@@ -310,8 +318,8 @@ async function clockOut(workerId, houseId, shiftId, method, metadata = {}) {
         title: method === 'AUTO' ? 'Clocked out automatically' : 'Clocked out',
         body:
           method === 'AUTO'
-            ? `Your shift at ${shift.house.name} ended and you'd left the service, so you were clocked out.`
-            : `You're clocked out of ${shift.house.name}.`,
+            ? `Your shift at ${target.name} ended and you'd left the service, so you were clocked out.`
+            : `You're clocked out of ${target.name}.`,
       })
       .catch(() => {});
   }
@@ -324,11 +332,12 @@ async function reportLocation(workerId, shiftId, reading = {}, agencyId) {
 
   const monitor = await prisma.attendanceMonitor.findFirst({
     where: { shiftId, workerId, closedAt: null, ...(agencyId ? { agencyId } : {}) },
-    include: { shift: { include: { house: true } } },
+    include: { shift: { include: { house: true, location: true } } },
   });
   if (!monitor) return { active: false, reason: 'NOT_MONITORED' };
 
   const shift = monitor.shift;
+  const target = attendanceTargetFor(shift); // House for a care ROTA shift
 
   // Reconcile: closed by another device / admin, or shift cancelled.
   const ts = await prisma.timesheet.findUnique({ where: { shiftId } });
@@ -340,9 +349,9 @@ async function reportLocation(workerId, shiftId, reading = {}, agencyId) {
     };
   }
 
-  const cfg = attendanceConfigFor(shift.house);
+  const cfg = attendanceConfigFor(target);
   const now = Date.now();
-  const geo = evaluateLocation({ latitude, longitude, accuracy, capturedAt, house: shift.house, now });
+  const geo = evaluateLocation({ latitude, longitude, accuracy, capturedAt, target, now });
 
   // Unusable reading — acknowledge but do not move the state machine.
   if (!geo.ok || !geo.accuracySufficient) {
@@ -430,11 +439,11 @@ async function reportLocation(workerId, shiftId, reading = {}, agencyId) {
 async function confirmStillWorking(workerId, shiftId, agencyId) {
   const monitor = await prisma.attendanceMonitor.findFirst({
     where: { shiftId, workerId, closedAt: null, ...(agencyId ? { agencyId } : {}) },
-    include: { shift: { include: { house: true } } },
+    include: { shift: { include: { house: true, location: true } } },
   });
   if (!monitor) return { active: false, reason: 'NOT_MONITORED' };
 
-  const cfg = attendanceConfigFor(monitor.shift.house);
+  const cfg = attendanceConfigFor(attendanceTargetFor(monitor.shift));
   const now = new Date();
   const shiftEnded = now.getTime() > monitor.shift.endTime.getTime();
 
@@ -484,7 +493,7 @@ async function closeMonitor(shiftId, reason, client = prisma, extra = {}) {
 async function getAttendanceState(workerId, shiftId, agencyId) {
   const monitor = await prisma.attendanceMonitor.findFirst({
     where: { shiftId, workerId, ...(agencyId ? { agencyId } : {}) },
-    include: { shift: { include: { house: true } } },
+    include: { shift: { include: { house: true, location: true } } },
   });
   const clockIn = await prisma.clockEvent.findFirst({ where: { workerId, shiftId, type: 'IN' } });
   const clockOut = await prisma.clockEvent.findFirst({ where: { workerId, shiftId, type: 'OUT' } });
@@ -499,7 +508,7 @@ async function getAttendanceState(workerId, shiftId, agencyId) {
     geofenceExitConfirmed: !!monitor?.geofenceExitConfirmedAt,
     stillWorkingConfirmed: !!monitor?.stillWorkingConfirmedAt,
     shiftEndAcknowledged: !!monitor?.shiftEndAckAt,
-    reportIntervalMs: monitor ? attendanceConfigFor(monitor.shift.house).locationReportIntervalMs : null,
+    reportIntervalMs: monitor ? attendanceConfigFor(attendanceTargetFor(monitor.shift)).locationReportIntervalMs : null,
   };
 }
 

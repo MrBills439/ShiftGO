@@ -41,6 +41,12 @@ function locationAgeMs(capturedAt, now = Date.now()) {
  * Server-side geofence evaluation. The mobile client never decides "inside" —
  * it only reports raw coordinates + accuracy + capture time.
  *
+ * `target` is the resolved attendance target (services/attendanceTargetService):
+ * `{ latitude, longitude, geofenceRadius, ... }`. A House-backed target carries
+ * the House's own coordinates + radius, so the distance / radius / onsite
+ * classification / error codes are byte-for-byte identical to the previous
+ * House-only signature. The same maths applies to a Location-backed target.
+ *
  * @returns {{
  *   ok: boolean,               // coordinates usable at all
  *   code: string|null,         // failure reason code when !ok / not verifiable
@@ -54,8 +60,8 @@ function locationAgeMs(capturedAt, now = Date.now()) {
  *   locationStatus: 'ONSITE'|'OFFSITE'|'UNKNOWN',
  * }}
  */
-function evaluateLocation({ latitude, longitude, accuracy, capturedAt, house, now = Date.now() }) {
-  const cfg = attendanceConfigFor(house);
+function evaluateLocation({ latitude, longitude, accuracy, capturedAt, target, now = Date.now() }) {
+  const cfg = attendanceConfigFor(target);
   const radiusM = cfg.geofenceRadiusM;
 
   const base = {
@@ -82,7 +88,7 @@ function evaluateLocation({ latitude, longitude, accuracy, capturedAt, house, no
   }
 
   const distanceMeters = Math.round(
-    distanceMetres(latitude, longitude, house.latitude, house.longitude),
+    distanceMetres(latitude, longitude, target.latitude, target.longitude),
   );
 
   const acc = typeof accuracy === 'number' && Number.isFinite(accuracy) ? accuracy : null;

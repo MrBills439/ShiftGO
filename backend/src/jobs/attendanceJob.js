@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const clockService = require('../services/clockService');
 const { attendanceConfigFor } = require('../config/attendance');
+const { attendanceTargetFor } = require('../services/attendanceTargetService');
 const { createAuditLog } = require('../services/auditService');
 const notificationService = require('../services/notificationService');
 
@@ -14,7 +15,7 @@ async function attendanceJob(now = new Date()) {
 
   const monitors = await prisma.attendanceMonitor.findMany({
     where: { closedAt: null },
-    include: { shift: { include: { house: true } }, worker: { select: { id: true, name: true, fcmToken: true } } },
+    include: { shift: { include: { house: true, location: true } }, worker: { select: { id: true, name: true, fcmToken: true } } },
   });
 
   // One query for every open monitor's timesheet instead of one per iteration.
@@ -36,7 +37,8 @@ async function attendanceJob(now = new Date()) {
         continue;
       }
 
-      const cfg = attendanceConfigFor(shift.house);
+      const target = attendanceTargetFor(shift); // House for a care ROTA shift
+      const cfg = attendanceConfigFor(target);
       const shiftEnded = nowMs > shift.endTime.getTime();
 
       // 2. Scheduled end reached, worker still clocked in → PROMPT only. Never auto clock-out here.
@@ -52,7 +54,7 @@ async function attendanceJob(now = new Date()) {
         if (m.worker.fcmToken) {
           notificationService.send(m.worker.fcmToken, {
             title: 'Scheduled shift ended',
-            body: `Your shift at ${shift.house.name} was due to end. Are you still working?`,
+            body: `Your shift at ${target.name} was due to end. Are you still working?`,
           }).catch(() => {});
         }
       }
@@ -82,7 +84,7 @@ async function attendanceJob(now = new Date()) {
         if (m.worker.fcmToken) {
           notificationService.send(m.worker.fcmToken, {
             title: 'Still on shift?',
-            body: `Your shift at ${shift.house.name} has ended and you've left the service. Tap to confirm or you'll be clocked out shortly.`,
+            body: `Your shift at ${target.name} has ended and you've left the service. Tap to confirm or you'll be clocked out shortly.`,
           }).catch(() => {});
         }
         continue;
