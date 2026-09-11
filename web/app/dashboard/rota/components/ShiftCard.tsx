@@ -52,7 +52,7 @@ export function ShiftCard({ shift, draggable = true, conflict = false, onDragSta
         conflict && 'border-warning-solid bg-warning-bg',
         shift.urgent && 'ring-1 ring-danger-solid'
       )}
-      title={canEdit ? `${shift.house.name} - ${shift.worker?.name ?? 'Open shift'} (double-click to edit)` : `${shift.house.name} - ${shift.worker?.name ?? 'Open shift'}`}
+      title={canEdit ? `${shift.house?.name ?? 'Unknown'} - ${shift.worker?.name ?? 'Open shift'} (double-click to edit)` : `${shift.house?.name ?? 'Unknown'} - ${shift.worker?.name ?? 'Open shift'}`}
       draggable={canDrag}
       onDragStart={onDragStart}
       onDoubleClick={canEdit ? onEdit : undefined}

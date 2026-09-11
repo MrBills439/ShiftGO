@@ -22,6 +22,11 @@ function toRotaWeek(startDate: string, items: RotaShiftSummary[]): RotaWeek {
     day.shifts.push({
       id: item.shiftId,
       houseId: item.house.id,
+      // Every item that reaches this point already passed the `!item.house`
+      // guard above, so it is always a ROTA (House-backed) shift — the rota
+      // week grid is House-indexed and never shows a Location-backed shift.
+      locationId: null,
+      kind: 'ROTA',
       workerId: item.worker?.id ?? null,
       createdById: '',
       startTime: item.startTime,

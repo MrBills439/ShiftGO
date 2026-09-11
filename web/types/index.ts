@@ -109,9 +109,18 @@ export type ShiftType = 'LONG_DAY' | 'MID_DAY' | 'WAKE_NIGHT' | 'SLEEP_IN';
 
 export type ShiftStatus = 'SCHEDULED' | 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
+/** ROTA -> House-backed (care). FIXED -> Location-backed (office). FLEXIBLE is
+ *  not creatable yet — see lib/shiftAttendanceTarget.ts. */
+export type ShiftKind = 'ROTA' | 'FIXED' | 'FLEXIBLE';
+
 export interface Shift {
   id: string;
-  houseId: string;
+  // Exactly one of houseId/house or locationId/location is set, matching
+  // `kind` — never both, never neither. Use lib/shiftAttendanceTarget.ts to
+  // read either one generically rather than checking house/location directly.
+  houseId: string | null;
+  locationId: string | null;
+  kind: ShiftKind;
   workerId: string | null;
   createdById: string;
   startTime: string;
@@ -125,7 +134,8 @@ export interface Shift {
   cancelledAt: string | null;
   cancelledById: string | null;
   cancellationReason: string | null;
-  house: House;
+  house: House | null;
+  location?: Location | null;
   worker: { id: string; name: string; email: string } | null;
   cancelledBy?: { id: string; name: string; email: string } | null;
   timesheet?: Timesheet | null;

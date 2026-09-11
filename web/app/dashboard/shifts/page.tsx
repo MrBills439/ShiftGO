@@ -14,13 +14,16 @@ import { useShifts, useCreateShift, useUpdateShift, useDeleteShift, useOpenShift
 import { usePendingShiftChanges } from '@/hooks/useShiftChange';
 import { ShiftRequestsPanel } from '@/components/shifts/ShiftRequestsPanel';
 import { useHouses } from '@/hooks/useHouses';
+import { useLocationOptions } from '@/hooks/useOrgStructure';
 import { useUsers } from '@/hooks/useWorkers';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
 import { SHIFT_TYPE_OPTIONS, SHIFT_TYPE_META } from '@/lib/shiftTypes';
 import { COVER_ROLE_GROUPS, isGroupSelected, toggleGroupRoles } from '@/lib/coverRoles';
+import { shiftAttendanceTarget } from '@/lib/shiftAttendanceTarget';
+import { WeeklyHoursOverrideModal, type WeeklyHoursOverrideDetails } from '@/components/staff/WeeklyHoursOverrideModal';
 import { clsx } from 'clsx';
-import type { Role, Shift } from '@/types';
+import type { Role, Shift, ShiftKind, User } from '@/types';
 
 function shiftStatus(shift: { startTime: string; endTime: string; status?: string }): 'active' | 'upcoming' | 'completed' | 'cancelled' {
   if (shift.status === 'CANCELLED') return 'cancelled';
@@ -50,6 +53,17 @@ function dateParts(iso: string) {
   };
 }
 
+/** Small ROTA/FIXED label — the only visual distinction this V1 adds. */
+function KindBadge({ kind }: { kind?: ShiftKind }) {
+  return (
+    <Badge
+      variant={kind === 'FIXED' ? 'info' : 'neutral'}
+      label={kind === 'FIXED' ? 'Fixed' : 'Rota'}
+      dot={false}
+    />
+  );
+}
+
 export default function ShiftsPage() {
   const user = useAuthStore((s) => s.user);
   return user?.role === 'WORKER' ? <MyShiftsView /> : <ManageShiftsView />;
@@ -67,7 +81,9 @@ function ShiftListCard({ shift, onDrop }: { shift: Shift; onDrop?: () => void })
   const { day, num, mon } = dateParts(shift.startTime);
   const isPast = status === 'completed' || status === 'cancelled';
   const badge = STATUS_BADGE[status];
-  const canDrop = onDrop && status === 'upcoming';
+  // Dropping re-opens a shift for cover — a House/ROTA-only concept.
+  const canDrop = onDrop && status === 'upcoming' && shift.kind === 'ROTA';
+  const target = shiftAttendanceTarget(shift);
 
   return (
     <div className={clsx('glass-card flex items-center gap-3.5 p-4', status === 'active' && 'border-brand-600')}>
@@ -78,8 +94,11 @@ function ShiftListCard({ shift, onDrop }: { shift: Shift; onDrop?: () => void })
       </div>
       <div className="w-px self-stretch bg-border" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-fg">{shift.house.name}</p>
-        <p className="mb-1.5 text-xs text-fg-muted">Care Support Shift</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-semibold text-fg">{target?.name ?? 'Unknown location'}</p>
+          <KindBadge kind={shift.kind} />
+        </div>
+        <p className="mb-1.5 text-xs text-fg-muted">{shift.kind === 'FIXED' ? 'Fixed Shift' : 'Care Support Shift'}</p>
         <div className="mb-1 flex items-center gap-1.5">
           <ClockIcon size={12} className={isPast ? 'text-fg-subtle' : 'text-brand-700'} />
           <span className={clsx('text-xs font-semibold', isPast ? 'text-fg-muted' : 'text-brand-700')}>
@@ -87,10 +106,12 @@ function ShiftListCard({ shift, onDrop }: { shift: Shift; onDrop?: () => void })
             <span className="font-medium text-fg-subtle"> ({shiftDur(shift.startTime, shift.endTime)})</span>
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <MapPinIcon size={11} className="text-fg-subtle" />
-          <span className="truncate text-[11px] text-fg-muted">{shift.house.address}</span>
-        </div>
+        {target?.address && (
+          <div className="flex items-center gap-1.5">
+            <MapPinIcon size={11} className="text-fg-subtle" />
+            <span className="truncate text-[11px] text-fg-muted">{target.address}</span>
+          </div>
+        )}
         {status === 'completed' && (
           <div className="mt-1 flex items-center gap-1.5">
             <CheckCircleIcon size={12} weight="fill" className="text-fg-subtle" />
@@ -115,6 +136,8 @@ function ShiftListCard({ shift, onDrop }: { shift: Shift; onDrop?: () => void })
 
 function OpenShiftCard({ shift, onClaim, claiming }: { shift: Shift; onClaim: () => void; claiming: boolean }) {
   const { day, num, mon } = dateParts(shift.startTime);
+  // Open shifts remain a House/ROTA-only concept — target is always HOUSE.
+  const target = shiftAttendanceTarget(shift);
   return (
     <div className="glass-card border-dashed border-warning-border p-4">
       <div className="flex items-center gap-3.5">
@@ -125,16 +148,18 @@ function OpenShiftCard({ shift, onClaim, claiming }: { shift: Shift; onClaim: ()
         </div>
         <div className="w-px self-stretch bg-border" />
         <div className="min-w-0 flex-1">
-          <p className="mb-1 text-sm font-semibold text-fg">{shift.house.name}</p>
+          <p className="mb-1 text-sm font-semibold text-fg">{target?.name ?? 'Unknown location'}</p>
           <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-brand-700">
             <ClockIcon size={12} />
             {fmtTime(shift.startTime)} – {fmtTime(shift.endTime)}
             <span className="font-medium text-fg-subtle">({shiftDur(shift.startTime, shift.endTime)})</span>
           </div>
-          <div className="mb-1 flex items-center gap-1.5">
-            <MapPinIcon size={11} className="text-fg-subtle" />
-            <span className="truncate text-[11px] text-fg-muted">{shift.house.address}</span>
-          </div>
+          {target?.address && (
+            <div className="mb-1 flex items-center gap-1.5">
+              <MapPinIcon size={11} className="text-fg-subtle" />
+              <span className="truncate text-[11px] text-fg-muted">{target.address}</span>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
             <UsersIcon size={12} className="text-warning-text" />
             <span className="text-[11px] font-semibold text-warning-text">{shift.claimCount ?? 0} claimed so far</span>
@@ -188,7 +213,7 @@ function MyShiftsView() {
     setClaimId(shift.id);
     claimShift.mutate(shift.id, {
       onSuccess: () => {
-        toast.success(`You're now on the schedule for ${shift.house.name}`);
+        toast.success(`You're now on the schedule for ${shiftAttendanceTarget(shift)?.name ?? 'this shift'}`);
         setFilter('upcoming');
         setClaimId(null);
       },
@@ -313,7 +338,7 @@ function MyShiftsView() {
         <div className="space-y-4">
           {dropTarget && (
             <p className="text-sm text-fg-muted">
-              Your shift at <span className="font-semibold text-fg">{dropTarget.house.name}</span> on{' '}
+              Your shift at <span className="font-semibold text-fg">{shiftAttendanceTarget(dropTarget)?.name ?? 'this location'}</span> on{' '}
               {new Date(dropTarget.startTime).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
               {' '}({fmtTime(dropTarget.startTime)}–{fmtTime(dropTarget.endTime)}) will be released for cover, and your
               house manager and team leader will be notified.
@@ -355,7 +380,21 @@ function ManageShiftsView() {
   const user = useAuthStore((s) => s.user);
   const { data: shifts = [], isLoading } = useShifts();
   const { data: houses = [] } = useHouses();
-  const { data: workers = [] } = useUsers('WORKER');
+  // Options endpoint (not the full list) so a TEAM_LEADER — who can create
+  // shifts but not GET /locations — can still populate this picker; it's
+  // already active-only, matching "only active Locations should be selectable".
+  const { data: locationOptions = [] } = useLocationOptions();
+  // Fixed Staff Scheduling V1 correction: system access role (Role) and
+  // employment pattern (workPatternType) are orthogonal, so the schedulable-
+  // employee pool must not be defined by Role. GET /users with no `role`
+  // filter returns every ACTIVE employee in the caller's agency regardless of
+  // role (WORKER, TEAM_LEADER, MANAGER, HR alike) — status/agency scoping
+  // happens server-side, so no DEACTIVATED or other-agency user can appear.
+  // TEAM_LEADER's access to this unfiltered query was extended specifically
+  // for this case (see listUsersGuard in backend/src/routes/users.js);
+  // HR/MANAGER already had it. ROTA below filters this same roster back down
+  // to WORKER to preserve today's care-scheduling behaviour unchanged.
+  const { data: agencyRoster = [] } = useUsers();
   const createShift = useCreateShift();
   const updateShift = useUpdateShift();
   const deleteShift = useDeleteShift();
@@ -387,7 +426,8 @@ function ManageShiftsView() {
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ houseId: '', workerId: '', date: '', startTime: '', endTime: '', shiftType: 'LONG_DAY' });
+  const emptyForm = { kind: 'ROTA' as ShiftKind, houseId: '', locationId: '', workerId: '', date: '', startTime: '', endTime: '', shiftType: 'LONG_DAY' };
+  const [form, setForm] = useState(emptyForm);
   const [err, setErr] = useState('');
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -395,10 +435,25 @@ function ManageShiftsView() {
   const [coverId, setCoverId] = useState<string | null>(null);
   const [coverRoles, setCoverRoles] = useState<Role[]>(['WORKER']);
   const [coverUrgent, setCoverUrgent] = useState(false);
+  const [weeklyBlock, setWeeklyBlock] = useState<{ details: WeeklyHoursOverrideDetails; workerName?: string } | null>(null);
 
   const canCreate = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
   const canCancel = ['HR', 'MANAGER'].includes(user?.role ?? '');
   const canRequestCover = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
+  const canOverrideWeeklyHours = ['HR', 'MANAGER'].includes(user?.role ?? '');
+
+  // ROTA: WORKER-role only, matching today's care-scheduling behaviour exactly.
+  // FIXED: the whole active agency roster (any system role), prioritising
+  // employees whose own workPatternType is FIXED without hard-restricting the
+  // picker — HR can still put an occasional FIXED shift on anyone listed.
+  const sortedWorkers = useMemo(() => {
+    if (form.kind !== 'FIXED') return agencyRoster.filter((u: User) => u.role === 'WORKER');
+    return [...agencyRoster].sort((a: User, b: User) => {
+      const aFixed = a.workPatternType === 'FIXED' ? 0 : 1;
+      const bFixed = b.workPatternType === 'FIXED' ? 0 : 1;
+      return aFixed - bFixed || a.name.localeCompare(b.name);
+    });
+  }, [agencyRoster, form.kind]);
 
   async function handleRequestCover() {
     if (!coverId) return;
@@ -411,37 +466,70 @@ function ManageShiftsView() {
     }
   }
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
+  function buildPayload() {
+    const startTime = new Date(`${form.date}T${form.startTime}`).toISOString();
+    const endTime = new Date(`${form.date}T${form.endTime}`).toISOString();
+    // Exactly one target, matching kind — never a fake houseId for FIXED, and
+    // never both sent together.
+    const target = form.kind === 'FIXED' ? { locationId: form.locationId } : { houseId: form.houseId };
+    return {
+      kind: form.kind,
+      workerId: form.workerId || null,
+      ...target,
+      date: new Date(form.date).toISOString(),
+      startTime,
+      endTime,
+      shiftType: form.shiftType,
+    };
+  }
+
+  async function submitShift(extra?: Record<string, unknown>) {
     setErr('');
+    const payload = { ...buildPayload(), ...extra };
     try {
-      const startTime = new Date(`${form.date}T${form.startTime}`).toISOString();
-      const endTime   = new Date(`${form.date}T${form.endTime}`).toISOString();
       if (editingId) {
-        await updateShift.mutateAsync({ id: editingId, ...form, workerId: form.workerId || null, startTime, endTime, date: new Date(form.date).toISOString() });
+        await updateShift.mutateAsync({ id: editingId, ...payload });
         toast.success('Shift updated');
       } else {
-        await createShift.mutateAsync({ ...form, startTime, endTime, date: new Date(form.date).toISOString() });
+        await createShift.mutateAsync(payload);
         toast.success('Shift created successfully');
       }
+      setWeeklyBlock(null);
       closeCreate();
     } catch (e: any) {
-      setErr(e.response?.data?.message ?? `Failed to ${editingId ? 'update' : 'create'} shift`);
+      const code = e.response?.data?.code;
+      if (code === 'APPROVAL_REQUIRED' || code === 'OVERRIDE_NOT_PERMITTED') {
+        setWeeklyBlock({
+          details: e.response?.data?.details ?? {},
+          workerName: sortedWorkers?.find((w: User) => w.id === form.workerId)?.name,
+        });
+      } else if (code === 'SHIFT_ATTENDANCE_TARGET_LOCKED') {
+        setErr('This work location can’t be changed because attendance has already been recorded for this shift.');
+      } else {
+        setErr(e.response?.data?.message ?? `Failed to ${editingId ? 'update' : 'create'} shift`);
+      }
     }
+  }
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    await submitShift();
   }
 
   function closeCreate() {
     setOpen(false);
     setEditingId(null);
     setErr('');
-    setForm({ houseId: '', workerId: '', date: '', startTime: '', endTime: '', shiftType: 'LONG_DAY' });
+    setForm(emptyForm);
   }
 
   function openCopy(shift: Shift) {
     setErr('');
     setEditingId(null);
     setForm({
-      houseId: shift.houseId,
+      kind: shift.kind ?? 'ROTA',
+      houseId: shift.houseId ?? '',
+      locationId: shift.locationId ?? '',
       workerId: shift.workerId ?? '',
       date: shift.date.slice(0, 10),
       startTime: new Date(shift.startTime).toISOString().slice(11, 16),
@@ -455,7 +543,9 @@ function ManageShiftsView() {
     setErr('');
     setEditingId(shift.id);
     setForm({
-      houseId: shift.houseId,
+      kind: shift.kind ?? 'ROTA',
+      houseId: shift.houseId ?? '',
+      locationId: shift.locationId ?? '',
       workerId: shift.workerId ?? '',
       date: shift.date.slice(0, 10),
       startTime: new Date(shift.startTime).toISOString().slice(11, 16),
@@ -538,7 +628,7 @@ function ManageShiftsView() {
                 <div key={s.id} className="glass-card p-4 flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <p className="font-medium text-on-surface">{s.house.name}</p>
+                      <p className="font-medium text-on-surface">{shiftAttendanceTarget(s)?.name ?? 'Unknown location'}</p>
                       <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', SHIFT_TYPE_META[s.shiftType]?.badgeClass)}>
                         {s.shiftType === 'SLEEP_IN' ? (
                           <MoonIcon size={10} weight="fill" />
@@ -577,7 +667,7 @@ function ManageShiftsView() {
       )}
 
       {isLoading ? (
-        <TableSkeleton cols={6} rows={7} />
+        <TableSkeleton cols={7} rows={7} />
       ) : shifts.length === 0 ? (
         <EmptyState
           icon={CalendarBlankIcon}
@@ -590,7 +680,7 @@ function ManageShiftsView() {
           <table className="w-full">
             <thead>
               <tr>
-                {['Worker', 'House', 'Date', 'Time', 'Type', 'Status', ''].map((h) => (
+                {['Worker', 'Location', 'Kind', 'Date', 'Time', 'Type', 'Status', ''].map((h) => (
                   <th key={h} className="table-th">{h}</th>
                 ))}
               </tr>
@@ -611,7 +701,8 @@ function ManageShiftsView() {
                     title={canCreate && !['CANCELLED', 'COMPLETED', 'IN_PROGRESS'].includes(s.status) ? 'Double-click to edit' : undefined}
                   >
                     <td className="table-td font-medium">{s.worker?.name ?? 'Open shift'}</td>
-                    <td className="table-td text-on-surface-variant">{s.house.name}</td>
+                    <td className="table-td text-on-surface-variant">{shiftAttendanceTarget(s)?.name ?? 'Unknown'}</td>
+                    <td className="table-td"><KindBadge kind={s.kind} /></td>
                     <td className="table-td font-inter text-xs">
                       {new Date(s.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </td>
@@ -653,7 +744,7 @@ function ManageShiftsView() {
                             <CopyIcon size={15} />
                           </button>
                         )}
-                        {canRequestCover && s.status === 'SCHEDULED' && s.workerId && (
+                        {canRequestCover && s.status === 'SCHEDULED' && s.workerId && s.kind === 'ROTA' && (
                           <button
                             onClick={() => {
                               setCoverId(s.id);
@@ -695,19 +786,64 @@ function ManageShiftsView() {
       <Modal open={open} onClose={closeCreate} title={editingId ? 'Edit Shift' : 'Create Shift'}>
         <form onSubmit={handleCreate} className="space-y-4">
           <LoadingOverlay show={createShift.isPending || updateShift.isPending} label={editingId ? 'Saving…' : 'Creating shift…'} />
+
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">House</label>
-            <select value={form.houseId} onChange={(e) => setForm({ ...form, houseId: e.target.value })} className="input-field" required>
-              <option value="">Select house…</option>
-              {houses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-            </select>
+            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Shift kind</label>
+            <div className="flex rounded-md border border-outline-variant p-1">
+              {(['ROTA', 'FIXED'] as ShiftKind[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, kind: k, houseId: k === 'ROTA' ? f.houseId : '', locationId: k === 'FIXED' ? f.locationId : '' }))}
+                  className={clsx(
+                    'flex-1 rounded px-3 py-1.5 text-xs font-semibold transition-colors',
+                    form.kind === k ? 'bg-primary text-white' : 'text-on-surface-variant hover:text-on-surface'
+                  )}
+                >
+                  {k === 'ROTA' ? 'Rota (House)' : 'Fixed (Location)'}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {form.kind === 'ROTA' ? (
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">House</label>
+              <select value={form.houseId} onChange={(e) => setForm({ ...form, houseId: e.target.value })} className="input-field" required>
+                <option value="">Select house…</option>
+                {houses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Location</label>
+              <select value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })} className="input-field" required>
+                <option value="">Select location…</option>
+                {locationOptions.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}{l.type ? ` (${l.type})` : ''}</option>
+                ))}
+              </select>
+              {locationOptions.length === 0 && (
+                <p className="mt-1.5 text-xs text-on-surface-variant">
+                  No active locations yet — add one from Settings → Locations first.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Worker</label>
             <select value={form.workerId} onChange={(e) => setForm({ ...form, workerId: e.target.value })} className="input-field" required>
               <option value="">Select worker…</option>
-              {workers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {sortedWorkers.map((w: User) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}{form.kind === 'FIXED' && w.workPatternType === 'FIXED' ? ' ★' : ''}
+                </option>
+              ))}
             </select>
+            {form.kind === 'FIXED' && (
+              <p className="mt-1.5 text-xs text-on-surface-variant">★ = this employee's usual work pattern is Fixed.</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Date</label>
@@ -742,6 +878,16 @@ function ManageShiftsView() {
           </div>
         </form>
       </Modal>
+
+      <WeeklyHoursOverrideModal
+        open={!!weeklyBlock}
+        onClose={() => setWeeklyBlock(null)}
+        workerName={weeklyBlock?.workerName}
+        details={weeklyBlock?.details ?? null}
+        canOverride={canOverrideWeeklyHours}
+        isPending={createShift.isPending || updateShift.isPending}
+        onConfirm={(reason) => submitShift({ overrideWeeklyLimit: true, overrideReason: reason })}
+      />
 
       <Modal open={!!cancelId} onClose={closeCancel} title="Cancel Shift">
         <form onSubmit={handleCancelShift} className="space-y-4">

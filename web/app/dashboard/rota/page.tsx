@@ -271,7 +271,7 @@ export default function RotaPage() {
             setSelectedShift({
               date: shift.date,
               workerId: shift.workerId ?? undefined,
-              houseId: shift.houseId,
+              houseId: shift.houseId ?? undefined,
               shiftType: shift.shiftType,
               startTime: shift.startTime,
               endTime: shift.endTime,
@@ -317,7 +317,7 @@ export default function RotaPage() {
           {coverTarget && (
             <p className="text-sm text-fg-muted">
               This unassigns <span className="font-semibold text-fg">{coverTarget.worker?.name ?? 'the current worker'}</span> from
-              the {coverTarget.house.name} shift and opens it so eligible staff can claim it.
+              the {coverTarget.house?.name ?? 'Unknown'} shift and opens it so eligible staff can claim it.
             </p>
           )}
           <div>

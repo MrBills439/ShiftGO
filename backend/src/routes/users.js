@@ -15,10 +15,13 @@ router.post('/me/avatar', avatarUpload.single('avatar'), asyncHandler(ctrl.uploa
 router.delete('/me/avatar', asyncHandler(ctrl.removeAvatar));
 router.patch('/me/fcm-token', validators.updateFcmToken, asyncHandler(ctrl.updateFcmToken));
 
-// Team leaders may only ever list workers (needed to assign staff to a house) —
-// anything else (no filter, or filtering by MANAGER/HR/TEAM_LEADER) stays Manager+.
+// Team leaders may list workers (needed to assign staff to a house), and —
+// Fixed Staff Scheduling V1 — the unfiltered agency roster (needed to pick any
+// ACTIVE employee, of any system role, for a FIXED/Location-backed shift they
+// create). Filtering explicitly by MANAGER/HR/TEAM_LEADER still stays Manager+;
+// this does not add a way to query "all HR" or "all managers" directly.
 const listUsersGuard = (req, res, next) => {
-  if (req.user?.role === 'TEAM_LEADER' && req.query.role === 'WORKER') return next();
+  if (req.user?.role === 'TEAM_LEADER' && (req.query.role === 'WORKER' || !req.query.role)) return next();
   return atLeast('MANAGER')(req, res, next);
 };
 
