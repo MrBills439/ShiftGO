@@ -452,3 +452,40 @@ export interface ApiResponse<T> {
   success: boolean;
   data: T;
 }
+
+// ── Recurring Fixed Work Patterns V1 ──
+export type FixedWorkPatternStatus = 'ACTIVE' | 'ENDED' | 'SUPERSEDED';
+
+export interface FixedWorkPatternDay {
+  id: string;
+  patternId: string;
+  /** ISO-8601: 1=Monday .. 7=Sunday — never JS Date#getDay()'s 0=Sunday. */
+  weekday: number;
+  startTime: string; // "HH:MM"
+  endTime: string; // "HH:MM"
+}
+
+export interface FixedWorkPattern {
+  id: string;
+  agencyId: string;
+  workerId: string;
+  locationId: string;
+  timezone: string | null;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: FixedWorkPatternStatus;
+  supersedesId: string | null;
+  createdById: string;
+  overrideWeeklyLimit: boolean;
+  overrideReason: string | null;
+  overrideById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  worker: { id: string; name: string; email: string; status: string };
+  location: { id: string; name: string; active: boolean; timezone: string | null };
+  createdBy: { id: string; name: string };
+  overrideBy: { id: string; name: string } | null;
+  days: FixedWorkPatternDay[];
+  supersedes: { id: string; effectiveFrom: string; effectiveTo: string | null } | null;
+  supersededBy: { id: string; effectiveFrom: string } | null;
+}

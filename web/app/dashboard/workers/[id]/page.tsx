@@ -25,6 +25,7 @@ import { useToast } from '@/hooks/useToast';
 import { ROLE_META, initials } from '@/lib/roles';
 import { EmployeeComplianceTab } from '@/components/staff/EmployeeComplianceTab';
 import { EmployeeTrainingTab } from '@/components/staff/EmployeeTrainingTab';
+import { EmployeeWorkPatternTab } from '@/components/staff/EmployeeWorkPatternTab';
 import type { Role, User, WorkPatternType, EmploymentType } from '@/types';
 
 const ACCESS_LABELS: Record<Role, string> = { WORKER: 'Employee', TEAM_LEADER: 'Team Leader', MANAGER: 'Manager', HR: 'HR' };
@@ -34,8 +35,15 @@ const ROLE_VARIANT: Record<Role, 'hr' | 'manager' | 'team_leader' | 'worker'> = 
 const WORK_PATTERN_OPTIONS: WorkPatternType[] = ['ROTA', 'FIXED', 'FLEXIBLE'];
 const EMPLOYMENT_TYPE_OPTIONS: EmploymentType[] = ['PERMANENT', 'BANK', 'CONTRACTOR'];
 const ROLE_ORDER: Role[] = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
-const TABS = ['overview', 'employment', 'personal', 'access', 'compliance', 'training'] as const;
+const TABS = ['overview', 'employment', 'workPattern', 'personal', 'access', 'compliance', 'training'] as const;
 type Tab = (typeof TABS)[number];
+// Most tab ids are single lowercase words, where the CSS `capitalize` class
+// below already reads correctly — `workPattern` needs an explicit two-word
+// label instead.
+const TAB_LABELS: Record<Tab, string> = {
+  overview: 'Overview', employment: 'Employment', workPattern: 'Work Pattern', personal: 'Personal',
+  access: 'Access', compliance: 'Compliance', training: 'Training',
+};
 
 const fmtDate = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
@@ -167,17 +175,18 @@ export default function EmployeeDetailPage() {
             key={t}
             onClick={() => setTab(t)}
             className={clsx(
-              'shrink-0 rounded-md px-3.5 py-1.5 text-sm font-semibold capitalize transition-colors',
+              'shrink-0 rounded-md px-3.5 py-1.5 text-sm font-semibold transition-colors',
               tab === t ? 'bg-brand-600 text-white' : 'text-fg-muted hover:bg-surface-subtle hover:text-fg',
             )}
           >
-            {t}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
 
       {tab === 'overview' && <OverviewPanel employee={employee} />}
       {tab === 'employment' && <EmploymentPanel employee={employee} />}
+      {tab === 'workPattern' && <EmployeeWorkPatternTab employee={employee} canManage={canManage} />}
       {tab === 'personal' && <PersonalPanel employee={employee} />}
       {tab === 'access' && <SystemAccessPanel employee={employee} isHr={isHr} isSelf={employee.id === me?.id} />}
       {tab === 'compliance' && <EmployeeComplianceTab userId={employee.id} isHr={isHr} />}
