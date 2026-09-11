@@ -9,6 +9,7 @@ const WEEKLY_OVERRIDE_ROLES = ['MANAGER', 'HR'];
 
 const shiftInclude = {
   house: true,
+  location: true,
   worker: { select: { id: true, name: true, email: true, fcmToken: true } },
   cancelledBy: { select: { id: true, name: true, email: true } },
   claims: { select: { id: true } },
@@ -24,9 +25,10 @@ const shiftInclude = {
   },
 };
 
-function statusConflict(message) {
+function statusConflict(message, code) {
   const err = new Error(message);
   err.statusCode = 409;
+  if (code) err.code = code;
   return err;
 }
 
@@ -40,6 +42,60 @@ function forbidden(message = 'Record does not belong to your agency') {
   const err = new Error(message);
   err.statusCode = 403;
   return err;
+}
+
+function badRequest(message, code) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  if (code) err.code = code;
+  return err;
+}
+
+/**
+ * Location-Backed Shift V1 — every Shift must have EXACTLY ONE attendance
+ * target, matching its kind:
+ *   ROTA    -> houseId set,    locationId null
+ *   FIXED   -> locationId set, houseId null
+ *   FLEXIBLE -> not supported for creation/update yet
+ * This is an application-layer rule only (no DB constraint) so it must be
+ * called on every shift create/update before the row is written or the
+ * target's agency ownership is checked.
+ */
+function assertShiftAttendanceTarget({ kind, houseId, locationId }) {
+  if (kind === 'FLEXIBLE') {
+    throw badRequest('FLEXIBLE shifts cannot be created yet.', 'FLEXIBLE_NOT_SUPPORTED');
+  }
+  if (kind !== 'ROTA' && kind !== 'FIXED') {
+    throw badRequest('Shift kind must be ROTA or FIXED.', 'INVALID_SHIFT_KIND');
+  }
+
+  const hasHouse = !!houseId;
+  const hasLocation = !!locationId;
+
+  if (hasHouse && hasLocation) {
+    throw badRequest('A shift cannot target both a house and a location.', 'SHIFT_TARGET_CONFLICT');
+  }
+  if (!hasHouse && !hasLocation) {
+    throw badRequest('A shift must target a house or a location.', 'SHIFT_TARGET_REQUIRED');
+  }
+  if (kind === 'ROTA' && hasLocation) {
+    throw badRequest('A ROTA shift must target a house, not a location.', 'ROTA_REQUIRES_HOUSE');
+  }
+  if (kind === 'FIXED' && hasHouse) {
+    throw badRequest('A FIXED shift must target a location, not a house.', 'FIXED_REQUIRES_LOCATION');
+  }
+}
+
+/**
+ * Load the House or Location row a shift's target must belong to — always
+ * agency-scoped, exactly like the House lookup this replaces. Returns null
+ * when the id doesn't exist or belongs to another agency (never leaks which).
+ */
+async function loadAttendanceTargetRow(kind, { houseId, locationId }, agencyId) {
+  if (kind === 'FIXED') {
+    return prisma.location.findFirst({ where: { id: locationId, agencyId, active: true } });
+  }
+  return prisma.house.findFirst({ where: { id: houseId, agencyId } });
 }
 
 /**
@@ -184,11 +240,21 @@ async function validateWorkerAssignment({
 async function createShift(data, createdById, agencyId, actor = null) {
   const startTime = new Date(data.startTime);
   const endTime = new Date(data.endTime);
-  const [worker, house] = await Promise.all([
+  // Location-Backed Shift V1: kind defaults to ROTA (unchanged existing
+  // behaviour for every caller that omits it). Validated BEFORE any lookup, so
+  // a bad kind/target combination never touches the database.
+  const kind = data.kind || 'ROTA';
+  assertShiftAttendanceTarget({ kind, houseId: data.houseId, locationId: data.locationId });
+
+  const [worker, target] = await Promise.all([
     prisma.user.findFirst({ where: { id: data.workerId, agencyId } }),
-    prisma.house.findFirst({ where: { id: data.houseId, agencyId } }),
+    loadAttendanceTargetRow(kind, data, agencyId),
   ]);
-  if (!worker || !house) throw forbidden('Worker and house must belong to your agency');
+  // Same combined message regardless of which one failed — unchanged from the
+  // original House-only check, so it never leaks which of the two was invalid.
+  if (!worker || !target) {
+    throw forbidden(kind === 'FIXED' ? 'Worker and location must belong to your agency' : 'Worker and house must belong to your agency');
+  }
   if (worker.status === 'DEACTIVATED') throw forbidden('Worker is deactivated and cannot be assigned new shifts');
 
   const overlap = await prisma.shift.findFirst({
@@ -220,7 +286,9 @@ async function createShift(data, createdById, agencyId, actor = null) {
   const shift = await prisma.shift.create({
     data: {
       agencyId,
-      houseId: data.houseId,
+      houseId: kind === 'ROTA' ? data.houseId : null,
+      locationId: kind === 'FIXED' ? data.locationId : null,
+      kind,
       workerId: data.workerId,
       createdById,
       startTime,
@@ -383,16 +451,52 @@ async function updateShift(id, data, agencyId, actor = null) {
   if (existing.status === 'IN_PROGRESS') throw statusConflict('A shift already in progress cannot be edited');
 
   const workerId = data.workerId !== undefined ? data.workerId : existing.workerId;
-  const houseId = data.houseId ?? existing.houseId;
   const startTime = data.startTime ? new Date(data.startTime) : existing.startTime;
   const endTime = data.endTime ? new Date(data.endTime) : existing.endTime;
 
-  const [worker, house] = await Promise.all([
+  // Location-Backed Shift V1 — resolve the RESULTING target atomically. A
+  // partial edit (only houseId, only locationId, only kind) must never leave
+  // the shift half-switched: providing one target clears the other, exactly
+  // like a fresh create. Omitting both keeps the shift's existing target/kind.
+  const kind = data.kind !== undefined ? data.kind : existing.kind;
+  const houseId =
+    data.houseId !== undefined ? data.houseId
+      : data.locationId !== undefined ? null
+        : existing.houseId;
+  const locationId =
+    data.locationId !== undefined ? data.locationId
+      : data.houseId !== undefined ? null
+        : existing.locationId;
+  assertShiftAttendanceTarget({ kind, houseId, locationId });
+
+  // Once attendance/history has been recorded against this shift, its
+  // attendance target (and kind) is locked — reassigning the worker or moving
+  // start/end times is still fine, but changing WHERE the shift is worked
+  // would orphan recorded evidence against a target that no longer applies.
+  // Existence-only checks (select id, indexed by shiftId) — never mutates the
+  // historical rows.
+  const targetChanged =
+    kind !== existing.kind || houseId !== existing.houseId || locationId !== existing.locationId;
+  if (targetChanged) {
+    const [hasClockEvent, hasMonitor, hasTimesheet] = await Promise.all([
+      prisma.clockEvent.findFirst({ where: { shiftId: id }, select: { id: true } }),
+      prisma.attendanceMonitor.findFirst({ where: { shiftId: id }, select: { id: true } }),
+      prisma.timesheet.findFirst({ where: { shiftId: id }, select: { id: true } }),
+    ]);
+    if (hasClockEvent || hasMonitor || hasTimesheet) {
+      throw statusConflict(
+        'Shift attendance target cannot be changed after attendance has been recorded',
+        'SHIFT_ATTENDANCE_TARGET_LOCKED',
+      );
+    }
+  }
+
+  const [worker, target] = await Promise.all([
     workerId ? prisma.user.findFirst({ where: { id: workerId, agencyId } }) : null,
-    prisma.house.findFirst({ where: { id: houseId, agencyId } }),
+    loadAttendanceTargetRow(kind, { houseId, locationId }, agencyId),
   ]);
   if (workerId && !worker) throw forbidden('Worker must belong to your agency');
-  if (!house) throw forbidden('House must belong to your agency');
+  if (!target) throw forbidden(kind === 'FIXED' ? 'Location must belong to your agency' : 'House must belong to your agency');
   if (worker && worker.status === 'DEACTIVATED') throw forbidden('Worker is deactivated and cannot be assigned shifts');
 
   if (workerId) {
@@ -434,12 +538,19 @@ async function updateShift(id, data, agencyId, actor = null) {
   // this edit, so leaving it untouched can't accidentally downgrade e.g. a
   // CLAIMED shift back to SCHEDULED.
   const status = data.workerId !== undefined ? (workerId ? 'SCHEDULED' : 'OPEN') : existing.status;
+  // Open shifts are a House/ROTA-only concept in this slice — unassigning a
+  // FIXED shift's worker must not silently open it up like a care shift.
+  if (status === 'OPEN' && kind !== 'ROTA') {
+    throw statusConflict('Only rota shifts can be left open — unassign a FIXED shift by cancelling it instead.', 'OPEN_SHIFT_ROTA_ONLY');
+  }
 
   const updated = await prisma.shift.update({
     where: { id },
     data: {
       workerId: workerId || null,
       houseId,
+      locationId,
+      kind,
       startTime,
       endTime,
       date: data.date ? new Date(data.date) : existing.date,
@@ -468,6 +579,10 @@ async function createOpenShift(data, createdById, agencyId) {
     data: {
       agencyId,
       houseId: data.houseId,
+      // Open shifts are a House/ROTA-only concept in this slice — explicit
+      // regardless of the column default, since this path never accepts a
+      // client-supplied kind or locationId.
+      kind: 'ROTA',
       createdById,
       startTime,
       endTime,
@@ -485,6 +600,7 @@ async function openShift(id, agencyId, { eligibleRoles, urgent } = {}) {
   const shift = await prisma.shift.findFirst({ where: { id, agencyId } });
   if (!shift) throw notFound();
   if (shift.status !== 'SCHEDULED') throw statusConflict(`Cannot open a shift with status ${shift.status}`);
+  if (shift.kind !== 'ROTA') throw statusConflict('Only rota shifts can be opened', 'OPEN_SHIFT_ROTA_ONLY');
 
   return prisma.shift.update({
     where: { id },
@@ -502,6 +618,9 @@ async function claimShift(id, worker, agencyId) {
   const shift = await prisma.shift.findFirst({ where: { id, agencyId } });
   if (!shift) throw notFound();
   if (shift.status !== 'OPEN') throw statusConflict('Shift is no longer open');
+  // Defence in depth: only a ROTA shift can ever reach OPEN in this slice, but
+  // reject explicitly rather than letting a FIXED shift be silently claimable.
+  if (shift.kind !== 'ROTA') throw statusConflict('Only rota shifts can be claimed', 'CLAIM_SHIFT_ROTA_ONLY');
 
   if (!effectiveEligibleRoles(shift).includes(worker.role)) {
     throw forbidden('You are not eligible to claim this shift');
@@ -567,6 +686,11 @@ async function dropShift(id, worker, agencyId, { reason } = {}) {
   if (shift.workerId !== worker.id) throw forbidden('You can only drop shifts assigned to you');
   if (shift.status !== 'SCHEDULED') {
     throw statusConflict('Only a scheduled shift can be dropped');
+  }
+  // Dropping opens the shift up for other eligible workers — a House/ROTA-only
+  // concept in this slice. A FIXED shift has no such open-pool model yet.
+  if (shift.kind !== 'ROTA') {
+    throw statusConflict('Only rota shifts can be dropped', 'DROP_SHIFT_ROTA_ONLY');
   }
   if (new Date(shift.startTime) <= new Date()) {
     throw statusConflict('This shift has already started — contact your manager');
@@ -645,4 +769,5 @@ module.exports = {
   openShift, claimShift, dropShift, listOpenShiftsForWorker, listClaims,
   effectiveEligibleRoles, findEligibleWorkers,
   assertWeeklyHoursOk, validateWorkerAssignment,
+  assertShiftAttendanceTarget,
 };

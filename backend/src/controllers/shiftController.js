@@ -8,14 +8,22 @@ const { ok, created, fail, notFound } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
 
 async function createShift(req, res) {
-  const { houseId, workerId, startTime, endTime, date, status } = req.body;
+  const { houseId, kind, workerId, startTime, endTime, date, status } = req.body;
   if (status === 'OPEN') {
+    // Open shifts are a House/ROTA-only concept in this slice.
+    if (kind && kind !== 'ROTA') {
+      return fail(res, 'Only rota shifts can be opened', 400, { code: 'OPEN_SHIFT_ROTA_ONLY' });
+    }
     if (!houseId || !startTime || !endTime || !date) {
       return fail(res, 'houseId, startTime, endTime, date required');
     }
-  } else if (!houseId || !workerId || !startTime || !endTime || !date) {
-    return fail(res, 'houseId, workerId, startTime, endTime, date required');
+  } else if (!workerId || !startTime || !endTime || !date) {
+    return fail(res, 'workerId, startTime, endTime, date required');
   }
+  // Whether houseId or locationId is required (and that exactly one is
+  // present) depends on `kind` and is enforced by
+  // shiftService.assertShiftAttendanceTarget, called from createShift/
+  // createOpenShift below.
 
   let shift;
   try {
@@ -37,12 +45,15 @@ async function createShift(req, res) {
   });
   created(res, shift);
 
-  // non-blocking push notification
+  // non-blocking push notification. Open shifts are House/ROTA-only, so
+  // shift.house always exists there. A FIXED (Location-backed) assigned shift
+  // has no house — push notifications aren't built for office shifts yet, so
+  // skip rather than call sendShiftAssigned with a null house.
   if (status === 'OPEN') {
     shiftService.findEligibleWorkers(shift, agencyIdFor(req)).then((workers) =>
       sendShiftOpen(workers, shift, shift.house)
     ).catch((e) => console.error('[Notify] shift open', e.message));
-  } else {
+  } else if (shift.house) {
     sendShiftAssigned(shift.worker, shift, shift.house).catch((e) =>
       console.error('[Notify] shift assigned', e.message),
     );
@@ -114,14 +125,15 @@ async function updateShift(req, res) {
     });
     ok(res, shift);
 
-    // non-blocking push notifications for a worker change
+    // non-blocking push notifications for a worker change. A FIXED
+    // (Location-backed) shift has no house — skip rather than notify with one.
     if (oldShift.workerId !== shift.workerId) {
-      if (oldShift.worker) {
+      if (oldShift.worker && oldShift.house) {
         sendShiftRemoved(oldShift.worker, oldShift, oldShift.house).catch((e) =>
           console.error('[Notify] shift removed', e.message),
         );
       }
-      if (shift.worker) {
+      if (shift.worker && shift.house) {
         sendShiftAssigned(shift.worker, shift, shift.house).catch((e) =>
           console.error('[Notify] shift assigned', e.message),
         );

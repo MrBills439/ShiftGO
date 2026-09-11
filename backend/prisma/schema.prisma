@@ -392,10 +392,14 @@ model HouseTeamLeader {
 model Shift {
   id                 String      @id @default(cuid())
   agencyId           String      @default("default-agency")
-  // Care rota shifts are House-backed and REQUIRED to be so. `locationId` is an
-  // Office Attendance Foundation field only — always NULL today; no create /
-  // update / rota / claim path sets it. `houseId` stays required in this phase.
-  houseId            String
+  // Location-Backed Shift V1: a Shift now targets EXACTLY ONE attendance
+  // target — houseId (ROTA) or locationId (FIXED) — enforced at the
+  // application layer by shiftService.assertShiftAttendanceTarget, never by a
+  // DB constraint. Every existing/ROTA shift keeps houseId set and locationId
+  // null; child attendance records (ClockEvent/AttendanceMonitor/Timesheet)
+  // still require houseId and are therefore only ever written for House-backed
+  // shifts in this phase.
+  houseId            String?
   locationId         String?
   workerId           String?
   createdById        String
@@ -412,7 +416,11 @@ model Shift {
   cancellationReason String?
   createdAt          DateTime    @default(now())
 
-  house             House              @relation(fields: [houseId], references: [id])
+  // onDelete: Restrict preserves the exact FK behaviour houseId always had
+  // (ON DELETE RESTRICT) now that the column is optional — Prisma's implicit
+  // default for an optional relation is SetNull, which would silently change
+  // the constraint. This migration is DROP NOT NULL only.
+  house             House?             @relation(fields: [houseId], references: [id], onDelete: Restrict)
   location          Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
   worker            User?              @relation("ShiftWorker", fields: [workerId], references: [id])
   createdBy         User               @relation("ShiftCreator", fields: [createdById], references: [id])

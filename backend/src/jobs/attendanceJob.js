@@ -14,7 +14,11 @@ async function attendanceJob(now = new Date()) {
   const nowMs = now.getTime();
 
   const monitors = await prisma.attendanceMonitor.findMany({
-    where: { closedAt: null },
+    // Location-Backed Shift V1: a FIXED shift can never actually have an open
+    // AttendanceMonitor yet (clock-in still requires houseId, which FIXED
+    // shifts don't have), but the ROTA filter is added defensively so this job
+    // never processes one if that ever changes upstream.
+    where: { closedAt: null, shift: { kind: 'ROTA' } },
     include: { shift: { include: { house: true, location: true } }, worker: { select: { id: true, name: true, fcmToken: true } } },
   });
 

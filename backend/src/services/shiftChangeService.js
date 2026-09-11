@@ -158,9 +158,12 @@ function notifyDecision(req, event, body) {
 async function loadHandoffableShift(shiftId, ownerId, agencyId, { label = 'shift', now = new Date() } = {}) {
   const shift = await prisma.shift.findFirst({
     where: { id: shiftId, agencyId },
-    select: { id: true, workerId: true, status: true, startTime: true, endTime: true, houseId: true, shiftType: true },
+    select: { id: true, workerId: true, status: true, startTime: true, endTime: true, houseId: true, shiftType: true, kind: true },
   });
   if (!shift) throw httpErr(`That ${label} was not found in your agency`, 404, 'SHIFT_NOT_FOUND');
+  // Cover/swap is a House/ROTA-only concept in this slice — reject a
+  // Location-backed FIXED shift explicitly rather than mishandling it.
+  if (shift.kind !== 'ROTA') throw httpErr(`Only rota shifts can be covered or swapped`, 409, 'SHIFT_NOT_ROTA');
   if (shift.status === 'OPEN' || !shift.workerId) throw httpErr(`An open/unassigned ${label} cannot be changed`, 409, 'SHIFT_NOT_ASSIGNED');
   if (shift.workerId !== ownerId) throw httpErr(`That ${label} is not assigned to the expected worker`, 403, 'NOT_SHIFT_OWNER');
   if (shift.status === 'CANCELLED') throw httpErr(`A cancelled ${label} cannot be changed`, 409, 'SHIFT_NOT_CHANGEABLE');
@@ -281,6 +284,7 @@ async function getSwapCandidateShifts(user, agencyId, primaryShiftId, targetWork
   const candidates = await prisma.shift.findMany({
     where: {
       agencyId, workerId: targetWorkerId, status: { in: HANDOFFABLE_SHIFT_STATUS }, startTime: { gt: now },
+      kind: 'ROTA', // cover/swap is House/ROTA-only in this slice
     },
     select: { id: true, startTime: true, endTime: true, shiftType: true, status: true, house: { select: { id: true, name: true } } },
     orderBy: { startTime: 'asc' },

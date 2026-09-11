@@ -81,16 +81,22 @@ describe('Shift.kind foundation', () => {
     expect(fresh.houseId).toBe(house.id);
   });
 
-  test('Shift.houseId is still REQUIRED — a create without it is rejected', async () => {
-    await expect(
-      prisma.shift.create({
-        data: {
-          agencyId: agency.id, workerId: worker.id, createdById: manager.id,
-          date: new Date(), startTime: new Date(), endTime: new Date(Date.now() + HOUR),
-          // no houseId
-        },
-      }),
-    ).rejects.toThrow();
+  // Superseded by Location-Backed Shift V1: Shift.houseId is no longer a DB
+  // NOT NULL constraint (it had to become nullable so a Shift can target a
+  // Location instead). "Exactly one target" is now an application-layer rule —
+  // see tests/locationBackedShift.test.js for shiftService.createShift
+  // rejecting a shift with neither houseId nor locationId.
+  test('Shift.houseId is no longer DB-required — the application layer enforces exactly one target', async () => {
+    const s = await prisma.shift.create({
+      data: {
+        agencyId: agency.id, workerId: worker.id, createdById: manager.id,
+        date: new Date(), startTime: new Date(), endTime: new Date(Date.now() + HOUR),
+        // no houseId, no locationId — the DB itself no longer objects.
+      },
+    });
+    expect(s.houseId).toBeNull();
+    expect(s.locationId).toBeNull();
+    await prisma.shift.delete({ where: { id: s.id } });
   });
 
   test('a raw ROTA shift with only houseId set keeps locationId null', async () => {

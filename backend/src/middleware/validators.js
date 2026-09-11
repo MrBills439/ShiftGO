@@ -4,6 +4,11 @@ const ROLES = ['WORKER', 'TEAM_LEADER', 'MANAGER', 'HR'];
 const USER_STATUSES = ['ACTIVE', 'DEACTIVATED'];
 const SHIFT_STATUSES = ['SCHEDULED', 'OPEN', 'CLAIMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
 const SHIFT_TYPES = ['LONG_DAY', 'MID_DAY', 'WAKE_NIGHT', 'SLEEP_IN'];
+// Location-Backed Shift V1: FLEXIBLE is a structurally valid value (accepted
+// here) but rejected with a clear business error by
+// shiftService.assertShiftAttendanceTarget — it is not supported for
+// create/update yet.
+const SHIFT_KINDS = ['ROTA', 'FIXED', 'FLEXIBLE'];
 const TIMESHEET_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
 const TRAINING_STATUSES = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'EXPIRED'];
 const DBS_STATUSES = ['PENDING', 'CLEAR', 'FLAGGED', 'EXPIRED'];
@@ -356,7 +361,24 @@ const validators = {
       .withMessage('Worker ID is required')
       .isLength({ min: 5 })
       .withMessage('Worker ID must be valid'),
-    requiredIdBody('houseId', 'House ID'),
+    // Structural validity only. WHICH of houseId/locationId is required (and
+    // that exactly one is present) depends on `kind` and is enforced by
+    // shiftService.assertShiftAttendanceTarget — except an OPEN shift, which
+    // stays House-only and is still gated in the controller before this runs.
+    body('houseId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('House ID must be valid'),
+    body('locationId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Location ID must be valid'),
+    body('kind')
+      .optional({ nullable: true, checkFalsy: true })
+      .isIn(SHIFT_KINDS)
+      .withMessage('Shift kind must be ROTA, FIXED, or FLEXIBLE'),
     body('startTime')
       .notEmpty()
       .withMessage('Start time is required')
@@ -416,6 +438,15 @@ const validators = {
       .trim()
       .isLength({ min: 5 })
       .withMessage('House ID must be valid'),
+    body('locationId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Location ID must be valid'),
+    body('kind')
+      .optional({ nullable: true, checkFalsy: true })
+      .isIn(SHIFT_KINDS)
+      .withMessage('Shift kind must be ROTA, FIXED, or FLEXIBLE'),
     body('startTime')
       .optional()
       .isISO8601()

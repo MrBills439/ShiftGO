@@ -23,6 +23,10 @@ async function missedClockInJob() {
       startTime: { gte: fifteenMinsAgo, lte: fiveMinsAgo },
       workerId: { not: null },
       status: { in: ALERTABLE_STATUSES },
+      // Location-Backed Shift V1: FIXED (Location-backed) shifts have no clock-in
+      // path yet, so a missed-clock-in alert for one would be meaningless. Only
+      // care ROTA shifts are checked.
+      kind: 'ROTA',
     },
     select: {
       id: true,
