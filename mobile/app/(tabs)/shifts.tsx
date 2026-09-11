@@ -15,6 +15,7 @@ import { useOpenShifts, useClaimShift } from '../../hooks/useOpenShifts';
 import { apiErrorMessage } from '../../services/api';
 import { Skeleton } from '../../components/Skeleton';
 import { Shift } from '../../types';
+import { attendanceTargetFor } from '../../lib/attendanceTarget';
 import { D } from '../../constants/theme';
 import { fmtTime, fmtDur as shiftDur, dateParts, fmtDurLong as fmtHours } from '../../lib/datetime';
 import { shiftTypeLabel } from '../../lib/shiftTypes';
@@ -30,7 +31,8 @@ function cardStatus(shift: Shift): 'active' | 'upcoming' | 'completed' {
 
 function matchesQuery(shift: Shift, q: string): boolean {
   if (!q) return true;
-  const hay = `${shift.house?.name ?? ''} ${shift.house?.address ?? ''} ${shiftTypeLabel(shift.shiftType)}`.toLowerCase();
+  const target = attendanceTargetFor(shift);
+  const hay = `${target?.name ?? ''} ${target?.address ?? ''} ${shiftTypeLabel(shift.shiftType)}`.toLowerCase();
   return hay.includes(q);
 }
 
@@ -61,13 +63,14 @@ function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
   const { day, num, mon } = dateParts(shift.startTime);
   const isActive = status === 'active';
   const isPast = status === 'completed';
+  const target = attendanceTargetFor(shift);
 
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [sc.card, isActive && sc.cardActive, pressed && { opacity: 0.85 }]}
       accessibilityRole="button"
-      accessibilityLabel={`Shift at ${shift.house?.name}, ${day} ${num} ${mon}`}
+      accessibilityLabel={`Shift at ${target?.name ?? 'your shift location'}, ${day} ${num} ${mon}`}
     >
       <View style={[sc.dateBlock, isPast && sc.dateBlockOff]}>
         <Text style={[sc.dateDay, isPast && sc.dateFaint]}>{day}</Text>
@@ -78,7 +81,7 @@ function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
       <View style={[sc.divider, isPast && sc.dividerOff]} />
 
       <View style={sc.content}>
-        <Text style={sc.house} numberOfLines={1}>{shift.house?.name}</Text>
+        <Text style={sc.house} numberOfLines={1}>{target?.name}</Text>
         <Text style={sc.role}>{shiftTypeLabel(shift.shiftType)}</Text>
 
         <View style={sc.timeRow}>
@@ -91,7 +94,7 @@ function ShiftCard({ shift, onPress }: { shift: Shift; onPress: () => void }) {
 
         <View style={sc.addrRow}>
           <MapPin size={11} color={D.light} weight="regular" />
-          <Text style={sc.addr} numberOfLines={1}>{shift.house?.address}</Text>
+          <Text style={sc.addr} numberOfLines={1}>{target?.address}</Text>
         </View>
 
         {isPast && (
@@ -260,6 +263,7 @@ export default function ShiftsScreen() {
   const [query, setQuery] = useState('');
 
   const { active, upcoming, past, isLoading: schedLoading, refetch: refetchSched } = useUpcomingShifts();
+  const activeTarget = attendanceTargetFor(active);
   const { data: openShifts = [], isLoading: openLoading, refetch: refetchOpen } = useOpenShifts();
   const claimShift = useClaimShift();
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -325,11 +329,11 @@ export default function ShiftsScreen() {
           onPress={() => router.push('/(tabs)/clock')}
           style={({ pressed }) => [s.activeBanner, pressed && { opacity: 0.9 }]}
           accessibilityRole="button"
-          accessibilityLabel={`You are on shift at ${active.house?.name}. Open the Clock tab.`}
+          accessibilityLabel={`You are on shift at ${activeTarget?.name ?? 'your shift location'}. Open the Clock tab.`}
         >
           <View style={s.activeDot} />
           <Text style={s.activeTxt} numberOfLines={1}>
-            On shift at {active.house?.name} · manage on Clock
+            On shift at {activeTarget?.name ?? 'your shift location'} · manage on Clock
           </Text>
           <CaretRight size={15} color={D.white} weight="bold" />
         </Pressable>

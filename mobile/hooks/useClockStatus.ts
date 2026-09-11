@@ -17,6 +17,7 @@ import {
 } from '../services/offlineAttendanceQueue';
 import { apiErrorMessage } from '../services/api';
 import { Shift, Timesheet } from '../types';
+import { attendanceTargetFor, attendanceTargetIds } from '../lib/attendanceTarget';
 
 export type ClockError = {
   code:
@@ -157,7 +158,8 @@ export function useClockStatus(activeShift: Shift | null) {
     }
 
     try {
-      await manualClockIn(activeShift.houseId, activeShift.id, {
+      await manualClockIn(activeShift.id, {
+        ...attendanceTargetIds(attendanceTargetFor(activeShift)),
         timestamp: new Date().toISOString(),
         latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy,
         capturedAt: loc.capturedAt, mockLocationSuspected: loc.mockLocationSuspected,
@@ -203,7 +205,10 @@ export function useClockStatus(activeShift: Shift | null) {
       : {};
 
     try {
-      await manualClockOut(activeShift.houseId, activeShift.id, { timestamp, ...coords, locationSource: 'MANUAL' });
+      await manualClockOut(activeShift.id, {
+        ...attendanceTargetIds(attendanceTargetFor(activeShift)),
+        timestamp, ...coords, locationSource: 'MANUAL',
+      });
       optimisticRef.current = { shiftId: activeShift.id, state: 'out' };
       setIsClockedIn(false);
       setPrompt(null);
@@ -213,7 +218,7 @@ export function useClockStatus(activeShift: Shift | null) {
     } catch (e: unknown) {
       if (isNetworkError(e)) {
         await queueOfflineAttendanceEvent({
-          type: 'CLOCK_OUT', houseId: activeShift.houseId, shiftId: activeShift.id, timestamp,
+          type: 'CLOCK_OUT', ...attendanceTargetIds(attendanceTargetFor(activeShift)), shiftId: activeShift.id, timestamp,
           latitude: loc.ok ? loc.latitude : undefined,
           longitude: loc.ok ? loc.longitude : undefined,
           accuracy: loc.ok ? loc.accuracy ?? undefined : undefined,

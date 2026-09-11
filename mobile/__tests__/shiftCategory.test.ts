@@ -7,6 +7,8 @@ function mkShift(over: Partial<Shift>): Shift {
   return {
     id: 's1',
     houseId: 'h1',
+    locationId: null,
+    kind: 'ROTA',
     workerId: 'w1',
     startTime: '2026-09-07T09:00:00Z',
     endTime: '2026-09-07T17:00:00Z',
@@ -18,6 +20,7 @@ function mkShift(over: Partial<Shift>): Shift {
     cancelledById: null,
     cancellationReason: null,
     house: { id: 'h1', name: 'Elm House' } as Shift['house'],
+    location: null,
     ...over,
   };
 }

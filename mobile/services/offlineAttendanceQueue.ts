@@ -9,7 +9,10 @@ export type AttendanceSyncStatus = 'PENDING' | 'SYNCING' | 'FAILED' | 'SYNCED';
 export interface OfflineAttendanceEvent {
   localId: string;
   type: OfflineAttendanceType;
-  houseId: string;
+  // Exactly one is set — a ROTA shift queues houseId, a FIXED shift queues
+  // locationId. Consistency check only; the backend Shift stays authoritative.
+  houseId?: string;
+  locationId?: string;
   shiftId: string;
   timestamp: string;
   latitude?: number;
@@ -119,7 +122,8 @@ export async function captureAttendanceLocation() {
 
 export async function queueOfflineAttendanceEvent(input: {
   type: OfflineAttendanceType;
-  houseId: string;
+  houseId?: string;
+  locationId?: string;
   shiftId: string;
   timestamp?: string;
   latitude?: number;
@@ -144,6 +148,7 @@ export async function queueOfflineAttendanceEvent(input: {
     localId: localId(),
     type: input.type,
     houseId: input.houseId,
+    locationId: input.locationId,
     shiftId: input.shiftId,
     timestamp: input.timestamp ?? new Date().toISOString(),
     ...location,
@@ -159,7 +164,8 @@ export async function queueOfflineAttendanceEvent(input: {
 async function postAttendanceEvent(event: OfflineAttendanceEvent) {
   const endpoint = event.type === 'CLOCK_IN' ? '/clock/in' : '/clock/out';
   await api.post(endpoint, {
-    houseId: event.houseId,
+    ...(event.houseId ? { houseId: event.houseId } : {}),
+    ...(event.locationId ? { locationId: event.locationId } : {}),
     shiftId: event.shiftId,
     timestamp: event.timestamp,
     latitude: event.latitude,

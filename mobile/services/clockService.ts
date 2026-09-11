@@ -12,6 +12,11 @@ type ManualClockPayload = ClockLocation & {
   timestamp?: string;
   reason?: string;
   locationSource?: 'MANUAL' | 'OFFLINE_SYNC';
+  // Consistency check only — the backend Shift itself decides the real
+  // attendance target. Send whichever one lib/attendanceTarget.ts resolved for
+  // this shift (houseId for ROTA, locationId for FIXED); never fabricate one.
+  houseId?: string;
+  locationId?: string;
 };
 
 export type AttendancePrompt =
@@ -19,13 +24,13 @@ export type AttendancePrompt =
   | 'SHIFT_ENDED_STILL_ONSITE'
   | 'SHIFT_ENDED_AND_LEFT';
 
-export async function manualClockIn(houseId: string, shiftId: string, payload: ManualClockPayload = {}) {
-  const { data } = await api.post('/clock/in', { houseId, shiftId, ...payload });
+export async function manualClockIn(shiftId: string, payload: ManualClockPayload = {}) {
+  const { data } = await api.post('/clock/in', { shiftId, ...payload });
   return data.data;
 }
 
-export async function manualClockOut(houseId: string, shiftId: string, payload: ManualClockPayload = {}) {
-  const { data } = await api.post('/clock/out', { houseId, shiftId, ...payload });
+export async function manualClockOut(shiftId: string, payload: ManualClockPayload = {}) {
+  const { data } = await api.post('/clock/out', { shiftId, ...payload });
   return data.data;
 }
 

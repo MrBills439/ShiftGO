@@ -13,6 +13,7 @@ import { useUpcomingShifts } from '../../hooks/useShifts';
 import { RightToWorkBanner } from '../../components/RightToWorkBanner';
 import { getUnreadCount } from '../../services/notificationsService';
 import { useClockStatus } from '../../hooks/useClockStatus';
+import { attendanceTargetFor } from '../../lib/attendanceTarget';
 import { useAuthStore } from '../../store/authStore';
 import { getMe } from '../../services/profileService';
 import { API_BASE_URL } from '../../services/api';
@@ -132,6 +133,8 @@ export default function ClockScreen() {
   // whose time window is open right now (the one they can clock into).
   const activeShift = active ?? getActive(upcoming);
   const nextShift = getNext(upcoming, activeShift);
+  const activeTarget = attendanceTargetFor(activeShift);
+  const nextTarget = attendanceTargetFor(nextShift);
   const {
     isClockedIn,
     isLoading: statusLoading,
@@ -189,8 +192,8 @@ export default function ClockScreen() {
     Alert.alert(
       ended ? 'Your scheduled shift has ended' : "You've left the service",
       ended
-        ? `Your shift at ${activeShift.house.name} was due to finish. Are you still working?`
-        : `You seem to have left ${activeShift.house.name}. Are you still working?`,
+        ? `Your shift at ${activeTarget?.name ?? 'your shift location'} was due to finish. Are you still working?`
+        : `You seem to have left ${activeTarget?.name ?? 'your shift location'}. Are you still working?`,
       [
         { text: 'End shift', style: 'destructive', onPress: () => { dismissPrompt(); clockOut(); } },
         { text: "Yes, still working", onPress: confirmStillWorking },
@@ -213,7 +216,7 @@ export default function ClockScreen() {
     if (shiftEnded) {
       Alert.alert(
         'Shift has ended',
-        `Your shift at ${activeShift.house.name} was scheduled to finish at ${fmt(activeShift.endTime)}. Do you want to clock out now?`,
+        `Your shift at ${activeTarget?.name ?? 'your shift location'} was scheduled to finish at ${fmt(activeShift.endTime)}. Do you want to clock out now?`,
         [
           { text: 'Not yet', style: 'cancel' },
           { text: 'Clock Out', style: 'destructive', onPress: clockOut },
@@ -243,7 +246,7 @@ export default function ClockScreen() {
         <View style={s.header}>
           <View style={{ flex: 1 }}>
             <Text style={s.greet}>{getGreeting()}, {firstName} 👋</Text>
-            <Text style={s.greetSub}>{activeShift ? `Shift at ${activeShift.house.name}` : 'No shift scheduled today'}</Text>
+            <Text style={s.greetSub}>{activeShift ? `Shift at ${activeTarget?.name ?? 'your shift location'}` : 'No shift scheduled today'}</Text>
           </View>
           <View style={s.headerRight}>
             <Pressable
@@ -274,7 +277,7 @@ export default function ClockScreen() {
             <View style={{ flex: 1 }}>
               <Text style={s.nextLabel}>NEXT SHIFT</Text>
               <Text style={s.nextDetail} numberOfLines={1}>
-                {fmtDate(nextShift.startTime)}, {fmt(nextShift.startTime)}–{fmt(nextShift.endTime)} · {nextShift.house.name}
+                {fmtDate(nextShift.startTime)}, {fmt(nextShift.startTime)}–{fmt(nextShift.endTime)} · {nextTarget?.name ?? '—'}
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
@@ -296,7 +299,7 @@ export default function ClockScreen() {
             </View>
 
             <Text style={s.heroLabel}>TODAY'S SHIFT</Text>
-            <Text style={s.heroHouse}>{activeShift.house.name}</Text>
+            <Text style={s.heroHouse}>{activeTarget?.name ?? 'Shift location unavailable'}</Text>
             <Text style={s.heroType}>{shiftTypeLabel(activeShift.shiftType)}</Text>
 
             <View style={s.heroTimeRow}>
@@ -304,10 +307,12 @@ export default function ClockScreen() {
               <View style={s.durPill}><Text style={s.durTxt}>{dur(activeShift)} shift</Text></View>
             </View>
 
-            <View style={s.heroAddr}>
-              <MapPin size={11} color="rgba(255,255,255,0.55)" weight="fill" />
-              <Text style={s.heroAddrTxt} numberOfLines={1}>{activeShift.house.address}</Text>
-            </View>
+            {activeTarget?.address && (
+              <View style={s.heroAddr}>
+                <MapPin size={11} color="rgba(255,255,255,0.55)" weight="fill" />
+                <Text style={s.heroAddrTxt} numberOfLines={1}>{activeTarget.address}</Text>
+              </View>
+            )}
 
             {/* Pills */}
             <View style={s.pills}>

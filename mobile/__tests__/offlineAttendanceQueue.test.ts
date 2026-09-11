@@ -97,4 +97,18 @@ describe('syncAttendanceQueue', () => {
     const summary = await getAttendanceQueueSummary();
     expect(summary.pendingCount).toBe(2);
   });
+
+  // Mobile FIXED Attendance V1 — an offline clock-out for a FIXED (Location-
+  // backed) shift queues and syncs with locationId, never a fake houseId.
+  test('a FIXED (Location-backed) offline clock-out queues and syncs with locationId, no houseId', async () => {
+    const { houseId, ...fixedBase } = base;
+    await queueOfflineAttendanceEvent({ ...fixedBase, type: 'CLOCK_OUT', shiftId: 's3', locationId: 'loc1' });
+    mockPost.mockResolvedValueOnce({ data: {} });
+
+    await syncAttendanceQueue();
+
+    expect(mockPost).toHaveBeenCalledWith('/clock/out', expect.objectContaining({ shiftId: 's3', locationId: 'loc1' }));
+    expect(mockPost.mock.calls[0][1]).not.toHaveProperty('houseId');
+    expect((await loadAttendanceQueue())[0].syncStatus).toBe('SYNCED');
+  });
 });

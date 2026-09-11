@@ -24,12 +24,31 @@ export interface House {
   autoConfirm: boolean;
 }
 
+/** A generic workplace — the attendance target for a FIXED (office) shift. */
+export interface Location {
+  id: string;
+  name: string;
+  type: string;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofenceRadius?: number | null;
+}
+
 export type ShiftType = 'LONG_DAY' | 'MID_DAY' | 'WAKE_NIGHT' | 'SLEEP_IN';
 export type ShiftStatus = 'SCHEDULED' | 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+/** ROTA -> House-backed (care). FIXED -> Location-backed (office). FLEXIBLE is
+ *  not creatable/clockable yet — see lib/attendanceTarget.ts. */
+export type ShiftKind = 'ROTA' | 'FIXED' | 'FLEXIBLE';
 
 export interface Shift {
   id: string;
-  houseId: string;
+  // Exactly one of houseId/house or locationId/location is set, matching
+  // `kind` — never both, never neither. Use lib/attendanceTarget.ts to read
+  // either one generically rather than checking `house`/`location` directly.
+  houseId: string | null;
+  locationId: string | null;
+  kind: ShiftKind;
   workerId: string | null;
   startTime: string;
   endTime: string;
@@ -41,7 +60,8 @@ export interface Shift {
   cancelledAt: string | null;
   cancelledById: string | null;
   cancellationReason: string | null;
-  house: House;
+  house: House | null;
+  location: Location | null;
   worker?: { id: string; name: string; email: string } | null;
   timesheet?: {
     id: string;
@@ -149,7 +169,9 @@ export type ClockMethod = 'AUTO' | 'MANUAL';
 export interface ClockEvent {
   id: string;
   workerId: string;
-  houseId: string;
+  // Exactly one of houseId/locationId is set — see Shift.houseId/locationId.
+  houseId: string | null;
+  locationId: string | null;
   shiftId: string;
   type: ClockType;
   method: ClockMethod;
@@ -159,7 +181,9 @@ export interface ClockEvent {
 export interface Timesheet {
   id: string;
   workerId: string;
-  houseId: string;
+  // Exactly one of houseId/locationId is set — see Shift.houseId/locationId.
+  houseId: string | null;
+  locationId: string | null;
   shiftId: string;
   clockInAt: string | null;
   clockOutAt: string | null;
@@ -167,7 +191,8 @@ export interface Timesheet {
   confirmedAt: string | null;
   autoConfirmed: boolean;
   shift: Shift;
-  house: House;
+  house: House | null;
+  location?: Location | null;
 }
 
 export interface RotaDay {

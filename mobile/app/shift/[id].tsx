@@ -19,6 +19,7 @@ import { useAuthStore } from '../../store/authStore';
 import { Shift } from '../../types';
 import { D } from '../../constants/theme';
 import { fmtTime, fmtDateLong as fmtDate, fmtDurCompact as fmtDuration } from '../../lib/datetime';
+import { attendanceTargetFor } from '../../lib/attendanceTarget';
 
 
 function getStatus(shift: Shift): 'active' | 'upcoming' | 'completed' {
@@ -88,6 +89,7 @@ export default function ShiftDetailScreen() {
   });
 
   const status = shift ? getStatus(shift) : null;
+  const target = attendanceTargetFor(shift);
   const canDrop = !!shift && status === 'upcoming' && shift.workerId === userId && shift.status === 'SCHEDULED';
   const canRequestChange = canDrop; // own, future, SCHEDULED shift
 
@@ -147,7 +149,7 @@ export default function ShiftDetailScreen() {
     if (!shift) return;
     Alert.alert(
       'Drop this shift?',
-      `Your shift at ${shift.house.name} will be released for cover, and your manager and team leader will be notified.`,
+      `Your shift at ${target?.name ?? 'your shift location'} will be released for cover, and your manager and team leader will be notified.`,
       [
         { text: 'Keep shift', style: 'cancel' },
         { text: 'Drop shift', style: 'destructive', onPress: () => drop.mutate() },
@@ -195,8 +197,8 @@ export default function ShiftDetailScreen() {
                 <HouseLine size={28} color={D.emerald} weight="regular" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.houseName}>{shift.house.name}</Text>
-                <Text style={s.roleLabel}>Care Support Shift</Text>
+                <Text style={s.houseName}>{target?.name ?? 'Shift location unavailable'}</Text>
+                <Text style={s.roleLabel}>{target?.kind === 'LOCATION' ? 'Fixed Shift' : 'Care Support Shift'}</Text>
               </View>
               {status && (
                 <View style={[s.statusBadge, { backgroundColor: statusMap[status].bg }]}>
@@ -226,31 +228,37 @@ export default function ShiftDetailScreen() {
               label="DURATION"
               value={fmtDuration(shift.startTime, shift.endTime)}
             />
-            <View style={[ir.row, { borderBottomWidth: 0 }]}>
-              <View style={ir.iconBox}>
-                <MapPin size={18} color={D.emerald} weight="regular" />
+            {target?.address && (
+              <View style={[ir.row, { borderBottomWidth: 0 }]}>
+                <View style={ir.iconBox}>
+                  <MapPin size={18} color={D.emerald} weight="regular" />
+                </View>
+                <View style={ir.text}>
+                  <Text style={ir.label}>ADDRESS</Text>
+                  <Text style={ir.value}>{target.address}</Text>
+                </View>
               </View>
-              <View style={ir.text}>
-                <Text style={ir.label}>ADDRESS</Text>
-                <Text style={ir.value}>{shift.house.address}</Text>
-              </View>
-            </View>
+            )}
           </View>
 
-          {/* Location card */}
-          <View style={s.locationCard}>
-            <View style={s.locationInfo}>
-              <MapPin size={16} color={D.emerald} weight="fill" />
-              <Text style={s.locationTxt} numberOfLines={2}>{shift.house.address}</Text>
+          {/* Location card — only when there's an address to show */}
+          {target?.address && (
+            <View style={s.locationCard}>
+              <View style={s.locationInfo}>
+                <MapPin size={16} color={D.emerald} weight="fill" />
+                <Text style={s.locationTxt} numberOfLines={2}>{target.address}</Text>
+              </View>
+              {target.latitude != null && target.longitude != null && (
+                <Pressable
+                  style={({ pressed }) => [s.dirBtn, pressed && { opacity: 0.8 }]}
+                  onPress={() => openDirections(target.address as string, target.latitude as number, target.longitude as number)}
+                >
+                  <NavigationArrow size={18} color={D.white} weight="fill" />
+                  <Text style={s.dirTxt}>Get Directions</Text>
+                </Pressable>
+              )}
             </View>
-            <Pressable
-              style={({ pressed }) => [s.dirBtn, pressed && { opacity: 0.8 }]}
-              onPress={() => openDirections(shift.house.address, shift.house.latitude, shift.house.longitude)}
-            >
-              <NavigationArrow size={18} color={D.white} weight="fill" />
-              <Text style={s.dirTxt}>Get Directions</Text>
-            </Pressable>
-          </View>
+          )}
 
           {/* Requirements card */}
           <View style={s.card}>
