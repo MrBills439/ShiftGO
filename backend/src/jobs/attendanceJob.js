@@ -14,11 +14,11 @@ async function attendanceJob(now = new Date()) {
   const nowMs = now.getTime();
 
   const monitors = await prisma.attendanceMonitor.findMany({
-    // Location-Backed Shift V1: a FIXED shift can never actually have an open
-    // AttendanceMonitor yet (clock-in still requires houseId, which FIXED
-    // shifts don't have), but the ROTA filter is added defensively so this job
-    // never processes one if that ever changes upstream.
-    where: { closedAt: null, shift: { kind: 'ROTA' } },
+    // Location-Backed Attendance Records V1: ROTA (House) and FIXED (Location)
+    // shifts can both have an open AttendanceMonitor now. FLEXIBLE stays
+    // excluded — it can never successfully clock in, so it can never have one,
+    // but the filter is kept defensive in case that ever changes upstream.
+    where: { closedAt: null, shift: { kind: { in: ['ROTA', 'FIXED'] } } },
     include: { shift: { include: { house: true, location: true } }, worker: { select: { id: true, name: true, fcmToken: true } } },
   });
 
@@ -97,8 +97,10 @@ async function attendanceJob(now = new Date()) {
       // 3b. Grace elapsed — decide.
       if (graceMs >= cfg.autoClockOutGraceMs) {
         if (latestStillOutside && evidenceAgeMs <= cfg.autoClockOutMaxEvidenceAgeMs) {
-          // Strong: auto clock-out with a full audit snapshot.
-          const result = await clockService.clockOut(m.workerId, m.houseId, shift.id, 'AUTO', {
+          // Strong: auto clock-out with a full audit snapshot. No claimed
+          // houseId/locationId — this is a trusted internal call, and the
+          // Shift's own target is always authoritative anyway.
+          const result = await clockService.clockOut(m.workerId, shift.id, 'AUTO', {
             agencyId: shift.agencyId,
             timestamp: now.toISOString(),
             latitude: m.lastLatitude, longitude: m.lastLongitude,

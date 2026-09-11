@@ -462,7 +462,12 @@ model ClockEvent {
   id             String          @id @default(cuid())
   agencyId       String          @default("default-agency")
   workerId       String
-  houseId        String
+  // Location-Backed Attendance Records V1: exactly one of houseId/locationId is
+  // set, matching the owning Shift's resolved attendance target (ROTA->House,
+  // FIXED->Location) — enforced at the application layer
+  // (attendanceTargetFields / shiftTargetRejection in clockService), never by a
+  // DB constraint. Every existing/ROTA row keeps houseId set and locationId null.
+  houseId        String?
   shiftId        String
   type           ClockType
   method         ClockMethod
@@ -488,7 +493,8 @@ model ClockEvent {
   locationId String?
 
   worker   User      @relation(fields: [workerId], references: [id])
-  house    House     @relation(fields: [houseId], references: [id])
+  // onDelete: Restrict preserves the exact FK behaviour houseId always had.
+  house    House?    @relation(fields: [houseId], references: [id], onDelete: Restrict)
   location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   shift    Shift     @relation(fields: [shiftId], references: [id])
   agency   Agency    @relation(fields: [agencyId], references: [id])
@@ -507,7 +513,9 @@ model AttendanceMonitor {
   agencyId                   String         @default("default-agency")
   shiftId                    String         @unique
   workerId                   String
-  houseId                    String
+  // Location-Backed Attendance Records V1: mirrors the owning Shift's
+  // resolved attendance target — see ClockEvent.houseId for the full note.
+  houseId                    String?
   locationStatus             LocationStatus @default(UNKNOWN)
   lastLatitude               Float?
   lastLongitude              Float?
@@ -533,7 +541,8 @@ model AttendanceMonitor {
 
   shift    Shift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
   worker   User      @relation(fields: [workerId], references: [id])
-  house    House     @relation(fields: [houseId], references: [id])
+  // onDelete: Restrict preserves the exact FK behaviour houseId always had.
+  house    House?    @relation(fields: [houseId], references: [id], onDelete: Restrict)
   location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   agency   Agency    @relation(fields: [agencyId], references: [id])
 
@@ -568,7 +577,9 @@ model Timesheet {
   id              String          @id @default(cuid())
   agencyId        String          @default("default-agency")
   workerId        String
-  houseId         String
+  // Location-Backed Attendance Records V1: mirrors the owning Shift's
+  // resolved attendance target — see ClockEvent.houseId for the full note.
+  houseId         String?
   shiftId         String          @unique
   clockInAt       DateTime?
   clockOutAt      DateTime?
@@ -595,7 +606,8 @@ model Timesheet {
   locationId String?
 
   worker      User      @relation("WorkerTimesheets", fields: [workerId], references: [id])
-  house       House     @relation(fields: [houseId], references: [id])
+  // onDelete: Restrict preserves the exact FK behaviour houseId always had.
+  house       House?    @relation(fields: [houseId], references: [id], onDelete: Restrict)
   location    Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   shift       Shift     @relation(fields: [shiftId], references: [id])
   confirmedBy User?     @relation("ConfirmedTimesheets", fields: [confirmedById], references: [id])

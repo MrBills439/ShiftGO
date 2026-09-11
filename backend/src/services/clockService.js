@@ -1,7 +1,7 @@
 const prisma = require('../lib/prisma');
 const { evaluateLocation, isValidCoordinate } = require('./geofenceService');
 const { attendanceConfigFor } = require('../config/attendance');
-const { attendanceTargetFor } = require('./attendanceTargetService');
+const { attendanceTargetFor, attendanceTargetFields } = require('./attendanceTargetService');
 const notificationService = require('./notificationService');
 
 // ── Reason / verification codes ────────────────────────────────────────────────
@@ -15,6 +15,10 @@ const REASONS = Object.freeze({
   STALE_LOCATION: 'STALE_LOCATION',
   GPS_ACCURACY_INSUFFICIENT: 'GPS_ACCURACY_INSUFFICIENT',
   OUTSIDE_GEOFENCE: 'OUTSIDE_GEOFENCE',
+  // Location-Backed Attendance Records V1 — a FLEXIBLE shift (unsupported for
+  // creation, so unreachable today) or a Shift whose resolved target doesn't
+  // match its kind (should never happen given assertShiftAttendanceTarget).
+  UNSUPPORTED_SHIFT_KIND: 'UNSUPPORTED_SHIFT_KIND',
 });
 
 // ClockEvent.verification / AuditLog.action strings:
@@ -42,6 +46,7 @@ const REJECT_MESSAGES = {
   STALE_LOCATION: 'Your location reading is out of date. Try again.',
   GPS_ACCURACY_INSUFFICIENT: 'Your GPS signal is too weak to verify you are at the service. Move to open sky and try again.',
   OUTSIDE_GEOFENCE: 'You appear to be outside the service location. Move closer and try again.',
+  UNSUPPORTED_SHIFT_KIND: 'This shift cannot be clocked yet.',
 };
 
 function gpsConfidence(accuracy) {
@@ -62,6 +67,29 @@ function locationSourceFor(method, locationSource) {
   return method === 'AUTO' ? 'GPS' : 'MANUAL';
 }
 
+/**
+ * The Shift is always the authority on its own attendance target — a
+ * client-supplied houseId/locationId is a consistency check only, never used
+ * to pick or override the target. Returns a `reject(...)` result if the shift
+ * can't be clocked, or null when it's safe to proceed.
+ *  - FLEXIBLE shifts are not clockable yet.
+ *  - ROTA must resolve to a HOUSE target, FIXED to a LOCATION target — this
+ *    should always hold given shiftService.assertShiftAttendanceTarget, but is
+ *    checked explicitly rather than trusted.
+ *  - A client-claimed houseId/locationId that disagrees with the Shift's own
+ *    stored target is treated exactly like the old "shift not found for this
+ *    house" case: FORBIDDEN, not a silent override.
+ */
+function shiftTargetRejection(shift, target, { claimedHouseId, claimedLocationId } = {}) {
+  if (shift.kind === 'FLEXIBLE') return reject(REASONS.UNSUPPORTED_SHIFT_KIND);
+  if (!target) return reject(REASONS.FORBIDDEN);
+  if (shift.kind === 'ROTA' && target.type !== 'HOUSE') return reject(REASONS.FORBIDDEN);
+  if (shift.kind === 'FIXED' && target.type !== 'LOCATION') return reject(REASONS.FORBIDDEN);
+  if (claimedHouseId && claimedHouseId !== shift.houseId) return reject(REASONS.FORBIDDEN);
+  if (claimedLocationId && claimedLocationId !== shift.locationId) return reject(REASONS.FORBIDDEN);
+  return null;
+}
+
 async function getActiveShift(workerId, houseId) {
   const now = new Date();
   return prisma.shift.findFirst({
@@ -76,22 +104,31 @@ async function getActiveShift(workerId, houseId) {
 }
 
 // ── CLOCK IN ─────────────────────────────────────────────────────────────────
-async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
+// `houseId`/`locationId` in `metadata` are OPTIONAL consistency checks, never
+// authority — the Shift's own resolved attendance target always decides what
+// gets written. Existing care clients that always send `houseId` keep working
+// exactly as before (their value simply has to agree with the Shift's own).
+async function clockIn(workerId, shiftId, method, metadata = {}) {
   const {
-    agencyId, timestamp, latitude, longitude, accuracy, capturedAt,
+    agencyId, houseId: claimedHouseId, locationId: claimedLocationId,
+    timestamp, latitude, longitude, accuracy, capturedAt,
     mockLocationSuspected, locationSource,
   } = metadata;
 
   const shift = await prisma.shift.findFirst({
-    where: { id: shiftId, houseId, workerId, ...(agencyId ? { agencyId } : {}) },
+    where: { id: shiftId, workerId, ...(agencyId ? { agencyId } : {}) },
     include: { house: true, location: true },
   });
   if (!shift) return reject(REASONS.FORBIDDEN);
   if (shift.status === 'CANCELLED') return reject(REASONS.SHIFT_CANCELLED);
 
-  // Resolved attendance target. For a care ROTA shift this is always the House
-  // (House wins over any Location), so every value below is identical to before.
+  // Resolved attendance target: HOUSE for a ROTA shift, LOCATION for a FIXED
+  // one. For a care ROTA shift this is always the House, so every value below
+  // is identical to before.
   const target = attendanceTargetFor(shift);
+  const targetRejection = shiftTargetRejection(shift, target, { claimedHouseId, claimedLocationId });
+  if (targetRejection) return targetRejection;
+  const targetFields = attendanceTargetFields(target);
 
   const cfg = attendanceConfigFor(target);
   const now = timestamp ? new Date(timestamp) : new Date();
@@ -131,7 +168,7 @@ async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
       data: {
         workerId,
         agencyId: shift.agencyId,
-        houseId,
+        ...targetFields,
         shiftId,
         type: 'IN',
         method,
@@ -156,7 +193,7 @@ async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
     await tx.timesheet.upsert({
       where: { shiftId },
       create: {
-        agencyId: shift.agencyId, workerId, houseId, shiftId,
+        agencyId: shift.agencyId, workerId, ...targetFields, shiftId,
         clockInAt: event.timestamp,
         clockInLocationStatus: 'ONSITE',
         needsReview: suspicious,
@@ -172,7 +209,7 @@ async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
     await tx.attendanceMonitor.upsert({
       where: { shiftId },
       create: {
-        agencyId: shift.agencyId, shiftId, workerId, houseId,
+        agencyId: shift.agencyId, shiftId, workerId, ...targetFields,
         locationStatus: 'ONSITE',
         lastLatitude: latitude, lastLongitude: longitude,
         lastAccuracy: accuracy != null ? Number(accuracy) : null,
@@ -207,20 +244,26 @@ async function clockIn(workerId, houseId, shiftId, method, metadata = {}) {
 
 // ── CLOCK OUT ────────────────────────────────────────────────────────────────
 // Location is captured for the record but NEVER blocks a clock-out.
-async function clockOut(workerId, houseId, shiftId, method, metadata = {}) {
+// `houseId`/`locationId` in `metadata` are OPTIONAL consistency checks, never
+// authority — see clockIn.
+async function clockOut(workerId, shiftId, method, metadata = {}) {
   const {
-    agencyId, timestamp, latitude, longitude, accuracy, capturedAt,
+    agencyId, houseId: claimedHouseId, locationId: claimedLocationId,
+    timestamp, latitude, longitude, accuracy, capturedAt,
     mockLocationSuspected, locationSource, autoReason,
   } = metadata;
 
   const shift = await prisma.shift.findFirst({
-    where: { id: shiftId, houseId, workerId, ...(agencyId ? { agencyId } : {}) },
+    where: { id: shiftId, workerId, ...(agencyId ? { agencyId } : {}) },
     include: { house: true, location: true },
   });
   if (!shift) return reject(REASONS.FORBIDDEN);
 
   // House wins for a care ROTA shift — identical to the previous behaviour.
   const target = attendanceTargetFor(shift);
+  const targetRejection = shiftTargetRejection(shift, target, { claimedHouseId, claimedLocationId });
+  if (targetRejection) return targetRejection;
+  const targetFields = attendanceTargetFields(target);
 
   const now = timestamp ? new Date(timestamp) : new Date();
   const nowMs = now.getTime();
@@ -254,7 +297,7 @@ async function clockOut(workerId, houseId, shiftId, method, metadata = {}) {
 
     const event = await tx.clockEvent.create({
       data: {
-        workerId, agencyId: shift.agencyId, houseId, shiftId,
+        workerId, agencyId: shift.agencyId, ...targetFields, shiftId,
         type: 'OUT', method,
         ...(timestamp ? { timestamp: now } : {}),
         capturedAt: capturedAt ? new Date(capturedAt) : null,
@@ -285,7 +328,7 @@ async function clockOut(workerId, houseId, shiftId, method, metadata = {}) {
     const timesheet = await tx.timesheet.upsert({
       where: { shiftId },
       create: {
-        agencyId: shift.agencyId, workerId, houseId, shiftId,
+        agencyId: shift.agencyId, workerId, ...targetFields, shiftId,
         clockOutAt: event.timestamp, totalHours,
         clockOutLocationStatus: locationStatus, clockOutMethod: method,
         needsReview, reviewReason,
@@ -304,7 +347,9 @@ async function clockOut(workerId, houseId, shiftId, method, metadata = {}) {
 
   if (result.alreadyClockedOut || result.notClockedIn) return result;
 
-  if (shift.house.autoConfirm && result.timesheet && !result.timesheet.needsReview) {
+  // autoConfirm is a House-specific care setting — a FIXED (Location) shift
+  // has no such flag yet, so shift.house is null and this is simply skipped.
+  if (shift.house?.autoConfirm && result.timesheet && !result.timesheet.needsReview) {
     await prisma.timesheet.update({
       where: { id: result.timesheet.id },
       data: { status: 'APPROVED', autoConfirmed: true, confirmedAt: new Date(), reviewedAt: new Date() },

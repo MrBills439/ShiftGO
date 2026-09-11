@@ -1,20 +1,18 @@
 /**
- * Attendance Target resolver — Location Attendance Target V1.
+ * Attendance Target resolver — Location Attendance Target V1, extended by
+ * Location-Backed Shift V1 and Location-Backed Attendance Records V1.
  *
  * Normalises "where is this shift worked, and what geofence applies" into ONE
  * internal shape so geofence evaluation, attendance config, and clock/attendance
- * messages never dereference a `House` (or, in a future phase, a `Location`)
- * directly.
+ * messages never dereference a `House` or a `Location` directly.
  *
- * For every shift the current code creates this returns a HOUSE target built
- * from `shift.house` — the House's own latitude / longitude / geofenceRadius,
- * which stay authoritative for care clock-in. The LOCATION branch is foundation
- * only: `Shift.houseId` is still required and no production API sets
- * `Shift.locationId`, so that branch is currently unreachable outside direct
- * unit tests.
- *
- * House ALWAYS wins when both a house and a location are present — existing ROTA
- * attendance must never silently move onto a Location geofence.
+ * A ROTA shift resolves to a HOUSE target built from `shift.house` — the
+ * House's own latitude / longitude / geofenceRadius, which stay authoritative
+ * for care clock-in. A FIXED shift resolves to a LOCATION target built from
+ * `shift.location`. `shiftService.assertShiftAttendanceTarget` guarantees a
+ * Shift never has both or neither, so this resolver never has to choose
+ * between two present targets in real data — House winning when both are
+ * present is a defensive rule, not something normal writes rely on.
  *
  * Pure function: it reads only relations already loaded on the passed shift
  * (which the caller looked up tenant-scoped via `where: { agencyId }`). It does
@@ -66,4 +64,20 @@ function attendanceTargetFor(shift) {
   return null;
 }
 
-module.exports = { attendanceTargetFor };
+/**
+ * Location-Backed Attendance Records V1 — the single place that turns a
+ * resolved attendance target into the `{ houseId, locationId }` pair written
+ * onto ClockEvent / AttendanceMonitor / Timesheet, so no write site
+ * duplicates the "exactly one, matching the target type" logic.
+ *
+ * @param {ReturnType<typeof attendanceTargetFor>} target
+ * @returns {{ houseId: string|null, locationId: string|null }}
+ */
+function attendanceTargetFields(target) {
+  if (!target) return { houseId: null, locationId: null };
+  return target.type === 'LOCATION'
+    ? { houseId: null, locationId: target.id }
+    : { houseId: target.id, locationId: null };
+}
+
+module.exports = { attendanceTargetFor, attendanceTargetFields };

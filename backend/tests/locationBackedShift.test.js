@@ -283,7 +283,12 @@ describe('care clock-in behaviour is unchanged; a FIXED shift cannot be clocked'
     expect(await prisma.clockEvent.count({ where: { shiftId: shift.id } })).toBe(2);
   });
 
-  test('19. a Location-backed FIXED shift cannot use the current care clock-in endpoint', async () => {
+  // Superseded by Location-Backed Attendance Records V1: a FIXED shift CAN now
+  // clock in (see tests/locationBackedAttendanceRecords.test.js) — what this
+  // test actually proves is that a claimed houseId that disagrees with the
+  // Shift's own (null, for a FIXED shift) is rejected as a target mismatch,
+  // never silently accepted.
+  test('19. a FIXED shift rejects a clock-in that claims the wrong (House) target', async () => {
     const now = Date.now();
     const fixedShift = await prisma.shift.create({
       data: {
@@ -303,8 +308,13 @@ describe('care clock-in behaviour is unchanged; a FIXED shift cannot be clocked'
   });
 });
 
-describe('background jobs ignore FIXED shifts', () => {
-  test('20. missedClockInJob does not alert for a missed FIXED shift, only for the ROTA one', async () => {
+// Superseded by Location-Backed Attendance Records V1: FIXED shifts can now
+// clock in and be missed/monitored exactly like ROTA shifts — see
+// tests/locationBackedAttendanceRecords.test.js for full coverage (items
+// 21-26). These two tests are kept, updated to the new intended behaviour, so
+// this file's own regression story stays self-contained.
+describe('background jobs now also process FIXED shifts', () => {
+  test('20. missedClockInJob alerts for a missed FIXED shift, same as a missed ROTA one', async () => {
     const startedAgo = Date.now() - 8 * 60 * 1000; // 8 minutes ago — inside the 5-15 min window
     const rota = await prisma.shift.create({
       data: {
@@ -326,10 +336,10 @@ describe('background jobs ignore FIXED shifts', () => {
     const rotaAlert = await prisma.notification.findFirst({ where: { type: 'MISSED_CLOCK_IN', userId: workerA1.id, data: { path: ['shiftId'], equals: rota.id } } });
     const fixedAlert = await prisma.notification.findFirst({ where: { type: 'MISSED_CLOCK_IN', userId: workerA2.id, data: { path: ['shiftId'], equals: fixed.id } } });
     expect(rotaAlert).toBeTruthy();
-    expect(fixedAlert).toBeNull();
+    expect(fixedAlert).toBeTruthy();
   });
 
-  test('21. attendanceJob never processes a monitor on a non-ROTA shift', async () => {
+  test('21. attendanceJob does process a monitor on a FIXED shift', async () => {
     const now = Date.now();
     const fixed = await prisma.shift.create({
       data: {
@@ -339,11 +349,12 @@ describe('background jobs ignore FIXED shifts', () => {
       },
     });
     createdShiftIds.push(fixed.id);
-    // A monitor could not exist for a FIXED shift via the real clock-in path
-    // (see test 19) — force one directly to prove the job's defensive filter.
+    // A monitor for a FIXED shift is now reachable via the real clock-in path
+    // (see the new suite) — created directly here to isolate the job's own
+    // behaviour from clock-in.
     const monitor = await prisma.attendanceMonitor.create({
       data: {
-        agencyId: agencyA.id, shiftId: fixed.id, workerId: workerA1.id, houseId: houseA.id,
+        agencyId: agencyA.id, shiftId: fixed.id, workerId: workerA1.id, locationId: locationA.id,
         closedAt: null, shiftEndPromptedAt: null,
       },
     });
@@ -351,7 +362,7 @@ describe('background jobs ignore FIXED shifts', () => {
     await expect(attendanceJob(new Date(now))).resolves.not.toThrow();
 
     const fresh = await prisma.attendanceMonitor.findUnique({ where: { id: monitor.id } });
-    expect(fresh.shiftEndPromptedAt).toBeNull(); // untouched — the job never looked at it
+    expect(fresh.shiftEndPromptedAt).not.toBeNull(); // shift already ended — the job did prompt it
     await prisma.attendanceMonitor.delete({ where: { id: monitor.id } });
   });
 });

@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const { createAndSend } = require('../services/notificationService');
+const { attendanceTargetFor } = require('../services/attendanceTargetService');
 
 // A missed clock-in only makes sense for a shift that still has an assigned
 // worker who is expected to turn up.
@@ -23,16 +24,17 @@ async function missedClockInJob() {
       startTime: { gte: fifteenMinsAgo, lte: fiveMinsAgo },
       workerId: { not: null },
       status: { in: ALERTABLE_STATUSES },
-      // Location-Backed Shift V1: FIXED (Location-backed) shifts have no clock-in
-      // path yet, so a missed-clock-in alert for one would be meaningless. Only
-      // care ROTA shifts are checked.
-      kind: 'ROTA',
+      // Location-Backed Attendance Records V1: a FIXED (Location-backed) shift
+      // can now be missed just like a ROTA one. FLEXIBLE stays excluded — it
+      // has no scheduled start time to miss.
+      kind: { in: ['ROTA', 'FIXED'] },
     },
     select: {
       id: true,
       agencyId: true,
       workerId: true,
-      house: { select: { name: true } },
+      house: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true } },
       clockEvents: { where: { type: 'IN' }, select: { id: true } },
     },
   });
@@ -61,12 +63,13 @@ async function missedClockInJob() {
   for (const shift of candidates) {
     if (alertedShiftIds.has(shift.id)) continue;
 
+    const target = attendanceTargetFor(shift);
     try {
       await createAndSend(
         shift.workerId,
         'MISSED_CLOCK_IN',
         'Missed clock-in',
-        `Your shift at ${shift.house.name} has started but you haven't clocked in.`,
+        `Your shift at ${target.name} has started but you haven't clocked in.`,
         { shiftId: shift.id },
       );
       alerted += 1;

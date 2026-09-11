@@ -556,7 +556,20 @@ const validators = {
   ],
 
   manualClockIn: [
-    requiredIdBody('houseId', 'House ID'),
+    // Neither houseId nor locationId is required — the Shift determines its
+    // own attendance target. When present, either is only a consistency
+    // check (see clockService.shiftTargetRejection), so both stay optional
+    // here and are just format-checked.
+    body('houseId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('House ID must be valid'),
+    body('locationId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Location ID must be valid'),
     requiredIdBody('shiftId', 'Shift ID'),
     optionalIsoDate('timestamp', 'Clock timestamp'),
     body('latitude')

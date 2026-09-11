@@ -15,6 +15,7 @@ const REJECT_STATUS = {
   [REASONS.STALE_LOCATION]: 422,
   [REASONS.GPS_ACCURACY_INSUFFICIENT]: 422,
   [REASONS.OUTSIDE_GEOFENCE]: 422,
+  [REASONS.UNSUPPORTED_SHIFT_KIND]: 409,
 };
 
 function sendRejection(res, result) {
@@ -45,12 +46,15 @@ async function auditClockIn(req, result, code, extra = {}) {
   });
 }
 
+// `houseId` is kept as an existing-clients-compatible field; `locationId` is
+// new for FIXED shifts. Neither is required — the Shift itself is
+// authoritative — but when a client sends one it's checked for consistency.
 async function manualClockIn(req, res) {
-  const { houseId, shiftId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource } = req.body;
-  if (!houseId || !shiftId) return fail(res, 'houseId and shiftId required');
+  const { houseId, locationId, shiftId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource } = req.body;
+  if (!shiftId) return fail(res, 'shiftId required');
 
-  const result = await clockService.clockIn(req.user.id, houseId, shiftId, 'MANUAL', {
-    timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource,
+  const result = await clockService.clockIn(req.user.id, shiftId, 'MANUAL', {
+    houseId, locationId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource,
     agencyId: agencyIdFor(req),
   });
 
@@ -72,11 +76,11 @@ async function manualClockIn(req, res) {
 }
 
 async function manualClockOut(req, res) {
-  const { houseId, shiftId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource } = req.body;
-  if (!houseId || !shiftId) return fail(res, 'houseId and shiftId required');
+  const { houseId, locationId, shiftId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource } = req.body;
+  if (!shiftId) return fail(res, 'shiftId required');
 
-  const result = await clockService.clockOut(req.user.id, houseId, shiftId, 'MANUAL', {
-    timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource,
+  const result = await clockService.clockOut(req.user.id, shiftId, 'MANUAL', {
+    houseId, locationId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource,
     agencyId: agencyIdFor(req),
   });
 
