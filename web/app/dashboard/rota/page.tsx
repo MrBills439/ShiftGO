@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CaretLeftIcon, CaretRightIcon, CalendarBlankIcon } from '@phosphor-icons/react';
+import { CaretLeftIcon, CaretRightIcon, CalendarBlankIcon, ListChecksIcon, HourglassMediumIcon } from '@phosphor-icons/react';
 import { useRotaWeek, useWorkers } from '@/hooks/useRota';
 import { useHouses } from '@/hooks/useHouses';
 import { useOpenShift } from '@/hooks/useShifts';
@@ -182,18 +182,32 @@ export default function RotaPage() {
               Today
             </Button>
           </div>
-          <div className="grid grid-cols-3 gap-6">
-            <div className="text-right">
-              <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Total Shifts</p>
-              <p className="font-inter text-2xl font-semibold text-fg mt-1">{operationalSummary.shifts}</p>
+          <div className="flex items-center divide-x divide-border rounded-md border border-border bg-surface-subtle/50">
+            <div className="flex items-center gap-2.5 px-4 py-2.5">
+              <ListChecksIcon size={18} className="text-fg-muted" />
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-fg-muted">Total Shifts</p>
+                <p className="font-inter text-lg font-semibold tabular-nums text-fg">{operationalSummary.shifts}</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Live Now</p>
-              <p className="font-inter text-2xl font-semibold text-success mt-1">{operationalSummary.liveShifts}</p>
+            <div className="flex items-center gap-2.5 px-4 py-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                {operationalSummary.liveShifts > 0 && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success-solid opacity-75" />
+                )}
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success-solid" />
+              </span>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-fg-muted">Live Now</p>
+                <p className="font-inter text-lg font-semibold tabular-nums text-success">{operationalSummary.liveShifts}</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Pending</p>
-              <p className="font-inter text-2xl font-semibold text-warning mt-1">{operationalSummary.pendingTimesheets}</p>
+            <div className="flex items-center gap-2.5 px-4 py-2.5">
+              <HourglassMediumIcon size={18} className="text-warning" />
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-fg-muted">Pending</p>
+                <p className="font-inter text-lg font-semibold tabular-nums text-warning">{operationalSummary.pendingTimesheets}</p>
+              </div>
             </div>
           </div>
         </div>

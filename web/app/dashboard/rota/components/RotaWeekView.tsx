@@ -1,10 +1,19 @@
 import { RotaWeek, Shift, House, User } from '@/types';
 import { ShiftCard } from './ShiftCard';
-import { PlusIcon, WarningCircleIcon, MagnifyingGlassIcon } from '@phosphor-icons/react';
+import {
+  PlusIcon, WarningCircleIcon, MagnifyingGlassIcon, CheckCircleIcon,
+  ClockIcon, CalendarXIcon, UsersThreeIcon,
+} from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { clsx } from 'clsx';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+
+// A House/day cell needs no further shifts once its active shifts already
+// add up to a full day — round-the-clock care coverage, same convention as
+// "Scheduled hours" elsewhere on this page (sum of durations, not a strict
+// gap-free timeline check).
+const FULL_DAY_HOURS = 24;
 
 interface RotaWeekViewProps {
   rota: RotaWeek;
@@ -93,24 +102,42 @@ export function RotaWeekView({ rota, houses, workers, mode, onAddShift, onOpenSh
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <p className="text-xs font-semibold text-fg-muted">Scheduled hours</p>
-          <p className="mt-1 font-inter text-2xl font-semibold tabular-nums text-fg">{scheduledHours.toFixed(1)}</p>
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface p-4">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+            <ClockIcon size={20} weight="bold" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold text-fg-muted">Scheduled hours</p>
+            <p className="font-inter text-2xl font-semibold tabular-nums text-fg">{scheduledHours.toFixed(1)}</p>
+          </div>
         </div>
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <p className="text-xs font-semibold text-fg-muted">Coverage gaps</p>
-          <p className="mt-1 font-inter text-2xl font-semibold tabular-nums text-warning-text">{coverageGaps}</p>
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface p-4">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning-bg text-warning-text">
+            <CalendarXIcon size={20} weight="bold" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold text-fg-muted">Coverage gaps</p>
+            <p className="font-inter text-2xl font-semibold tabular-nums text-warning-text">{coverageGaps}</p>
+          </div>
         </div>
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <p className="text-xs font-semibold text-fg-muted">Assignment conflicts</p>
-          <p className="mt-1 font-inter text-2xl font-semibold tabular-nums text-danger-text">{conflictIds.size}</p>
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface p-4">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-danger-bg text-danger-text">
+            <WarningCircleIcon size={20} weight="bold" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold text-fg-muted">Assignment conflicts</p>
+            <p className="font-inter text-2xl font-semibold tabular-nums text-danger-text">{conflictIds.size}</p>
+          </div>
         </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[240px_1fr]">
-        <aside className="flex max-h-[720px] flex-col rounded-lg border border-border bg-surface p-3">
+        <aside className="flex max-h-[720px] flex-col rounded-lg border border-border bg-surface p-3 shadow-sm">
           <div className="mb-3">
-            <h2 className="text-sm font-semibold text-fg">Available staff ({filteredWorkers.length}{staffSearch ? ` of ${workers.length}` : ''})</h2>
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-fg">
+              <UsersThreeIcon size={15} className="text-fg-muted" />
+              Available staff ({filteredWorkers.length}{staffSearch ? ` of ${workers.length}` : ''})
+            </h2>
             <p className="mt-1 text-xs text-fg-muted">
               {mode === 'assign'
                 ? 'Drag a worker into a house/day cell to assign a shift.'
@@ -151,16 +178,16 @@ export function RotaWeekView({ rota, houses, workers, mode, onAddShift, onOpenSh
           </div>
         </aside>
 
-        <section className="overflow-hidden rounded-lg border border-border bg-surface">
+        <section className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
           <div className="max-h-[720px] overflow-auto">
             <div className="grid min-w-[1120px] grid-cols-[220px_repeat(7,minmax(128px,1fr))]">
-              <div className="sticky left-0 top-0 z-20 border-b border-r border-border bg-surface-subtle p-3 text-xs font-semibold text-fg-muted">
+              <div className="sticky left-0 top-0 z-20 border-b-2 border-r border-b-brand-600/30 border-r-border bg-surface-subtle p-3 text-xs font-semibold uppercase tracking-wide text-fg-muted">
                 House / Site
               </div>
               {rota.days.map((day) => {
                 const label = formatDay(day.date);
                 return (
-                  <div key={day.date} className="sticky top-0 z-10 border-b border-r border-border bg-surface-subtle p-3 text-center">
+                  <div key={day.date} className="sticky top-0 z-10 border-b-2 border-r border-b-brand-600/30 border-r-border bg-surface-subtle p-3 text-center">
                     <p className="text-xs font-semibold text-fg-muted">{label.weekday}</p>
                     <p className="font-inter text-sm font-semibold tabular-nums text-fg">{label.day}</p>
                   </div>
@@ -171,28 +198,44 @@ export function RotaWeekView({ rota, houses, workers, mode, onAddShift, onOpenSh
                 const usedHours = houseHours.get(house.id) ?? 0;
                 const budget = house.assignedHours;
                 const remaining = budget != null ? budget - usedHours : null;
+                const budgetPct = budget ? Math.min(100, (usedHours / budget) * 100) : 0;
+                const overBudget = remaining != null && remaining < 0;
                 return (
                 <div key={house.id} className="contents">
                   <div className="sticky left-0 z-10 border-b border-r border-border bg-surface p-3">
                     <p className="text-sm font-semibold text-fg">{house.name}</p>
                     <p className="mt-1 line-clamp-2 text-xs text-fg-muted">{house.address}</p>
                     {budget != null && (
-                      <p className={clsx(
-                        'mt-1.5 font-inter text-[11px] font-semibold tabular-nums',
-                        remaining != null && remaining < 0 ? 'text-danger-text' : 'text-fg-muted'
-                      )}>
-                        {usedHours.toFixed(1)}h / {budget}h this week
-                        {remaining != null && (
-                          <span className="ml-1 font-normal">
-                            ({remaining < 0 ? `${Math.abs(remaining).toFixed(1)}h over` : `${remaining.toFixed(1)}h left`})
-                          </span>
-                        )}
-                      </p>
+                      <div className="mt-2">
+                        <p className={clsx(
+                          'font-inter text-[11px] font-semibold tabular-nums',
+                          overBudget ? 'text-danger-text' : 'text-fg-muted'
+                        )}>
+                          {usedHours.toFixed(1)}h / {budget}h this week
+                          {remaining != null && (
+                            <span className="ml-1 font-normal">
+                              ({overBudget ? `${Math.abs(remaining).toFixed(1)}h over` : `${remaining.toFixed(1)}h left`})
+                            </span>
+                          )}
+                        </p>
+                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-muted">
+                          <div
+                            className={clsx('h-full rounded-full transition-all', overBudget ? 'bg-danger-solid' : 'bg-brand-600')}
+                            style={{ width: `${overBudget ? 100 : budgetPct}%` }}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
                   {rota.days.map((day) => {
                     const shifts = day.shifts.filter((shift) => shift.houseId === house.id);
-                    const covered = shifts.some(activeShift);
+                    const activeDayShifts = shifts.filter(activeShift);
+                    const covered = activeDayShifts.length > 0;
+                    const dayHours = activeDayShifts.reduce(
+                      (total, shift) => total + Math.max(0, (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / 36e5),
+                      0,
+                    );
+                    const fullyCovered = dayHours >= FULL_DAY_HOURS;
                     return (
                       <div
                         key={`${house.id}-${day.date}`}
@@ -225,19 +268,26 @@ export function RotaWeekView({ rota, houses, workers, mode, onAddShift, onOpenSh
                             />
                           ))}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="mt-2 w-full border border-dashed border-border text-xs"
-                          onClick={() =>
-                            mode === 'assign'
-                              ? onAddShift(day.date, undefined, house.id)
-                              : onOpenShift(day.date, house.id)
-                          }
-                          icon={<PlusIcon size={13} />}
-                        >
-                          {mode === 'assign' ? 'Add shift' : 'Post open shift'}
-                        </Button>
+                        {fullyCovered ? (
+                          <div className="mt-2 flex items-center justify-center gap-1.5 rounded-md border border-dashed border-success-border bg-success-bg/40 py-1.5 text-[11px] font-semibold text-success-text">
+                            <CheckCircleIcon size={14} weight="fill" />
+                            Day fully covered
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="mt-2 w-full border border-dashed border-border text-xs"
+                            onClick={() =>
+                              mode === 'assign'
+                                ? onAddShift(day.date, undefined, house.id)
+                                : onOpenShift(day.date, house.id)
+                            }
+                            icon={<PlusIcon size={13} />}
+                          >
+                            {mode === 'assign' ? 'Add shift' : 'Post open shift'}
+                          </Button>
+                        )}
                       </div>
                     );
                   })}
