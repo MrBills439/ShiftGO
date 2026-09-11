@@ -15,6 +15,9 @@ const DBS_STATUSES = ['PENDING', 'CLEAR', 'FLAGGED', 'EXPIRED'];
 const WORK_PATTERN_TYPES = ['ROTA', 'FIXED', 'FLEXIBLE'];
 const EMPLOYMENT_TYPES = ['PERMANENT', 'BANK', 'CONTRACTOR'];
 const LOCATION_TYPES = ['CARE_SERVICE', 'SUPPORTED_LIVING', 'RESIDENTIAL_HOME', 'OFFICE', 'MAINTENANCE_BASE', 'OTHER'];
+const FIXED_WORK_PATTERN_STATUSES = ['ACTIVE', 'ENDED', 'SUPERSEDED'];
+// 24h wall-clock "HH:MM", matching FixedWorkPatternDay.startTime/endTime.
+const WALL_CLOCK_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -1131,6 +1134,74 @@ const validators = {
     body('longitude').optional({ nullable: true, checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180'),
     body('geofenceRadius').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1, max: 5000 }).withMessage('Geofence radius must be 1–5000 metres'),
     body('timezone').optional({ nullable: true }).trim().isLength({ max: 64 }),
+    handleValidationErrors,
+  ],
+
+  // ─── Recurring Fixed Work Patterns V1 (Phase 1) ──────────────────────────
+  // Format/structure only here — agency scoping, ACTIVE/status checks, the
+  // duplicate-weekday and end-after-start business rules, and the weekly-hours
+  // ceiling all live in fixedWorkPatternService, exactly like Shift's own
+  // create/update split between this file and shiftService.js.
+  listFixedWorkPatterns: [
+    query('workerId').optional({ checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('workerId must be valid'),
+    query('locationId').optional({ checkFalsy: true }).trim().isLength({ min: 5 }).withMessage('locationId must be valid'),
+    query('status').optional({ checkFalsy: true }).isIn(FIXED_WORK_PATTERN_STATUSES).withMessage('status must be ACTIVE, ENDED, or SUPERSEDED'),
+    handleValidationErrors,
+  ],
+  createFixedWorkPattern: [
+    body('workerId').trim().notEmpty().withMessage('workerId is required').isLength({ min: 5 }).withMessage('workerId must be valid'),
+    body('locationId').trim().notEmpty().withMessage('locationId is required').isLength({ min: 5 }).withMessage('locationId must be valid'),
+    body('timezone').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }).withMessage('timezone must be 64 characters or fewer'),
+    body('effectiveFrom').notEmpty().withMessage('effectiveFrom is required').isISO8601().withMessage('effectiveFrom must be a valid date'),
+    body('effectiveTo')
+      .optional({ nullable: true, checkFalsy: true })
+      .isISO8601()
+      .withMessage('effectiveTo must be a valid date')
+      .custom((effectiveTo, { req }) => {
+        if (!req.body.effectiveFrom || Number.isNaN(new Date(req.body.effectiveFrom).getTime())) return true;
+        if (new Date(effectiveTo) < new Date(req.body.effectiveFrom)) {
+          throw new Error('effectiveTo must be on or after effectiveFrom');
+        }
+        return true;
+      }),
+    body('days').isArray({ min: 1 }).withMessage('At least one working day is required'),
+    body('days.*.weekday').isInt({ min: 1, max: 7 }).withMessage('weekday must be 1 (Monday) to 7 (Sunday)'),
+    body('days.*.startTime').matches(WALL_CLOCK_TIME_RE).withMessage('startTime must be a 24h "HH:MM" time'),
+    body('days.*.endTime').matches(WALL_CLOCK_TIME_RE).withMessage('endTime must be a 24h "HH:MM" time'),
+    body('overrideWeeklyLimit').optional().isBoolean().withMessage('overrideWeeklyLimit must be true or false'),
+    body('overrideReason').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 500 }).withMessage('overrideReason must be 500 characters or fewer'),
+    handleValidationErrors,
+  ],
+  // Supersede keeps the same employee (the pattern being replaced already says
+  // who) — every other field is re-supplied fresh, exactly like a create,
+  // because a "change" is really "create the next version".
+  supersedeFixedWorkPattern: [
+    ...idParam('id', 'Pattern ID'),
+    body('locationId').trim().notEmpty().withMessage('locationId is required').isLength({ min: 5 }).withMessage('locationId must be valid'),
+    body('timezone').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }).withMessage('timezone must be 64 characters or fewer'),
+    body('effectiveFrom').notEmpty().withMessage('effectiveFrom is required').isISO8601().withMessage('effectiveFrom must be a valid date'),
+    body('effectiveTo')
+      .optional({ nullable: true, checkFalsy: true })
+      .isISO8601()
+      .withMessage('effectiveTo must be a valid date')
+      .custom((effectiveTo, { req }) => {
+        if (!req.body.effectiveFrom || Number.isNaN(new Date(req.body.effectiveFrom).getTime())) return true;
+        if (new Date(effectiveTo) < new Date(req.body.effectiveFrom)) {
+          throw new Error('effectiveTo must be on or after effectiveFrom');
+        }
+        return true;
+      }),
+    body('days').isArray({ min: 1 }).withMessage('At least one working day is required'),
+    body('days.*.weekday').isInt({ min: 1, max: 7 }).withMessage('weekday must be 1 (Monday) to 7 (Sunday)'),
+    body('days.*.startTime').matches(WALL_CLOCK_TIME_RE).withMessage('startTime must be a 24h "HH:MM" time'),
+    body('days.*.endTime').matches(WALL_CLOCK_TIME_RE).withMessage('endTime must be a 24h "HH:MM" time'),
+    body('overrideWeeklyLimit').optional().isBoolean().withMessage('overrideWeeklyLimit must be true or false'),
+    body('overrideReason').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 500 }).withMessage('overrideReason must be 500 characters or fewer'),
+    handleValidationErrors,
+  ],
+  endFixedWorkPattern: [
+    ...idParam('id', 'Pattern ID'),
+    body('effectiveTo').notEmpty().withMessage('effectiveTo is required').isISO8601().withMessage('effectiveTo must be a valid date'),
     handleValidationErrors,
   ],
 };

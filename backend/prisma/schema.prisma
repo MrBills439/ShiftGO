@@ -160,6 +160,17 @@ enum EmploymentType {
   CONTRACTOR
 }
 
+// Recurring Fixed Work Patterns V1 — a pattern's lifecycle. Never hard-deleted;
+// history is append/version-only (see FixedWorkPattern.supersedesId).
+//   ACTIVE      currently in effect (or scheduled to take effect)
+//   ENDED       explicitly ended by HR/MANAGER, nothing replaced it
+//   SUPERSEDED  replaced by a newer version (see the new row's supersedesId)
+enum FixedWorkPatternStatus {
+  ACTIVE
+  ENDED
+  SUPERSEDED
+}
+
 enum AccrualMethod {
   FLAT_RATE // fixed hours awarded per completed pay period
   HOURLY // hours earned as a fraction of actual hours worked
@@ -224,6 +235,7 @@ model Agency {
   jobTitles            JobTitle[]
   locations            Location[]
   pendingEmployees     PendingEmployee[]
+  fixedWorkPatterns    FixedWorkPattern[]
 }
 
 model User {
@@ -300,6 +312,11 @@ model User {
   primaryLocation      Location?            @relation("UserPrimaryLocation", fields: [primaryLocationId], references: [id], onDelete: SetNull)
   lineManager          User?                @relation("UserLineManager", fields: [lineManagerId], references: [id])
   directReports        User[]               @relation("UserLineManager")
+
+  // Recurring Fixed Work Patterns V1.
+  fixedWorkPatterns           FixedWorkPattern[] @relation("FixedWorkPatternWorker")
+  createdFixedWorkPatterns    FixedWorkPattern[] @relation("FixedWorkPatternCreatedBy")
+  overriddenFixedWorkPatterns FixedWorkPattern[] @relation("FixedWorkPatternOverrideBy")
 
   agency Agency @relation(fields: [agencyId], references: [id])
 
@@ -401,6 +418,15 @@ model Shift {
   // shifts in this phase.
   houseId            String?
   locationId         String?
+  // Recurring Fixed Work Patterns V1 — set only on a shift materialised by the
+  // (not-yet-built) pattern generator; null for every shift created any other
+  // way, including every shift that exists today. Provenance only: it does not
+  // change how this Shift behaves anywhere (attendance, weekly hours, rota,
+  // editing) — a generated shift is a completely ordinary Shift row. Kept
+  // deliberately minimal: this id plus the shift's own `startTime` is enough to
+  // tell which pattern (and which calendar occurrence of it) produced a given
+  // shift, so no separate "which weekday" column is stored.
+  fixedWorkPatternId String?
   workerId           String?
   createdById        String
   startTime          DateTime
@@ -422,6 +448,12 @@ model Shift {
   // the constraint. This migration is DROP NOT NULL only.
   house             House?             @relation(fields: [houseId], references: [id], onDelete: Restrict)
   location          Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  // SetNull (not Restrict): a FixedWorkPattern must be freely editable/endable
+  // without ever being blocked by, or reaching back to touch, shifts it
+  // already generated — this column is provenance, not a live dependency, so
+  // losing the link (which never happens in Phase 1 — nothing deletes a
+  // pattern row) must never threaten the Shift or its attendance history.
+  fixedWorkPattern  FixedWorkPattern?  @relation(fields: [fixedWorkPatternId], references: [id], onDelete: SetNull)
   worker            User?              @relation("ShiftWorker", fields: [workerId], references: [id])
   createdBy         User               @relation("ShiftCreator", fields: [createdById], references: [id])
   cancelledBy       User?              @relation("ShiftCanceller", fields: [cancelledById], references: [id])
@@ -441,6 +473,10 @@ model Shift {
   @@index([startTime])
   // Foundation: future Location-scoped shift lookups (unused today).
   @@index([agencyId, locationId])
+  // Foundation: the (not-yet-built) generator's per-pattern duplicate check
+  // (WHERE fixedWorkPatternId = ? AND date = ?) and "shifts from this pattern"
+  // lookups. Unused until generation ships; harmless while it doesn't.
+  @@index([fixedWorkPatternId])
 }
 
 model ShiftClaim {
@@ -938,8 +974,104 @@ model Location {
   clockEvents        ClockEvent[]
   attendanceMonitors AttendanceMonitor[]
   timesheets         Timesheet[]
+  // Recurring Fixed Work Patterns V1.
+  fixedWorkPatterns  FixedWorkPattern[]
 
   @@index([agencyId, active])
+}
+
+// Recurring Fixed Work Patterns V1 — Phase 1 (data model + CRUD only; nothing
+// reads this to generate a Shift yet). A pattern is the recurring-hours
+// "contract" behind a FIXED employee's schedule (e.g. "Sarah, Head Office,
+// Mon-Fri 09:00-17:00, from 1 September"). It never mutates in place once
+// created — changing days/hours/Location/timezone always creates a brand-new
+// row via the supersede operation, so a generated Shift's provenance link
+// (Shift.fixedWorkPatternId) always resolves to the exact version of the
+// pattern that was in effect when that shift was made, forever.
+model FixedWorkPattern {
+  id         String @id @default(cuid())
+  agencyId   String
+  workerId   String
+  // FIXED shifts are always Location-backed (never House) — see Location-
+  // Backed Shift V1 / Fixed Staff Scheduling V1. Required: a pattern always
+  // targets exactly one Location, mirroring Shift's own FIXED-kind rule.
+  locationId String
+
+  // IANA timezone this pattern's wall-clock day/start/end times are read in.
+  // null => inherit Location.timezone => inherit Agency.timezone, exactly like
+  // Location.timezone's own inheritance chain (see Location model).
+  timezone String?
+
+  // Calendar dates (no meaningful time component — same convention as
+  // Shift.date), inclusive at both ends. effectiveTo = null means open-ended.
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  status FixedWorkPatternStatus @default(ACTIVE)
+
+  // Version chain: set on the NEW row, pointing at the version it replaced.
+  // The old row's own status is separately flipped to SUPERSEDED — this FK is
+  // just the forward pointer that makes the chain traversable. @unique because
+  // exactly one newer version can ever supersede a given pattern.
+  supersedesId String? @unique
+
+  createdById String
+
+  // Weekly-hours approval trail for THIS version — see
+  // fixedWorkPatternService.evaluatePatternWeeklyHours. Deliberately stored on
+  // the row itself (not only in AuditLog) so a later reader — including the
+  // future generation job — can tell, without a join, that a version whose
+  // own weekly hours exceed Agency.maxWeeklyScheduledHours was a deliberate,
+  // reasoned HR/MANAGER decision and not an oversight.
+  overrideWeeklyLimit Boolean @default(false)
+  overrideReason      String?
+  overrideById        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agency       Agency                @relation(fields: [agencyId], references: [id])
+  worker       User                  @relation("FixedWorkPatternWorker", fields: [workerId], references: [id])
+  location     Location              @relation(fields: [locationId], references: [id])
+  createdBy    User                  @relation("FixedWorkPatternCreatedBy", fields: [createdById], references: [id])
+  overrideBy   User?                 @relation("FixedWorkPatternOverrideBy", fields: [overrideById], references: [id])
+  supersedes   FixedWorkPattern?     @relation("FixedWorkPatternSupersession", fields: [supersedesId], references: [id])
+  supersededBy FixedWorkPattern?     @relation("FixedWorkPatternSupersession")
+  days         FixedWorkPatternDay[]
+  shifts       Shift[]
+
+  @@index([agencyId])
+  // "Does this worker already have a conflicting ACTIVE pattern?" (create) and
+  // "what is this worker's current pattern?" (read/list).
+  @@index([agencyId, workerId, status])
+  @@index([agencyId, locationId])
+}
+
+// One weekly-recurring working day within a FixedWorkPattern. `startTime`/
+// `endTime` are wall-clock "HH:MM" strings (no date/timezone baked in — the
+// parent pattern's `timezone` supplies that at generation time), matching the
+// architecture-review recommendation to store wall-clock, not a DateTime.
+model FixedWorkPatternDay {
+  id        String @id @default(cuid())
+  patternId String
+
+  // ISO-8601 weekday numbering: 1=Monday, 2=Tuesday, ... 7=Sunday. Deliberately
+  // NOT JavaScript's `Date#getDay()` convention (0=Sunday) — every place this
+  // number is produced or consumed must use the ISO convention documented
+  // here, never getDay() directly.
+  weekday Int
+
+  startTime String // "HH:MM", 24h, e.g. "09:00"
+  endTime   String // "HH:MM", 24h, e.g. "17:00" — must be after startTime;
+  // overnight (endTime <= startTime) patterns are not supported in V1.
+
+  pattern FixedWorkPattern @relation(fields: [patternId], references: [id], onDelete: Cascade)
+
+  // A pattern can never have two rows claiming the same weekday — "different
+  // hours on different days" is expressed as one row per day, not two rows
+  // for the same day.
+  @@unique([patternId, weekday])
+  @@index([patternId])
 }
 
 // Server-side staging for HR-created employees. Employment data is written here
