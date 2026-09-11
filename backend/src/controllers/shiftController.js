@@ -3,6 +3,7 @@ const {
   sendShiftAssigned, sendShiftRemoved,
   sendShiftOpen, sendShiftDropped, sendShiftClaimedYou, sendShiftClaimedOther,
 } = require('../services/notificationService');
+const { attendanceTargetFor } = require('../services/attendanceTargetService');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
@@ -46,17 +47,21 @@ async function createShift(req, res) {
   created(res, shift);
 
   // non-blocking push notification. Open shifts are House/ROTA-only, so
-  // shift.house always exists there. A FIXED (Location-backed) assigned shift
-  // has no house — push notifications aren't built for office shifts yet, so
-  // skip rather than call sendShiftAssigned with a null house.
+  // shift.house always exists there. An assigned shift's target — House
+  // (ROTA) or Location (FIXED) — is resolved the same way attendance already
+  // resolves it (Recurring Fixed Work Patterns V1 Phase 4): never a fake
+  // House for a FIXED shift.
   if (status === 'OPEN') {
     shiftService.findEligibleWorkers(shift, agencyIdFor(req)).then((workers) =>
       sendShiftOpen(workers, shift, shift.house)
     ).catch((e) => console.error('[Notify] shift open', e.message));
-  } else if (shift.house) {
-    sendShiftAssigned(shift.worker, shift, shift.house).catch((e) =>
-      console.error('[Notify] shift assigned', e.message),
-    );
+  } else {
+    const target = attendanceTargetFor(shift);
+    if (target) {
+      sendShiftAssigned({ worker: shift.worker, shift, target }).catch((e) =>
+        console.error('[Notify] shift assigned', e.message),
+      );
+    }
   }
 }
 
@@ -125,18 +130,22 @@ async function updateShift(req, res) {
     });
     ok(res, shift);
 
-    // non-blocking push notifications for a worker change. A FIXED
-    // (Location-backed) shift has no house — skip rather than notify with one.
+    // non-blocking push notifications for a worker change. sendShiftRemoved
+    // stays House-only for now (a FIXED shift's old target is skipped, same
+    // as before this phase) — only assignment was made target-aware here.
     if (oldShift.workerId !== shift.workerId) {
       if (oldShift.worker && oldShift.house) {
         sendShiftRemoved(oldShift.worker, oldShift, oldShift.house).catch((e) =>
           console.error('[Notify] shift removed', e.message),
         );
       }
-      if (shift.worker && shift.house) {
-        sendShiftAssigned(shift.worker, shift, shift.house).catch((e) =>
-          console.error('[Notify] shift assigned', e.message),
-        );
+      if (shift.worker) {
+        const target = attendanceTargetFor(shift);
+        if (target) {
+          sendShiftAssigned({ worker: shift.worker, shift, target }).catch((e) =>
+            console.error('[Notify] shift assigned', e.message),
+          );
+        }
       }
     }
   } catch (err) {

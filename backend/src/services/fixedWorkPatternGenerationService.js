@@ -1,9 +1,11 @@
 const prisma = require('../lib/prisma');
+const logger = require('../lib/logger');
 const agencyCache = require('../lib/agencyCache');
 const { resolveTimeZone, zonedWallTimeToUtc, ymdInZone, agencyWeekRange } = require('../lib/agencyTime');
 const { COUNTED_STATUSES, shiftHoursInWindow } = require('./staffAllocationService');
 const { checkLeaveConflict } = require('./leaveRequestService');
 const { calcPatternWeeklyHours } = require('./fixedWorkPatternService');
+const { sendShiftAssigned } = require('./notificationService');
 
 // Recurring Fixed Work Patterns V1 — Phase 2: generation engine.
 //
@@ -177,7 +179,7 @@ async function generateFixedWorkPatternShifts({ agencyId, patternId, fromDate, h
     },
     include: {
       worker: { select: { id: true, status: true } },
-      location: { select: { id: true, timezone: true } },
+      location: { select: { id: true, name: true, timezone: true } },
       days: true,
     },
   });
@@ -310,6 +312,27 @@ async function generateFixedWorkPatternShifts({ agencyId, patternId, fromDate, h
             patternId: pattern.id, workerId: pattern.workerId, date: dateStr,
             status: RESULT.GENERATED, shiftId: shift.id, weeklyHoursReviewRequired: reviewRequired,
           });
+
+          // Assignment notification — attempted only here, AFTER the Shift row
+          // is committed, and only for a shift THIS call actually created (a
+          // P2002 loser in a concurrency race never reaches this line — it
+          // throws before it, is reclassified SKIPPED_DUPLICATE below, and
+          // sends nothing). Its own try/catch is deliberate: a delivery
+          // failure must never turn a successful creation into RESULT.ERROR,
+          // never gets retried by a later run (there is nothing to retry —
+          // the occurrence is already "handled" the moment the Shift exists),
+          // and never touches notification delivery as an idempotency signal.
+          try {
+            await sendShiftAssigned({
+              worker: pattern.worker,
+              shift,
+              target: { type: 'LOCATION', id: pattern.location.id, name: pattern.location.name, timezone: pattern.location.timezone },
+            });
+          } catch (notifyErr) {
+            logger.warn('FIXED_SHIFT_ASSIGNMENT_NOTIFICATION_FAILED', {
+              shiftId: shift.id, patternId: pattern.id, date: dateStr, message: notifyErr.message,
+            });
+          }
         } catch (err) {
           // Lost the (fixedWorkPatternId, date) race to a concurrent generation
           // call — the DB-level backstop (@@unique([fixedWorkPatternId, date]),

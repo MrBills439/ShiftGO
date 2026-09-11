@@ -426,14 +426,19 @@ describe('Recurring Fixed Work Patterns V1 — Phase 2 generation service', () =
     }
   });
 
-  it('28. no notifications are sent by generation', async () => {
-    const w = await makeUser(agency.id, 'WORKER', 'Gen NoNotify');
+  // Superseded by Recurring Fixed Work Patterns V1 Phase 4: generation now
+  // deliberately sends an assignment notification per newly-created shift
+  // (see tests/fixedWorkPatternGenerationNotifications.test.js for the full
+  // Phase 4 coverage). This test now proves the corrected behaviour — one
+  // Notification row per generated shift, none for anything else.
+  it('28. exactly one assignment notification is created per generated shift', async () => {
+    const w = await makeUser(agency.id, 'WORKER', 'Gen NotifyOnce');
     const before = await testPrisma.notification.count({ where: { userId: w.id } });
     const pattern = await makePattern({ workerId: w.id });
     const result = await generateFixedWorkPatternShifts({ agencyId: agency.id, patternId: pattern.id });
     expect(result.generated).toBeGreaterThan(0);
-    const after = await testPrisma.notification.count({ where: { userId: w.id } });
-    expect(after).toBe(before);
+    const after = await testPrisma.notification.count({ where: { userId: w.id, type: 'SHIFT_ASSIGNED' } });
+    expect(after - before).toBe(result.generated);
   });
 
   it('29. no attendance/history tables are modified by generation', async () => {
