@@ -473,10 +473,16 @@ model Shift {
   @@index([startTime])
   // Foundation: future Location-scoped shift lookups (unused today).
   @@index([agencyId, locationId])
-  // Foundation: the (not-yet-built) generator's per-pattern duplicate check
-  // (WHERE fixedWorkPatternId = ? AND date = ?) and "shifts from this pattern"
-  // lookups. Unused until generation ships; harmless while it doesn't.
-  @@index([fixedWorkPatternId])
+  // Recurring Fixed Work Patterns V1 Phase 2 — DB-enforced concurrency guard.
+  // fixedWorkPatternGenerationService's own (fixedWorkPatternId, date) check
+  // before insert is a TOCTOU race on its own; this constraint is the
+  // authoritative backstop if two generation calls ever race the same
+  // occurrence (Postgres unique constraints treat NULL as distinct from every
+  // other NULL, so every manually-created shift — fixedWorkPatternId = NULL —
+  // is completely unrestricted by this: any number of them may share a date).
+  // Replaces the old plain @@index([fixedWorkPatternId]) — a unique
+  // constraint already serves every lookup that index did.
+  @@unique([fixedWorkPatternId, date])
 }
 
 model ShiftClaim {
