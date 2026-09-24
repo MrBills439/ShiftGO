@@ -280,7 +280,7 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
   return (
     <Modal open={!!item} onClose={onClose} title={stillOpen ? 'Confirm clock-out' : 'Clear review'}>
       <form onSubmit={submit} className="space-y-4">
-        <p className="text-sm text-fg-muted">{item.worker.name} · {item.house.name}</p>
+        <p className="text-sm text-fg-muted">{item.worker.name} · {item.house?.name ?? item.location?.name ?? '—'}</p>
 
         {stillOpen ? (
           <div>
@@ -361,10 +361,12 @@ function NeedsReviewSection() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-fg">
-                      {t.worker.name} <span className="font-normal text-fg-muted">· {t.house.name}</span>
+                      {t.worker.name} <span className="font-normal text-fg-muted">· {t.house?.name ?? t.location?.name ?? '—'}</span>
                     </p>
                     <p className="mt-1 text-xs text-fg-muted">
-                      Scheduled {fmtDateTime(t.shift.startTime)} – {fmt(t.shift.endTime)}
+                      {t.shift.kind === 'FLEXIBLE'
+                        ? `Flexible session from ${fmtDateTime(t.shift.startTime)}${t.shift.endTime ? ` – ${fmt(t.shift.endTime)}` : ''}`
+                        : `Scheduled ${fmtDateTime(t.shift.startTime)} – ${fmt(t.shift.endTime)}`}
                     </p>
                   </div>
                   {stillOpen

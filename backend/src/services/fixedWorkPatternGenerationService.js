@@ -106,6 +106,9 @@ async function otherWeeklyHours(workerId, agencyId, weekStart, weekEnd, patternI
       agencyId,
       workerId,
       status: { in: COUNTED_STATUSES },
+      // Actual FLEXIBLE attendance is never scheduled allocation (see
+      // staffAllocationService.SCHEDULED_KINDS).
+      kind: { in: ['ROTA', 'FIXED'] },
       startTime: { lt: weekEnd },
       endTime: { gt: weekStart },
       OR: [{ fixedWorkPatternId: null }, { fixedWorkPatternId: { not: patternId } }],

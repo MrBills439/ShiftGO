@@ -14,6 +14,16 @@ export function useShifts() {
   });
 }
 
+/** Pure split of an employee's own shifts into active / upcoming / past. */
+export function splitShifts(data: Shift[] | undefined, nowMs: number = Date.now()) {
+  const tagged = (data ?? []).map((s) => [s, categorizeShift(s, nowMs)] as const);
+  return {
+    active: tagged.find(([, c]) => c === 'active')?.[0] ?? null,
+    upcoming: tagged.filter(([, c]) => c === 'upcoming').map(([s]) => s),
+    past: tagged.filter(([, c]) => c === 'past').map(([s]) => s),
+  };
+}
+
 /**
  * Splits the worker's shifts into the three lists the Shifts screen shows plus
  * the single `active` shift, which is surfaced through the Clock screen and is
@@ -21,13 +31,5 @@ export function useShifts() {
  */
 export function useUpcomingShifts() {
   const { data, ...rest } = useShifts();
-  const nowMs = Date.now();
-  const tagged = (data ?? []).map((s) => [s, categorizeShift(s, nowMs)] as const);
-
-  return {
-    active: tagged.find(([, c]) => c === 'active')?.[0] ?? null,
-    upcoming: tagged.filter(([, c]) => c === 'upcoming').map(([s]) => s),
-    past: tagged.filter(([, c]) => c === 'past').map(([s]) => s),
-    ...rest,
-  };
+  return { ...splitShifts(data), ...rest };
 }

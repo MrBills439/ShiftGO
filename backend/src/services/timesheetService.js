@@ -13,7 +13,7 @@ const MANAGER_RESOLVED_VERIFICATION = 'MANAGER_RESOLVED_CLOCK_OUT';
 async function getMyTimesheets(workerId, agencyId) {
   return prisma.timesheet.findMany({
     where: { agencyId, workerId },
-    include: { shift: true, house: true },
+    include: { shift: true, house: true, location: { select: { id: true, name: true } } },
     orderBy: { createdAt: 'desc' },
   });
 }
@@ -41,7 +41,8 @@ async function getNeedsReview(agencyId) {
     include: {
       worker: { select: { id: true, name: true, email: true } },
       house: { select: { id: true, name: true, address: true } },
-      shift: { select: { id: true, startTime: true, endTime: true, shiftType: true, status: true } },
+      location: { select: { id: true, name: true } },
+      shift: { select: { id: true, kind: true, startTime: true, endTime: true, shiftType: true, status: true } },
       reviewedBy: { select: { id: true, name: true, email: true } },
     },
     orderBy: { clockInAt: 'desc' },
@@ -150,6 +151,7 @@ async function resolveReview(id, resolvedById, agencyId, { clockOutTime, reason 
           workerId: existing.workerId,
           agencyId,
           houseId: existing.houseId,
+          locationId: existing.locationId,
           shiftId: scope.shiftId,
           type: 'OUT',
           method: 'MANUAL',
@@ -176,6 +178,11 @@ async function resolveReview(id, resolvedById, agencyId, { clockOutTime, reason 
       await tx.shift.updateMany({
         where: { id: scope.shiftId, status: { notIn: ['CANCELLED'] } },
         data: { status: 'COMPLETED' },
+      });
+      // A FLEXIBLE shift has no scheduled end — the resolved clock-out IS its end.
+      await tx.shift.updateMany({
+        where: { id: scope.shiftId, kind: 'FLEXIBLE', endTime: null },
+        data: { endTime: clockOutDate },
       });
 
       // Same central closure logic every other clock-out path uses — clears

@@ -1,4 +1,5 @@
 import { api } from './api';
+import type { FlexibleSession, LocationOption } from '../types';
 
 export type ClockLocation = {
   latitude?: number;
@@ -27,6 +28,30 @@ export type AttendancePrompt =
 export async function manualClockIn(shiftId: string, payload: ManualClockPayload = {}) {
   const { data } = await api.post('/clock/in', { shiftId, ...payload });
   return data.data;
+}
+
+/**
+ * FLEXIBLE clock-in: no shift exists yet, so this names a work Location instead
+ * of a shiftId. The backend decides eligibility from the employee's own
+ * workPatternType — nothing sent here can make an employee FLEXIBLE.
+ */
+export async function manualClockInFlexible(locationId: string, payload: ManualClockPayload = {}) {
+  const { data } = await api.post('/clock/in', { locationId, ...payload });
+  return data.data as FlexibleSession & { monitorStarted: boolean };
+}
+
+/** The caller's open FLEXIBLE session, or null — how the app rediscovers it
+ *  after a restart. */
+export async function getActiveFlexibleSession() {
+  const { data } = await api.get('/clock/active-session');
+  return (data.data?.session ?? null) as FlexibleSession | null;
+}
+
+/** Active work Locations of the caller's agency (any signed-in user may read
+ *  this id+name list; it exposes no coordinates). */
+export async function getLocationOptions() {
+  const { data } = await api.get('/locations/options');
+  return data.data as LocationOption[];
 }
 
 export async function manualClockOut(shiftId: string, payload: ManualClockPayload = {}) {
@@ -69,8 +94,15 @@ export async function getAttendanceState(shiftId: string) {
   };
 }
 
+/**
+ * The signed-in employee's OWN scheduled shifts (ROTA / FIXED), whatever their
+ * system role. `mine=true` is the explicit self-service mode: without it GET
+ * /shifts is role-scoped for administration (a manager gets their houses'
+ * shifts, HR the whole agency), which is wrong for "what am I working". The
+ * server takes the employee from the auth token — no workerId is ever sent.
+ */
 export async function getMyShifts() {
-  const { data } = await api.get('/shifts');
+  const { data } = await api.get('/shifts', { params: { mine: true } });
   return data.data;
 }
 

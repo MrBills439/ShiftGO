@@ -35,7 +35,7 @@ function DayRow({ day, ts, isWeekend }: { day: Date; ts: Timesheet | undefined; 
       <View style={dr.mid}>
         <Text style={[dr.day, (isWeekend || !hasEntry) && dr.dayOff]}>{fmtDayLabel(day)}</Text>
         {ts?.shift && !isWeekend
-          ? <Text style={dr.time}>{fmtTime(ts.shift.startTime)} – {fmtTime(ts.shift.endTime)}</Text>
+          ? <Text style={dr.time}>{fmtTime(ts.shift.startTime)} – {ts.shift.endTime ? fmtTime(ts.shift.endTime) : 'in progress'}</Text>
           : <Text style={dr.timeFaint}>{isWeekend ? 'Rest day' : 'No shift'}</Text>}
       </View>
       <View style={dr.right}>

@@ -19,3 +19,14 @@ export function categorizeShift(shift: Shift, nowMs: number = Date.now()): Shift
   if (new Date(shift.endTime).getTime() < nowMs) return 'past';
   return 'upcoming';
 }
+
+/** The scheduled shift whose time window is open right now — the one the
+ *  employee can clock into. */
+export function getOpenShift(shifts: Shift[], now: Date = new Date()): Shift | null {
+  return shifts.find((s) => new Date(s.startTime) <= now && new Date(s.endTime) >= now) ?? null;
+}
+
+/** The next shift that starts after `now`, other than the active one. */
+export function getNextShift(shifts: Shift[], active: Shift | null, now: Date = new Date()): Shift | null {
+  return shifts.find((s) => new Date(s.startTime) > now && s.id !== active?.id) ?? null;
+}

@@ -204,10 +204,14 @@ export interface Timesheet {
 }
 
 /** GET /timesheets/needs-review — agency-wide, so the shift/house are a small
- *  fixed subset rather than the full nested Shift/House shapes. */
+ *  fixed subset rather than the full nested Shift/House shapes. A FIXED or
+ *  FLEXIBLE (Location-backed) record carries `location` and no `house`; a
+ *  FLEXIBLE session has no scheduled end, so `shift.endTime` is null until it
+ *  is clocked out. */
 export interface AttendanceReviewItem extends Omit<Timesheet, 'shift' | 'house'> {
-  shift: { id: string; startTime: string; endTime: string; shiftType: ShiftType; status: ShiftStatus };
-  house: { id: string; name: string; address: string };
+  shift: { id: string; kind: ShiftKind; startTime: string; endTime: string | null; shiftType: ShiftType; status: ShiftStatus };
+  house: { id: string; name: string; address: string } | null;
+  location: { id: string; name: string } | null;
 }
 
 // ─── Ops "Today" dashboard (GET /dashboard/today) ───────────────────────────

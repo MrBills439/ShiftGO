@@ -6,6 +6,10 @@ const { agencyWeekRange, agencyWeekRangeForDate } = require('../lib/agencyTime')
 // Shift statuses that represent assigned scheduled work and therefore count
 // towards a worker's weekly hours. OPEN (unassigned) and CANCELLED do not.
 const COUNTED_STATUSES = ['SCHEDULED', 'CLAIMED', 'IN_PROGRESS', 'COMPLETED'];
+// FLEXIBLE attendance sessions are actual worked time, never scheduled
+// allocation — a completed one must not count toward the weekly scheduled-hours
+// ceiling (an open one has no endTime, so no window query matches it anyway).
+const SCHEDULED_KINDS = ['ROTA', 'FIXED'];
 
 // Warning band, derived purely from proximity to the agency maximum — no
 // separate configurable threshold (simplest model). At/above this fraction of
@@ -56,6 +60,7 @@ async function weeklyScheduledHours(workerId, agencyId, weekStart, weekEnd, excl
       agencyId,
       workerId,
       status: { in: COUNTED_STATUSES },
+      kind: { in: SCHEDULED_KINDS },
       startTime: { lt: weekEnd },
       endTime: { gt: weekStart },
       ...(excludeShiftId ? { id: { not: excludeShiftId } } : {}),
@@ -136,6 +141,7 @@ async function getAllocation(user, agencyId, { week, proposedShiftId } = {}) {
       agencyId,
       workerId: { in: workers.map((w) => w.id) },
       status: { in: COUNTED_STATUSES },
+      kind: { in: SCHEDULED_KINDS },
       startTime: { lt: weekRange.end },
       endTime: { gt: weekRange.start },
     },

@@ -12,7 +12,8 @@ export async function getRotaDay(date: string): Promise<Shift[]> {
 }
 
 export async function getMyShifts(): Promise<Shift[]> {
-  const { data } = await api.get('/shifts');
+  // Explicit self-service mode — the employee's own shifts whatever their role.
+  const { data } = await api.get('/shifts', { params: { mine: true } });
   return data.data;
 }
 

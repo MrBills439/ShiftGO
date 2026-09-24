@@ -16,7 +16,8 @@ import {
   queueOfflineAttendanceEvent, subscribeAttendanceQueue, syncAttendanceQueue,
 } from '../services/offlineAttendanceQueue';
 import { apiErrorMessage } from '../services/api';
-import { Shift, Timesheet } from '../types';
+import { Timesheet } from '../types';
+import type { ClockableShift } from '../lib/flexibleClock';
 import { attendanceTargetFor, attendanceTargetIds } from '../lib/attendanceTarget';
 
 export type ClockError = {
@@ -24,13 +25,17 @@ export type ClockError = {
     | CaptureFailure
     | 'OUTSIDE_GEOFENCE' | 'GPS_ACCURACY_INSUFFICIENT' | 'STALE_LOCATION' | 'INVALID_COORDINATES'
     | 'LOCATION_REQUIRED' | 'OUTSIDE_SHIFT_WINDOW' | 'SHIFT_CANCELLED' | 'FORBIDDEN'
+    | 'FLEXIBLE_NOT_ENABLED' | 'FLEXIBLE_LOCATION_REQUIRED' | 'LOCATION_NOT_AVAILABLE'
+    | 'LOCATION_NOT_CONFIGURED' | 'CLOCK_TIME_OUT_OF_RANGE' | 'ACTIVE_SESSION_EXISTS'
     | 'NO_CONNECTION' | 'SERVER_ERROR';
   message: string;
   distanceMeters?: number;
   geofenceRadius?: number;
 };
 
-export function useClockStatus(activeShift: Shift | null) {
+// `activeShift` is a scheduled Shift (ROTA/FIXED) or the slice of a FLEXIBLE
+// session (see lib/flexibleClock.ts) — only its id and attendance target are used.
+export function useClockStatus(activeShift: ClockableShift | null) {
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [isActing, setIsActing] = useState(false);
   const [error, setError] = useState<ClockError | null>(null);
@@ -52,6 +57,9 @@ export function useClockStatus(activeShift: Shift | null) {
     queryClient.invalidateQueries({ queryKey: ['timesheets'] });
     queryClient.invalidateQueries({ queryKey: ['shifts'] });
     queryClient.invalidateQueries({ queryKey: ['open-shifts'] });
+    // A FLEXIBLE session ends with its clock-out — refetch so the screen returns
+    // to the location picker. (No-op for employees without one.)
+    queryClient.invalidateQueries({ queryKey: ['flexible-session'] });
   }, [queryClient]);
 
   const { data: timesheets, isLoading } = useQuery<Timesheet[]>({

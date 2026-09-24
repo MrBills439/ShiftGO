@@ -317,6 +317,11 @@ function dateRangeWhere(filters = {}) {
 function filteredWhere(baseWhere, filters = {}) {
   return {
     ...baseWhere,
+    // Schedule listings (rota, worker "my shifts", dashboards) are scheduled
+    // ROTA/FIXED work only. A FLEXIBLE attendance session is actual worked time
+    // — it has no scheduled end (endTime is null while open) and belongs in
+    // Timesheets, not on the schedule.
+    kind: { in: ['ROTA', 'FIXED'] },
     ...dateRangeWhere(filters),
     ...(filters.houseId ? { houseId: filters.houseId } : {}),
     ...(filters.workerId ? { workerId: filters.workerId } : {}),
@@ -371,6 +376,24 @@ async function getAllShifts(agencyId, filters = {}) {
     include: shiftInclude,
     orderBy: { date: 'asc' },
   });
+}
+
+/**
+ * Employee self-service: the authenticated employee's OWN scheduled shifts,
+ * whatever their system role. `listShiftsForUser` is role-scoped by design (a
+ * manager sees their houses' shifts, HR the whole agency) — that is right for
+ * administration but wrong for "what am I working / clocking into", which is
+ * a question about the employee, not their permissions.
+ *
+ * Ownership comes ONLY from the authenticated user: `workerId` is forced to
+ * user.id and `agencyId` is the caller's own. Callers must not pass a
+ * client-supplied workerId/houseId through here (the controller drops them).
+ * Scheduled work only — `filteredWhere` already limits this to ROTA/FIXED, so
+ * FLEXIBLE attendance sessions (created by clock-in, not scheduled) are never
+ * part of it; they remain visible through timesheets.
+ */
+async function listMyShifts(user, agencyId, filters = {}) {
+  return getShiftsForWorker(user.id, agencyId, { ...filters, workerId: user.id, houseId: undefined });
 }
 
 async function listShiftsForUser(user, agencyId, filters = {}) {
@@ -764,7 +787,7 @@ module.exports = {
   createShift, createOpenShift, getShiftById,
   getShiftByIdForAgency,
   getShiftsForWorker, getShiftsForHouse, getShiftsForManager,
-  getAllShifts, listShiftsForUser, listRotaForUser,
+  getAllShifts, listShiftsForUser, listMyShifts, listRotaForUser,
   cancelShift, updateShift,
   openShift, claimShift, dropShift, listOpenShiftsForWorker, listClaims,
   effectiveEligibleRoles, findEligibleWorkers,

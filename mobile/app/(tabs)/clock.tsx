@@ -13,6 +13,10 @@ import { useUpcomingShifts } from '../../hooks/useShifts';
 import { RightToWorkBanner } from '../../components/RightToWorkBanner';
 import { getUnreadCount } from '../../services/notificationsService';
 import { useClockStatus } from '../../hooks/useClockStatus';
+import { useFlexibleSession } from '../../hooks/useFlexibleSession';
+import { isFlexibleEmployee } from '../../lib/flexibleClock';
+import { getOpenShift, getNextShift } from '../../lib/shiftCategory';
+import { FlexibleClockPanel } from '../../components/FlexibleClockPanel';
 import { attendanceTargetFor } from '../../lib/attendanceTarget';
 import { useAuthStore } from '../../store/authStore';
 import { getMe } from '../../services/profileService';
@@ -41,8 +45,6 @@ const prog = (s: Shift) => {
   const done = Math.max(0, Math.min(now - start, end - start));
   return { pct, elapsed: fms(done), remaining: fms(Math.max(0, (end - start) - done)) };
 };
-const getActive = (shifts: Shift[]) => { const now = new Date(); return shifts.find(s => new Date(s.startTime) <= now && new Date(s.endTime) >= now) ?? null; };
-const getNext = (shifts: Shift[], active: Shift | null) => shifts.find(s => new Date(s.startTime) > new Date() && s.id !== active?.id) ?? null;
 const gpsConfidenceLabel = (accuracy?: number | null) => {
   if (accuracy == null || accuracy > 100) return 'GPS unreliable';
   if (accuracy > 50) return 'Weak GPS';
@@ -69,7 +71,7 @@ const p = StyleSheet.create({
 });
 
 // ─── Glow Clock Button ────────────────────────────────────────────────────────
-function ClockBtn({ isClockedIn, isLoading, onPress }: { isClockedIn: boolean; isLoading: boolean; onPress: () => void }) {
+function ClockBtn({ isClockedIn, isLoading, onPress, disabled = false }: { isClockedIn: boolean; isLoading: boolean; onPress: () => void; disabled?: boolean }) {
   const r1 = useRef(new Animated.Value(0)).current;
   const r2 = useRef(new Animated.Value(0)).current;
   const color = isClockedIn ? D.amber : D.emerald;
@@ -94,10 +96,10 @@ function ClockBtn({ isClockedIn, isLoading, onPress }: { isClockedIn: boolean; i
   return (
     <Pressable
       onPress={handlePress}
-      disabled={isLoading}
+      disabled={isLoading || disabled}
       accessibilityRole="button"
       accessibilityLabel={isClockedIn ? 'Clock out of your shift' : 'Clock in to your shift'}
-      style={({ pressed }) => [cb.wrap, pressed && { transform: [{ scale: 0.95 }] }]}
+      style={({ pressed }) => [cb.wrap, pressed && { transform: [{ scale: 0.95 }] }, disabled && !isLoading && { opacity: 0.55 }]}
     >
       <Animated.View style={[cb.r1, { borderColor: color, opacity: r1.interpolate({ inputRange: [0,1], outputRange: [0.07,0.22] }) }]} />
       <Animated.View style={[cb.r2, { borderColor: color, opacity: r2.interpolate({ inputRange: [0,1], outputRange: [0.11,0.28] }) }]} />
@@ -129,12 +131,26 @@ export default function ClockScreen() {
   const user = useAuthStore(s => s.user);
   const router = useRouter();
   const tabBarHeight = useTabBarHeight();
+  // Same authoritative current-user record the profile screens use. Reading the
+  // shared ['me'] cache here means an avatar upload / removal / profile edit
+  // (which update this cache) is reflected in the header with no restart.
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 30_000 });
+  // FLEXIBLE employees have no scheduled shift: they pick a work Location and
+  // the server creates their attendance session at clock-in. Eligibility is
+  // enforced by the backend from the employee's own record — this only decides
+  // which screen to show.
+  const isFlexible = isFlexibleEmployee(me ?? user);
+  const flex = useFlexibleSession(isFlexible, me?.primaryLocation?.id ?? null);
   // A shift the worker has clocked into (`active`) wins; otherwise the shift
   // whose time window is open right now (the one they can clock into).
-  const activeShift = active ?? getActive(upcoming);
-  const nextShift = getNext(upcoming, activeShift);
+  const scheduledShift = isFlexible ? null : (active ?? getOpenShift(upcoming));
+  const activeShift = scheduledShift;
+  const nextShift = isFlexible ? null : getNextShift(upcoming, activeShift);
   const activeTarget = attendanceTargetFor(activeShift);
   const nextTarget = attendanceTargetFor(nextShift);
+  // What actually gets clocked: the scheduled shift, or the open FLEXIBLE session.
+  const clockable = isFlexible ? flex.clockable : activeShift;
+  const clockTarget = attendanceTargetFor(clockable);
   const {
     isClockedIn,
     isLoading: statusLoading,
@@ -148,7 +164,7 @@ export default function ClockScreen() {
     clockIn,
     clockOut,
     retrySync,
-  } = useClockStatus(activeShift);
+  } = useClockStatus(clockable);
   const [gps, setGps] = useState<boolean | null>(null);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [, tick] = useState(0);
@@ -158,10 +174,6 @@ export default function ClockScreen() {
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
-  // Same authoritative current-user record the profile screens use. Reading the
-  // shared ['me'] cache here means an avatar upload / removal / profile edit
-  // (which update this cache) is reflected in the header with no restart.
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 30_000 });
 
   useEffect(() => { const id = setInterval(() => tick(t => t + 1), 30_000); return () => clearInterval(id); }, []);
 
@@ -187,29 +199,38 @@ export default function ClockScreen() {
 
   // Server-driven prompts: "you've left the service" / "your shift has ended".
   useEffect(() => {
-    if (!prompt || !activeShift) return;
+    if (!prompt || !clockable) return;
     const ended = prompt !== 'LEFT_GEOFENCE_STILL_WORKING';
     Alert.alert(
       ended ? 'Your scheduled shift has ended' : "You've left the service",
       ended
-        ? `Your shift at ${activeTarget?.name ?? 'your shift location'} was due to finish. Are you still working?`
-        : `You seem to have left ${activeTarget?.name ?? 'your shift location'}. Are you still working?`,
+        ? `Your shift at ${clockTarget?.name ?? 'your shift location'} was due to finish. Are you still working?`
+        : `You seem to have left ${clockTarget?.name ?? 'your shift location'}. Are you still working?`,
       [
         { text: 'End shift', style: 'destructive', onPress: () => { dismissPrompt(); clockOut(); } },
         { text: "Yes, still working", onPress: confirmStillWorking },
       ],
     );
-  }, [prompt, activeShift?.id]);
+  }, [prompt, clockable?.id]);
 
   const currentUser = me ?? user;
   const firstName = currentUser?.name?.split(' ')[0] ?? 'there';
   const avatarUri = currentUser?.profilePicture ? `${API_BASE_URL}${currentUser.profilePicture}` : null;
   const p2 = activeShift ? prog(activeShift) : null;
-  const isLoading = shiftsLoading || statusLoading;
+  const isLoading = isFlexible ? flex.isLoading || statusLoading : shiftsLoading || statusLoading;
+  // FLEXIBLE clock-out saved offline: the server still has the session open, so
+  // there is nothing to clock into until that queued clock-out syncs.
+  const flexAwaitingSync = isFlexible && !!flex.session && !isClockedIn;
 
   // Clock-in goes straight through. Clock-out after the scheduled end time asks
-  // for confirmation first — otherwise it clocks out immediately.
+  // for confirmation first — otherwise it clocks out immediately. A FLEXIBLE
+  // session has no scheduled end, so it always clocks out immediately.
   const handleClockPress = () => {
+    if (isFlexible) {
+      if (!flex.session) { flex.startSession(); return; }
+      if (isClockedIn) clockOut();
+      return;
+    }
     if (!activeShift) return;
     if (!isClockedIn) { clockIn(); return; }
     const shiftEnded = Date.now() > new Date(activeShift.endTime).getTime();
@@ -246,7 +267,7 @@ export default function ClockScreen() {
         <View style={s.header}>
           <View style={{ flex: 1 }}>
             <Text style={s.greet}>{getGreeting()}, {firstName} 👋</Text>
-            <Text style={s.greetSub}>{activeShift ? `Shift at ${activeTarget?.name ?? 'your shift location'}` : 'No shift scheduled today'}</Text>
+            <Text style={s.greetSub}>{isFlexible ? (flex.session ? `Working at ${flex.session.location.name}` : 'Flexible working') : activeShift ? `Shift at ${activeTarget?.name ?? 'your shift location'}` : 'No shift scheduled today'}</Text>
           </View>
           <View style={s.headerRight}>
             <Pressable
@@ -288,7 +309,17 @@ export default function ClockScreen() {
         )}
 
         {/* ── Hero Card — flex grows to fill remaining space ── */}
-        {activeShift ? (
+        {isFlexible ? (
+          <FlexibleClockPanel
+            session={flex.session}
+            isClockedIn={isClockedIn}
+            options={flex.options}
+            optionsLoading={flex.optionsLoading}
+            selectedId={flex.selectedId}
+            primaryLocationId={me?.primaryLocation?.id ?? null}
+            onSelect={flex.selectLocation}
+          />
+        ) : activeShift ? (
           <LinearGradient colors={[D.eDark, D.eMid, D.eLight]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.hero}>
             <View style={[s.deco, { width: 200, height: 200, top: -70, right: -50 }]} />
             <View style={[s.deco, { width: 120, height: 120, bottom: -40, left: -20 }]} />
@@ -342,12 +373,17 @@ export default function ClockScreen() {
 
         {/* ── Clock Button ── */}
         <View style={s.clockArea}>
-          <ClockBtn isClockedIn={isClockedIn} isLoading={isActing} onPress={handleClockPress} />
-          {error && (
+          <ClockBtn
+            isClockedIn={isClockedIn}
+            isLoading={isActing || flex.isStarting}
+            onPress={handleClockPress}
+            disabled={isFlexible && (flexAwaitingSync || (!flex.session && !flex.selectedId))}
+          />
+          {(flex.error ?? error) && (
             <Text style={s.errTxt}>
-              {error.message}
-              {error.code === 'OUTSIDE_GEOFENCE' && error.distanceMeters != null
-                ? `\nYou're about ${Math.round(error.distanceMeters)} m away (allowed: ${error.geofenceRadius ?? '?'} m).`
+              {(flex.error ?? error)!.message}
+              {(flex.error ?? error)!.code === 'OUTSIDE_GEOFENCE' && (flex.error ?? error)!.distanceMeters != null
+                ? `\nYou're about ${Math.round((flex.error ?? error)!.distanceMeters!)} m away (allowed: ${(flex.error ?? error)!.geofenceRadius ?? '?'} m).`
                 : ''}
             </Text>
           )}
@@ -370,7 +406,7 @@ export default function ClockScreen() {
         </View>
 
         {/* ── Status Strip ── */}
-        {activeShift && (
+        {(activeShift || isFlexible) && (
           <View style={s.strip}>
             <View style={s.si}>
               <View style={s.siIcon}><NavigationArrow size={12} color={gps === true ? D.emerald : D.error} weight="fill" /></View>

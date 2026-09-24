@@ -16,6 +16,13 @@ const REJECT_STATUS = {
   [REASONS.GPS_ACCURACY_INSUFFICIENT]: 422,
   [REASONS.OUTSIDE_GEOFENCE]: 422,
   [REASONS.UNSUPPORTED_SHIFT_KIND]: 409,
+  // FLEXIBLE Staff Attendance V1
+  [REASONS.FLEXIBLE_NOT_ENABLED]: 403,
+  [REASONS.FLEXIBLE_LOCATION_REQUIRED]: 422,
+  [REASONS.LOCATION_NOT_AVAILABLE]: 422,
+  [REASONS.LOCATION_NOT_CONFIGURED]: 422,
+  [REASONS.CLOCK_TIME_OUT_OF_RANGE]: 422,
+  [REASONS.ACTIVE_SESSION_EXISTS]: 409,
 };
 
 function sendRejection(res, result) {
@@ -27,17 +34,25 @@ function sendRejection(res, result) {
         accuracySufficient: result.geo.accuracySufficient,
       }
     : undefined;
-  return fail(res, result.message, status, { code: result.rejected, ...(details ? { details } : {}) });
+  return fail(res, result.message, status, {
+    code: result.rejected,
+    ...(details ? { details } : {}),
+    // ACTIVE_SESSION_EXISTS: the caller's own open session, so the app can resume it.
+    ...(result.activeShiftId ? { activeShiftId: result.activeShiftId } : {}),
+  });
 }
 
 async function auditClockIn(req, result, code, extra = {}) {
+  // A FLEXIBLE clock-in has no request shiftId — the shift is created by the
+  // clock-in itself, so a success carries it on the result.
+  const shiftId = req.body.shiftId || result?.shiftId;
   await createAuditLog({
     ...auditContext(req),
     action: code,
     entityType: result?.event ? 'ClockEvent' : 'Shift',
-    entityId: result?.event?.id || req.body.shiftId,
+    entityId: result?.event?.id || shiftId || req.body.locationId,
     newValue: {
-      shiftId: req.body.shiftId,
+      shiftId,
       distanceMeters: result?.geo?.distanceMeters ?? null,
       geofenceRadius: result?.geo?.radiusM ?? null,
       accuracy: req.body.accuracy ?? null,
@@ -49,14 +64,23 @@ async function auditClockIn(req, result, code, extra = {}) {
 // `houseId` is kept as an existing-clients-compatible field; `locationId` is
 // new for FIXED shifts. Neither is required — the Shift itself is
 // authoritative — but when a client sends one it's checked for consistency.
+//
+// FLEXIBLE Staff Attendance V1: with a `shiftId` this is the unchanged
+// ROTA/FIXED flow. Without one, the request is a location-only FLEXIBLE
+// clock-in — clockService.clockInFlexible checks the caller's own
+// workPatternType in the database, so nothing the client sends can make
+// itself FLEXIBLE.
 async function manualClockIn(req, res) {
   const { houseId, locationId, shiftId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource } = req.body;
-  if (!shiftId) return fail(res, 'shiftId required');
+  if (!shiftId && !locationId) return fail(res, 'shiftId (scheduled shift) or locationId (flexible clock-in) required');
 
-  const result = await clockService.clockIn(req.user.id, shiftId, 'MANUAL', {
+  const metadata = {
     houseId, locationId, timestamp, latitude, longitude, accuracy, capturedAt, mockLocationSuspected, locationSource,
     agencyId: agencyIdFor(req),
-  });
+  };
+  const result = shiftId
+    ? await clockService.clockIn(req.user.id, shiftId, 'MANUAL', metadata)
+    : await clockService.clockInFlexible(req.user.id, 'MANUAL', metadata);
 
   if (result.rejected) {
     const auditAction =
@@ -137,6 +161,10 @@ async function confirmStillWorking(req, res) {
   ok(res, result);
 }
 
+async function getActiveSession(req, res) {
+  ok(res, { session: await clockService.getActiveFlexibleSession(req.user.id, agencyIdFor(req)) });
+}
+
 async function getState(req, res) {
   const shiftId = req.query.shiftId;
   if (!shiftId) return fail(res, 'shiftId query parameter is required');
@@ -144,4 +172,4 @@ async function getState(req, res) {
   ok(res, state);
 }
 
-module.exports = { manualClockIn, manualClockOut, reportLocation, confirmStillWorking, getState };
+module.exports = { manualClockIn, manualClockOut, reportLocation, confirmStillWorking, getActiveSession, getState };

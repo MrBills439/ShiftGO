@@ -74,7 +74,17 @@ async function getShift(req, res) {
 }
 
 async function listShifts(req, res) {
-  const { houseId, workerId, startDate, endDate, status, shiftType } = req.query;
+  const { houseId, workerId, startDate, endDate, status, shiftType, mine } = req.query;
+
+  // `?mine=true` — explicit employee self-service mode (mobile attendance flow):
+  // the caller's own scheduled shifts regardless of system role. Ownership is
+  // the authenticated user; a client-supplied workerId/houseId is dropped, never
+  // honoured. Without it the role-scoped administrative listing below is
+  // completely unchanged.
+  if (mine === 'true') {
+    return ok(res, await shiftService.listMyShifts(req.user, agencyIdFor(req), { startDate, endDate, status, shiftType }));
+  }
+
   const shifts = await shiftService.listShiftsForUser(req.user, agencyIdFor(req), {
     houseId,
     workerId,

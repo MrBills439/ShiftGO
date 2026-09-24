@@ -191,27 +191,27 @@ enum LeaveLedgerType {
 }
 
 model Agency {
-  id         String   @id @default(cuid())
-  name       String
-  clerkOrgId String?  @unique
+  id                      String   @id @default(cuid())
+  name                    String
+  clerkOrgId              String?  @unique
   // IANA timezone that defines this agency's operational "day" for the
   // dashboard, rota, attendance, payroll and reporting. Never the server's
   // (UTC on Railway) or the browser's timezone. See src/lib/agencyTime.js.
-  timezone   String   @default("Europe/London")
+  timezone                String   @default("Europe/London")
   // Maximum scheduled hours any one worker may be rostered in an agency week
   // (Mon 00:00 -> next Mon 00:00 in `timezone`). Assignments above this need an
   // explicit manager/HR override with a reason. Service logic reads this value
   // — never a hardcoded number. See src/services/staffAllocationService.js.
-  maxWeeklyScheduledHours Int @default(60)
+  maxWeeklyScheduledHours Int      @default(60)
   // Whole-Workforce: employee IDs are auto-generated as `${employeeIdPrefix}-0001`.
   // The prefix is HR-configurable (uppercase, 2–8 alphanumerics). The counter is
   // reserved with a single atomic increment per hire and only ever moves
   // forward — a number left unused by a failed invite just leaves a gap; a
   // reused number is never acceptable. Not derived from `name` (names change).
-  employeeIdPrefix     String?
-  employeeIdNextNumber Int     @default(1)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  employeeIdPrefix        String?
+  employeeIdNextNumber    Int      @default(1)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   users                User[]
   houses               House[]
@@ -308,10 +308,10 @@ model User {
   shiftChangesTargeted  ShiftChangeRequest[] @relation("ShiftChangeTarget")
   shiftChangesManaged   ShiftChangeRequest[] @relation("ShiftChangeManager")
   department            Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  jobTitle             JobTitle?            @relation(fields: [jobTitleId], references: [id], onDelete: SetNull)
-  primaryLocation      Location?            @relation("UserPrimaryLocation", fields: [primaryLocationId], references: [id], onDelete: SetNull)
-  lineManager          User?                @relation("UserLineManager", fields: [lineManagerId], references: [id])
-  directReports        User[]               @relation("UserLineManager")
+  jobTitle              JobTitle?            @relation(fields: [jobTitleId], references: [id], onDelete: SetNull)
+  primaryLocation       Location?            @relation("UserPrimaryLocation", fields: [primaryLocationId], references: [id], onDelete: SetNull)
+  lineManager           User?                @relation("UserLineManager", fields: [lineManagerId], references: [id])
+  directReports         User[]               @relation("UserLineManager")
 
   // Recurring Fixed Work Patterns V1.
   fixedWorkPatterns           FixedWorkPattern[] @relation("FixedWorkPatternWorker")
@@ -430,7 +430,14 @@ model Shift {
   workerId           String?
   createdById        String
   startTime          DateTime
-  endTime            DateTime
+  // FLEXIBLE Staff Attendance V1 — FLEXIBLE attendance sessions have no
+  // scheduled end time. endTime remains null while the session is open
+  // (clockService.clockInFlexible) and is set to the actual clock-out time
+  // when the session is closed (clockService.clockOut). ROTA/FIXED shifts
+  // continue to require a scheduled end time at the service-validation layer
+  // (validators.createShift/updateShift's `.notEmpty()`), never relaxed by
+  // this column change.
+  endTime            DateTime?
   date               DateTime
   shiftType          ShiftType   @default(LONG_DAY)
   kind               ShiftKind   @default(ROTA)
@@ -446,33 +453,25 @@ model Shift {
   // (ON DELETE RESTRICT) now that the column is optional — Prisma's implicit
   // default for an optional relation is SetNull, which would silently change
   // the constraint. This migration is DROP NOT NULL only.
-  house             House?             @relation(fields: [houseId], references: [id], onDelete: Restrict)
-  location          Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  house               House?               @relation(fields: [houseId], references: [id], onDelete: Restrict)
+  location            Location?            @relation(fields: [locationId], references: [id], onDelete: SetNull)
   // SetNull (not Restrict): a FixedWorkPattern must be freely editable/endable
   // without ever being blocked by, or reaching back to touch, shifts it
   // already generated — this column is provenance, not a live dependency, so
   // losing the link (which never happens in Phase 1 — nothing deletes a
   // pattern row) must never threaten the Shift or its attendance history.
-  fixedWorkPattern  FixedWorkPattern?  @relation(fields: [fixedWorkPatternId], references: [id], onDelete: SetNull)
-  worker            User?              @relation("ShiftWorker", fields: [workerId], references: [id])
-  createdBy         User               @relation("ShiftCreator", fields: [createdById], references: [id])
-  cancelledBy       User?              @relation("ShiftCanceller", fields: [cancelledById], references: [id])
-  clockEvents       ClockEvent[]
-  timesheet         Timesheet?
-  claims            ShiftClaim[]
-  attendanceMonitor AttendanceMonitor?
+  fixedWorkPattern    FixedWorkPattern?    @relation(fields: [fixedWorkPatternId], references: [id], onDelete: SetNull)
+  worker              User?                @relation("ShiftWorker", fields: [workerId], references: [id])
+  createdBy           User                 @relation("ShiftCreator", fields: [createdById], references: [id])
+  cancelledBy         User?                @relation("ShiftCanceller", fields: [cancelledById], references: [id])
+  clockEvents         ClockEvent[]
+  timesheet           Timesheet?
+  claims              ShiftClaim[]
+  attendanceMonitor   AttendanceMonitor?
   shiftChangesPrimary ShiftChangeRequest[] @relation("ShiftChangePrimary")
   shiftChangesSwap    ShiftChangeRequest[] @relation("ShiftChangeSwap")
-  agency            Agency             @relation(fields: [agencyId], references: [id])
+  agency              Agency               @relation(fields: [agencyId], references: [id])
 
-  @@index([agencyId])
-  @@index([agencyId, startTime, endTime])
-  @@index([workerId, startTime, endTime])
-  // Cross-agency time-window scan used by missedClockInJob every 5 minutes
-  // (WHERE startTime BETWEEN ? AND ?), which no agency-scoped index can serve.
-  @@index([startTime])
-  // Foundation: future Location-scoped shift lookups (unused today).
-  @@index([agencyId, locationId])
   // Recurring Fixed Work Patterns V1 Phase 2 — DB-enforced concurrency guard.
   // fixedWorkPatternGenerationService's own (fixedWorkPatternId, date) check
   // before insert is a TOCTOU race on its own; this constraint is the
@@ -483,6 +482,14 @@ model Shift {
   // Replaces the old plain @@index([fixedWorkPatternId]) — a unique
   // constraint already serves every lookup that index did.
   @@unique([fixedWorkPatternId, date])
+  @@index([agencyId])
+  @@index([agencyId, startTime, endTime])
+  @@index([workerId, startTime, endTime])
+  // Cross-agency time-window scan used by missedClockInJob every 5 minutes
+  // (WHERE startTime BETWEEN ? AND ?), which no agency-scoped index can serve.
+  @@index([startTime])
+  // Foundation: future Location-scoped shift lookups (unused today).
+  @@index([agencyId, locationId])
 }
 
 model ShiftClaim {
@@ -891,8 +898,8 @@ model ShiftChangeRequest {
   recipientResponse    ShiftChangeRecipientResponse?
 
   managerId         String?
-  managerDecisionAt  DateTime?
-  managerReason      String?
+  managerDecisionAt DateTime?
+  managerReason     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -969,9 +976,9 @@ model Location {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  agency       Agency @relation(fields: [agencyId], references: [id])
+  agency       Agency  @relation(fields: [agencyId], references: [id])
   houses       House[]
-  primaryUsers User[] @relation("UserPrimaryLocation")
+  primaryUsers User[]  @relation("UserPrimaryLocation")
 
   // Office Attendance Foundation back-relations. Nothing references a Location
   // through any of these yet — they exist so a future Location-backed
@@ -1086,19 +1093,19 @@ model FixedWorkPatternDay {
 // `consumedAt` makes consumption idempotent under duplicate webhook delivery;
 // the (agencyId, email) pair scopes it so another agency can never adopt it.
 model PendingEmployee {
-  id                String          @id @default(cuid())
-  agencyId          String
-  email             String // always stored lower-cased
-  invitationId      String? // Clerk organization invitation id
-  role              Role
-  employeeNumber    String?
-  departmentId      String?
-  jobTitleId        String?
-  primaryLocationId String?
-  lineManagerId     String?
-  contractedHours   Float?
-  workPatternType   WorkPatternType @default(ROTA)
-  employmentType    EmploymentType?
+  id                           String          @id @default(cuid())
+  agencyId                     String
+  email                        String // always stored lower-cased
+  invitationId                 String? // Clerk organization invitation id
+  role                         Role
+  employeeNumber               String?
+  departmentId                 String?
+  jobTitleId                   String?
+  primaryLocationId            String?
+  lineManagerId                String?
+  contractedHours              Float?
+  workPatternType              WorkPatternType @default(ROTA)
+  employmentType               EmploymentType?
   // ── HR Onboarding V1: personal + emergency-contact values staged here before
   //    the Clerk invite, applied to the User by the membership webhook. All
   //    nullable; a legacy invite without them still works. ──
@@ -1109,17 +1116,17 @@ model PendingEmployee {
   emergencyContactName         String?
   emergencyContactPhone        String?
   emergencyContactRelationship String?
-  invitedById       String?
-  consumedAt        DateTime?
+  invitedById                  String?
+  consumedAt                   DateTime?
   // Set true when the membership webhook could not apply every staged field
   // (employee-number clash, or a department/job title/location/line manager that
   // was removed or deactivated between invite and acceptance). The User + auth
   // membership are still created; this flags that HR must finish the setup.
-  needsReview       Boolean         @default(false)
-  reviewNote        String?
-  expiresAt         DateTime
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  needsReview                  Boolean         @default(false)
+  reviewNote                   String?
+  expiresAt                    DateTime
+  createdAt                    DateTime        @default(now())
+  updatedAt                    DateTime        @updatedAt
 
   // Staging data only — no history value, so it follows the agency lifecycle.
   agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)

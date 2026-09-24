@@ -190,9 +190,29 @@ export interface Timesheet {
   totalHours: number | null;
   confirmedAt: string | null;
   autoConfirmed: boolean;
-  shift: Shift;
+  // A FLEXIBLE session has no scheduled end: its shift's endTime is null while
+  // the worker is clocked in, then becomes the real clock-out time.
+  shift: Omit<Shift, 'endTime'> & { endTime: string | null };
   house: House | null;
   location?: Location | null;
+}
+
+/** A work Location a FLEXIBLE employee can choose to clock in to
+ *  (GET /locations/options — id + name only; geofence stays server-side). */
+export interface LocationOption {
+  id: string;
+  name: string;
+  type: string;
+}
+
+/** The caller's open FLEXIBLE attendance session (GET /clock/active-session,
+ *  and the response to a successful flexible clock-in). */
+export interface FlexibleSession {
+  shiftId: string;
+  kind: 'FLEXIBLE';
+  status: ShiftStatus;
+  clockInAt: string;
+  location: { id: string; name: string };
 }
 
 export interface RotaDay {

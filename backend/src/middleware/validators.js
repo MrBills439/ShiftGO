@@ -319,6 +319,12 @@ const validators = {
   ],
 
   listShifts: [
+    // Explicit employee self-service mode (see shiftService.listMyShifts). Only
+    // the literal strings are accepted so it can never be switched on by accident.
+    query('mine')
+      .optional()
+      .isIn(['true', 'false'])
+      .withMessage('mine must be true or false'),
     query('houseId')
       .optional()
       .trim()
@@ -559,6 +565,59 @@ const validators = {
   ],
 
   manualClockIn: [
+    // Neither houseId nor locationId is required — the Shift determines its
+    // own attendance target. When present, either is only a consistency
+    // check (see clockService.shiftTargetRejection), so both stay optional
+    // here and are just format-checked.
+    body('houseId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('House ID must be valid'),
+    body('locationId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Location ID must be valid'),
+    // shiftId is required for a ROTA/FIXED clock-in; a FLEXIBLE employee has no
+    // pre-created shift and sends locationId instead. Which one is required is
+    // decided in the controller (never by a client-supplied "kind").
+    body('shiftId')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 5 })
+      .withMessage('Shift ID must be valid'),
+    optionalIsoDate('timestamp', 'Clock timestamp'),
+    body('latitude')
+      .optional()
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitude must be between -90 and 90'),
+    body('longitude')
+      .optional()
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitude must be between -180 and 180'),
+    body('accuracy')
+      .optional()
+      .isFloat({ min: 0, max: 5000 })
+      .withMessage('Accuracy must be between 0 and 5000 metres'),
+    optionalIsoDate('capturedAt', 'Location capture time'),
+    body('mockLocationSuspected')
+      .optional()
+      .isBoolean()
+      .withMessage('mockLocationSuspected must be a boolean'),
+    body('reason')
+      .optional({ nullable: true, checkFalsy: true })
+      .trim()
+      .isLength({ min: 3, max: 500 })
+      .withMessage('Manual attendance reason must be between 3 and 500 characters'),
+    body('locationSource')
+      .optional()
+      .isIn(['MANUAL', 'OFFLINE_SYNC'])
+      .withMessage('Location source must be MANUAL or OFFLINE_SYNC'),
+    handleValidationErrors,
+  ],
+
+  manualClockOut: [
     // Neither houseId nor locationId is required — the Shift determines its
     // own attendance target. When present, either is only a consistency
     // check (see clockService.shiftTargetRejection), so both stay optional
