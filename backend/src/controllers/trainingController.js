@@ -34,9 +34,15 @@ async function updateTraining(req, res) {
   const { id } = req.params;
   const record = await prisma.training.findFirst({ where: { id, agencyId: agencyIdFor(req) } });
   if (!record) return notFound(res);
+  // Whitelist: userId / agencyId / id are never editable, so a record can't be
+  // re-pointed at another person or moved into another agency.
+  const data = {};
+  for (const key of ['title', 'description', 'status', 'completedAt', 'expiresAt']) {
+    if (req.body[key] !== undefined) data[key] = req.body[key];
+  }
   const training = await prisma.training.update({
     where: { id },
-    data: req.body,
+    data,
   });
   ok(res, training);
 }

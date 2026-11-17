@@ -2,6 +2,8 @@ const prisma = require('../lib/prisma');
 const { ok, created, notFound, fail } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
 
+const HOUSE_EDITABLE_FIELDS = ['name', 'address', 'latitude', 'longitude', 'geofenceRadius', 'autoConfirm', 'assignedHours'];
+
 async function listHouses(req, res) {
   const { role, id } = req.user;
   const agencyId = agencyIdFor(req);
@@ -68,7 +70,14 @@ async function updateHouse(req, res) {
   // Reassigning who manages a service is an HR-only decision (see the dedicated
   // "Change Manager" flow) — strip it here so opening general edits to Managers
   // doesn't let one reassign a service away from themselves or to someone else.
-  const { managerId, ...body } = req.body;
+  // Only these fields may be edited here. Anything else in the body (agencyId,
+  // id, locationId, timestamps, …) is ignored, so a request can never move a
+  // service into another agency or rewrite its identity.
+  const { managerId } = req.body;
+  const body = {};
+  for (const key of HOUSE_EDITABLE_FIELDS) {
+    if (req.body[key] !== undefined) body[key] = req.body[key];
+  }
   if (req.user.role === 'HR' && managerId !== undefined) {
     if (managerId) {
       const manager = await prisma.user.findFirst({ where: { id: managerId, agencyId: agencyIdFor(req) } });
