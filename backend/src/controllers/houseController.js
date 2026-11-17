@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const { ok, created, notFound, fail } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
+const { canAccessHouse } = require('../services/accessScope');
 
 const HOUSE_EDITABLE_FIELDS = ['name', 'address', 'latitude', 'longitude', 'geofenceRadius', 'autoConfirm', 'assignedHours'];
 
@@ -30,6 +31,7 @@ async function listHouses(req, res) {
 }
 
 async function getHouse(req, res) {
+  if (!(await canAccessHouse(req.user, req.params.id, agencyIdFor(req)))) return notFound(res);
   const house = await prisma.house.findFirst({
     where: { id: req.params.id, agencyId: agencyIdFor(req) },
     include: {
@@ -114,8 +116,9 @@ async function deleteHouse(req, res) {
 }
 
 async function listSupportedPeople(req, res) {
-  const house = await prisma.house.findFirst({ where: { id: req.params.id, agencyId: agencyIdFor(req) } });
-  if (!house) return notFound(res);
+  // Residents' names, dates of birth and emergency contacts: team leaders only
+  // see the services they are assigned to.
+  if (!(await canAccessHouse(req.user, req.params.id, agencyIdFor(req)))) return notFound(res);
   const people = await prisma.supportedPerson.findMany({
     where: { houseId: req.params.id },
     orderBy: { name: 'asc' },

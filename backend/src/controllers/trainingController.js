@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
+const { canViewPersonRecords } = require('../services/accessScope');
 
 async function listMyTraining(req, res) {
   const trainings = await prisma.training.findMany({
@@ -12,6 +13,7 @@ async function listMyTraining(req, res) {
 
 async function getTrainingForUser(req, res) {
   const { userId } = req.params;
+  if (!(await canViewPersonRecords(req.user, userId, agencyIdFor(req)))) return notFound(res);
   const trainings = await prisma.training.findMany({
     where: { agencyId: agencyIdFor(req), userId },
     orderBy: { createdAt: 'desc' },

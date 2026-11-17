@@ -1,6 +1,7 @@
 const path = require('path');
 const service = require('../services/rightToWorkService');
-const { ok, fail } = require('../utils/response');
+const { ok, fail, notFound } = require('../utils/response');
+const { canViewPersonRecords } = require('../services/accessScope');
 const { agencyIdFor } = require('../utils/agency');
 const storage = require('../lib/storage');
 const { validateRtwUpload } = require('../lib/fileValidation');
@@ -84,6 +85,7 @@ async function list(req, res) {
 }
 
 async function getForUser(req, res) {
+  if (!(await canViewPersonRecords(req.user, req.params.userId, agencyIdFor(req)))) return notFound(res);
   ok(res, await service.getForUser(agencyIdFor(req), req.params.userId));
 }
 
@@ -102,6 +104,9 @@ async function uploadUserDocument(req, res) {
 
 async function getDocument(req, res) {
   const target = req.params.userId ?? req.user.id;
+  if (req.params.userId && !(await canViewPersonRecords(req.user, target, agencyIdFor(req)))) {
+    return fail(res, 'No document on file for this worker', 404);
+  }
   const doc = await service.resolveDocument(agencyIdFor(req), target);
   if (!doc) return fail(res, 'No document on file for this worker', 404);
   res.download(doc.absolutePath, doc.downloadName);

@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const timesheetService = require('../services/timesheetService');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
+const { canAccessHouse } = require('../services/accessScope');
 const { ok, fail } = require('../utils/response');
 
 async function myTimesheets(req, res) {
@@ -10,6 +11,7 @@ async function myTimesheets(req, res) {
 }
 
 async function houseTimesheets(req, res) {
+  if (!(await canAccessHouse(req.user, req.params.houseId, agencyIdFor(req)))) return fail(res, 'Service not found', 404);
   const data = await timesheetService.getHouseTimesheets(req.params.houseId, agencyIdFor(req));
   ok(res, data);
 }
