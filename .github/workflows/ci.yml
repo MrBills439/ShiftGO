@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: shiftgo
+          POSTGRES_PASSWORD: shiftgo_ci
+          POSTGRES_DB: shiftgo_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U shiftgo"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20 # matches backend/Dockerfile
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Write test env
+        run: |
+          cat > .env.test <<'ENV'
+          DATABASE_URL=postgresql://shiftgo:shiftgo_ci@localhost:5432/shiftgo_test
+          NODE_ENV=test
+          JWT_SECRET=ci-access-secret
+          JWT_REFRESH_SECRET=ci-refresh-secret
+          ENV
+      - run: npx prisma generate
+      - run: npm test # pretest applies all migrations to the test DB
+      - name: Fail on critical dependency advisories
+        run: npm audit --omit=dev --audit-level=critical
+
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      # Build-time placeholders only — a well-formed key so Clerk can prerender.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx next build # includes the TypeScript check
+      - name: Fail on critical dependency advisories
+        run: npm audit --omit=dev --audit-level=critical
+
+  mobile:
+    name: Mobile type-check and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx jest --ci
+      - name: Fail on critical dependency advisories
+        run: npm audit --omit=dev --audit-level=critical
