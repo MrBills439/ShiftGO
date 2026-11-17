@@ -134,3 +134,52 @@ describe('Fix 2 — team leaders only see their own services and staff', () => {
     }
   });
 });
+
+describe('Fix 3 — nobody reviews their own timesheet; team leaders only their services', () => {
+  let tlHouse;
+  let otherHouse;
+
+  async function makeTimesheet(worker, house) {
+    const now = new Date();
+    const shift = await prisma.shift.create({
+      data: { agencyId: agencyA.id, houseId: house.id, workerId: worker.id, createdById: managerA.id, startTime: now, endTime: now, date: now },
+    });
+    return prisma.timesheet.create({
+      data: { agencyId: agencyA.id, houseId: house.id, workerId: worker.id, shiftId: shift.id, totalHours: 8 },
+    });
+  }
+
+  beforeAll(async () => {
+    tlHouse = await makeHouse(agencyA.id, 'TS TL House');
+    otherHouse = await makeHouse(agencyA.id, 'TS Other House');
+    await prisma.houseTeamLeader.create({ data: { houseId: tlHouse.id, teamLeaderId: teamLeaderA.id } });
+  });
+
+  test('team leader cannot approve their own timesheet', async () => {
+    const ts = await makeTimesheet(teamLeaderA, tlHouse);
+    const res = await request(app).post(`/timesheets/${ts.id}/confirm`).set(auth(teamLeaderA)).send({});
+    expect(res.status).toBe(403);
+    expect((await prisma.timesheet.findUnique({ where: { id: ts.id } })).status).toBe('PENDING');
+  });
+
+  test('manager cannot approve or reject their own timesheet', async () => {
+    const ts = await makeTimesheet(managerA, tlHouse);
+    expect((await request(app).post(`/timesheets/${ts.id}/confirm`).set(auth(managerA)).send({})).status).toBe(403);
+    expect((await request(app).post(`/timesheets/${ts.id}/reject`).set(auth(managerA)).send({ reason: 'Hours do not match the rota' })).status).toBe(403);
+  });
+
+  test('team leader can approve a worker at their own house, not at another house', async () => {
+    const own = await makeTimesheet(workerA, tlHouse);
+    const other = await makeTimesheet(workerA, otherHouse);
+    expect((await request(app).post(`/timesheets/${own.id}/confirm`).set(auth(teamLeaderA)).send({})).status).toBe(200);
+    expect((await request(app).post(`/timesheets/${other.id}/confirm`).set(auth(teamLeaderA)).send({})).status).toBe(404);
+    expect((await prisma.timesheet.findUnique({ where: { id: other.id } })).status).toBe('PENDING');
+  });
+
+  test('manager can approve a team leader timesheet', async () => {
+    const ts = await makeTimesheet(teamLeaderA, tlHouse);
+    const res = await request(app).post(`/timesheets/${ts.id}/confirm`).set(auth(managerA)).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('APPROVED');
+  });
+});
