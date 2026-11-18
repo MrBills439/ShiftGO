@@ -5,7 +5,10 @@
  * endpoint". These helpers say "…for THIS house / THIS person". Every check is
  * agency-scoped first.
  *
- *   HR, MANAGER   agency-wide (manager-to-own-services scoping is not applied yet)
+ *   HR, MANAGER   agency-wide — a deliberate product decision (Nov 2026): managers
+ *                 oversee the whole agency, like a registered manager, and
+ *                 office / flexible staff belong to no service, so they cannot
+ *                 be house-scoped. Revisit only with a "service manager" role.
  *   TEAM_LEADER   only houses they are assigned to (HouseTeamLeader), and only
  *                 WORKER staff assigned to one of those houses (HouseWorker)
  *   WORKER        only themselves
