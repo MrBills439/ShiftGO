@@ -9,24 +9,17 @@ import {
   Envelope, Lock, Eye, EyeSlash, ArrowRight, ArrowLeft,
   ShieldCheck, CheckSquare, Square,
 } from 'phosphor-react-native';
-import { useSignIn } from '@clerk/clerk-expo';
+import { authClient, authErrorMessage } from '../../services/authClient';
 import { registerForPushNotifications } from '../../services/pushNotifications';
 import { D } from '../../constants/theme';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
 
-// Clerk instance password policy minimum (User & Authentication → Password).
-const MIN_PASSWORD_LENGTH = 8;
+// Matches the server (Better Auth minPasswordLength).
+const MIN_PASSWORD_LENGTH = 10;
 
 type Step = 'credentials' | 'code' | 'forgot' | 'reset';
 type FocusField = 'email' | 'pw' | 'code' | 'newPw' | null;
-type PendingFactor =
-  | 'first-email'
-  | 'second-email'
-  | 'second-phone'
-  | 'second-totp'
-  | 'second-backup'
-  | null;
 
 // ─── Input Field ──────────────────────────────────────────────────────────────
 function Field({
@@ -104,7 +97,7 @@ const f = StyleSheet.create({
 
 const CARD_COPY: Record<Step, { title: string; sub: (email: string) => string }> = {
   credentials: { title: 'Welcome back', sub: () => 'Sign in to your account' },
-  code: { title: 'Check your email', sub: (e) => `Enter the code we sent to ${e || 'your email'}` },
+  code: { title: 'Two-step verification', sub: () => 'Enter the 6-digit code from your authenticator app' },
   forgot: { title: 'Reset your password', sub: () => "Enter your email and we'll send a reset code" },
   reset: { title: 'Set a new password', sub: (e) => `Enter the code sent to ${e || 'your email'} and choose a new password` },
 };
@@ -123,11 +116,9 @@ export default function LoginScreen() {
   const [newPwVisible, setNewPwVisible] = useState(false);
   const [remember, setRemember]       = useState(false);
   const [focusedField, setFocusedField] = useState<FocusField>(null);
-  const [pendingFactor, setPendingFactor] = useState<PendingFactor>(null);
-  const { signIn, setActive, isLoaded } = useSignIn();
+  const [useBackup, setUseBackup]     = useState(false);
 
-  async function completeSignIn(sessionId: string) {
-    await setActive!({ session: sessionId });
+  async function afterSignIn() {
     try { await registerForPushNotifications(); } catch { /* non-critical */ }
   }
 
@@ -136,148 +127,45 @@ export default function LoginScreen() {
     setNotice(null);
   }
 
-  /**
-   * After a correct password, Clerk may still require a first- or second-factor
-   * step (new device, "verify at sign-in" instance setting, or real MFA).
-   * Prepares whichever factor is available and returns which one is pending,
-   * or null if this app can't complete it.
-   */
-  async function beginChallenge(result: Awaited<ReturnType<NonNullable<typeof signIn>['create']>>): Promise<PendingFactor> {
-    if (!signIn) return null;
-    const targetEmail = email.trim().toLowerCase();
-
-    if (result.status === 'needs_first_factor') {
-      const f = result.supportedFirstFactors?.find((x) => x.strategy === 'email_code');
-      if (!f) return null;
-      await signIn.prepareFirstFactor({ strategy: 'email_code', emailAddressId: (f as { emailAddressId: string }).emailAddressId });
-      setNotice(`We've emailed a verification code to ${targetEmail}.`);
-      return 'first-email';
-    }
-
-    if (result.status === 'needs_second_factor') {
-      const factors = result.supportedSecondFactors ?? [];
-      const emailF = factors.find((x) => x.strategy === 'email_code');
-      const phoneF = factors.find((x) => x.strategy === 'phone_code');
-      const totpF = factors.find((x) => x.strategy === 'totp');
-      const backupF = factors.find((x) => x.strategy === 'backup_code');
-
-      if (emailF) {
-        await signIn.prepareSecondFactor({ strategy: 'email_code', emailAddressId: (emailF as { emailAddressId?: string }).emailAddressId });
-        setNotice(`We've emailed a verification code to ${targetEmail}.`);
-        return 'second-email';
-      }
-      if (phoneF) {
-        await signIn.prepareSecondFactor({ strategy: 'phone_code', phoneNumberId: (phoneF as { phoneNumberId?: string }).phoneNumberId });
-        setNotice("We've texted a verification code to your phone.");
-        return 'second-phone';
-      }
-      if (totpF) {
-        setNotice('Enter the 6-digit code from your authenticator app.');
-        return 'second-totp';
-      }
-      if (backupF) {
-        setNotice('Enter one of your backup codes.');
-        return 'second-backup';
-      }
-      return null;
-    }
-
-    return null;
-  }
-
   async function handleLogin() {
-    if (!isLoaded) return;
     if (!email || !password) {
       setError('Please enter your email and password.');
       return;
     }
     setLoading(true);
     clearBanners();
-    try {
-      const result = await signIn.create({ identifier: email.trim().toLowerCase(), password });
-
-      if (result.status === 'complete' && result.createdSessionId) {
-        await completeSignIn(result.createdSessionId);
-        return;
-      }
-
-      const pending = await beginChallenge(result);
-      if (pending) {
-        setPendingFactor(pending);
-        setCode('');
-        setStep('code');
-      } else {
-        setError(`This account needs a verification step this app can't complete yet (${result.status}). Please sign in on the web.`);
-      }
-    } catch (e: any) {
-      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? 'Login failed. Check your credentials.');
-    } finally {
-      setLoading(false);
+    const { data, error: err } = await authClient.signIn.email({
+      email: email.trim().toLowerCase(), password,
+    });
+    setLoading(false);
+    if (err) { setError(authErrorMessage(err, 'Sign in failed. Check your details.')); return; }
+    setPassword('');
+    if (data && 'twoFactorRedirect' in data && data.twoFactorRedirect) {
+      setCode('');
+      setUseBackup(false);
+      setStep('code');
+      return;
     }
-  }
-
-  async function handleResendLoginCode() {
-    if (!isLoaded || !signIn || loading) return;
-    setLoading(true);
-    clearBanners();
-    try {
-      const f = signIn.supportedFirstFactors?.find((x) => x.strategy === 'email_code');
-      if (pendingFactor === 'first-email' && f) {
-        await signIn.prepareFirstFactor({ strategy: 'email_code', emailAddressId: (f as { emailAddressId: string }).emailAddressId });
-        setNotice('A new code is on its way.');
-      } else if (pendingFactor === 'second-email') {
-        await signIn.prepareSecondFactor({ strategy: 'email_code' });
-        setNotice('A new code is on its way.');
-      } else if (pendingFactor === 'second-phone') {
-        await signIn.prepareSecondFactor({ strategy: 'phone_code' });
-        setNotice('A new code has been texted to you.');
-      } else {
-        setNotice('This method has no code to resend.');
-      }
-    } catch (e: any) {
-      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? "Couldn't resend the code.");
-    } finally {
-      setLoading(false);
-    }
+    await afterSignIn();
   }
 
   async function handleVerifyCode() {
-    if (!isLoaded || !signIn || !code.trim()) return;
+    const c = code.replace(/\s/g, '');
+    if (!c) return;
     setLoading(true);
     clearBanners();
-    const c = code.trim();
-    try {
-      let result;
-      switch (pendingFactor) {
-        case 'second-email':
-          result = await signIn.attemptSecondFactor({ strategy: 'email_code', code: c });
-          break;
-        case 'second-phone':
-          result = await signIn.attemptSecondFactor({ strategy: 'phone_code', code: c });
-          break;
-        case 'second-totp':
-          result = await signIn.attemptSecondFactor({ strategy: 'totp', code: c });
-          break;
-        case 'second-backup':
-          result = await signIn.attemptSecondFactor({ strategy: 'backup_code', code: c });
-          break;
-        case 'first-email':
-        default:
-          result = await signIn.attemptFirstFactor({ strategy: 'email_code', code: c });
-      }
-      if (result.status === 'complete' && result.createdSessionId) {
-        await completeSignIn(result.createdSessionId);
-      } else {
-        setError('Verification incomplete. Please try again.');
-      }
-    } catch (e: any) {
-      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? 'Invalid or expired code.');
-    } finally {
-      setLoading(false);
+    const { error: err } = useBackup
+      ? await authClient.twoFactor.verifyBackupCode({ code: c, trustDevice: remember })
+      : await authClient.twoFactor.verifyTotp({ code: c, trustDevice: remember });
+    setLoading(false);
+    if (err) {
+      setError(err.status === 429 ? authErrorMessage(err, '') : 'That code is not right. Try the newest code from your app.');
+      return;
     }
+    await afterSignIn();
   }
 
-  // ── Password reset ──────────────────────────────────────────────────────────
+  // ── Password reset (6-digit email code) ─────────────────────────────────────
   function openForgotPassword() {
     clearBanners();
     setCode('');
@@ -285,28 +173,27 @@ export default function LoginScreen() {
     setStep('forgot');
   }
 
-  async function handleSendResetCode() {
-    if (!isLoaded) return;
-    const identifier = email.trim().toLowerCase();
-    if (!identifier) {
+  async function sendResetCode() {
+    const target = email.trim().toLowerCase();
+    if (!target) {
       setError('Enter the email address for your account.');
-      return;
+      return false;
     }
     setLoading(true);
     clearBanners();
-    try {
-      await signIn.create({ strategy: 'reset_password_email_code', identifier });
-      setNotice(`We've emailed a reset code to ${identifier}.`);
-      setStep('reset');
-    } catch (e: any) {
-      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? "Couldn't send a reset code. Check the email address.");
-    } finally {
-      setLoading(false);
-    }
+    const { error: err } = await authClient.emailOtp.sendVerificationOtp({ email: target, type: 'forget-password' });
+    setLoading(false);
+    // Same message whether or not the account exists.
+    if (err?.status === 429) { setError(authErrorMessage(err, '')); return false; }
+    setNotice(`If ${target} has a ShiftGO account, we've emailed it a code. It works for 10 minutes.`);
+    return true;
+  }
+
+  async function handleSendResetCode() {
+    if (await sendResetCode()) setStep('reset');
   }
 
   async function handleResetPassword() {
-    if (!isLoaded) return;
     if (!code.trim()) {
       setError('Enter the code from your email.');
       return;
@@ -317,63 +204,40 @@ export default function LoginScreen() {
     }
     setLoading(true);
     clearBanners();
-    try {
-      const result = await signIn.attemptFirstFactor({
-        strategy: 'reset_password_email_code',
-        code: code.trim(),
-        password: newPassword,
-      });
-      if (result.status === 'complete' && result.createdSessionId) {
-        await completeSignIn(result.createdSessionId);
-      } else if (result.status === 'needs_second_factor') {
-        setNotice('Password updated. Enter your two-factor code to finish.');
-        setStep('code');
-      } else {
-        setError('Password reset incomplete. Please try again.');
-      }
-    } catch (e: any) {
-      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? 'Invalid or expired code.');
-    } finally {
-      setLoading(false);
+    const { error: err } = await authClient.emailOtp.resetPassword({
+      email: email.trim().toLowerCase(), otp: code.replace(/\s/g, ''), password: newPassword,
+    });
+    setLoading(false);
+    if (err) {
+      setError(err.status === 429 ? authErrorMessage(err, '') : 'That code is wrong or has expired. Ask for a new one.');
+      return;
     }
+    setCode('');
+    setNewPassword('');
+    setStep('credentials');
+    setNotice('Your password has been changed. Sign in with the new one.');
   }
 
   async function handleResendResetCode() {
-    if (!isLoaded || loading) return;
-    setLoading(true);
-    clearBanners();
-    try {
-      await signIn.create({ strategy: 'reset_password_email_code', identifier: email.trim().toLowerCase() });
-      setNotice('A new reset code is on its way.');
-    } catch (e: any) {
-      setError(e.errors?.[0]?.longMessage ?? e.errors?.[0]?.message ?? "Couldn't resend the code.");
-    } finally {
-      setLoading(false);
-    }
+    if (!loading) await sendResetCode();
   }
 
   function backToSignIn() {
     clearBanners();
     setCode('');
     setNewPassword('');
-    setPendingFactor(null);
     setStep('credentials');
   }
 
-  const codeCopy =
-    pendingFactor === 'second-totp'
-      ? { label: 'Authenticator code', placeholder: '6-digit code from your app' }
-      : pendingFactor === 'second-backup'
-      ? { label: 'Backup code', placeholder: 'One of your saved backup codes' }
-      : pendingFactor === 'second-phone'
-      ? { label: 'Verification code', placeholder: 'Code we texted you' }
-      : { label: 'Verification code', placeholder: 'Code we emailed you' };
+  const codeCopy = useBackup
+    ? { label: 'Backup code', placeholder: 'One of your saved backup codes' }
+    : { label: 'Authenticator code', placeholder: '6-digit code from your app' };
 
   const primary: Record<Step, { label: string; action: () => void }> = {
     credentials: { label: 'Sign In', action: handleLogin },
     code: { label: 'Verify', action: handleVerifyCode },
     forgot: { label: 'Send reset code', action: handleSendResetCode },
-    reset: { label: 'Reset password & sign in', action: handleResetPassword },
+    reset: { label: 'Change password', action: handleResetPassword },
   };
   const copy = CARD_COPY[step];
 
@@ -474,12 +338,7 @@ export default function LoginScreen() {
                 />
 
                 <View style={s.optionsRow}>
-                  <Pressable accessibilityRole="button" style={s.rememberRow} onPress={() => setRemember(r => !r)}>
-                    {remember
-                      ? <CheckSquare size={18} color={D.emerald} weight="fill" />
-                      : <Square size={18} color={D.light} weight="regular" />}
-                    <Text style={s.rememberTxt}>Remember me</Text>
-                  </Pressable>
+                  <View />
                   <Pressable accessibilityRole="button" onPress={openForgotPassword} hitSlop={8}>
                     <Text style={s.forgotTxt}>Forgot password?</Text>
                   </Pressable>
@@ -495,15 +354,26 @@ export default function LoginScreen() {
                   placeholder={codeCopy.placeholder}
                   value={code}
                   onChangeText={setCode}
-                  keyboardType={pendingFactor === 'second-backup' ? 'default' : 'number-pad'}
+                  keyboardType={useBackup ? 'default' : 'number-pad'}
                   returnKeyType="done"
                   onSubmitEditing={handleVerifyCode}
                   focused={focusedField === 'code'}
                   onFocus={() => setFocusedField('code')}
                   onBlur={() => setFocusedField(null)}
                 />
-                <Pressable accessibilityRole="button" onPress={handleResendLoginCode} disabled={loading} hitSlop={8} style={s.resendRow}>
-                  <Text style={s.resendTxt}>Didn&apos;t get a code? Resend</Text>
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: remember }}
+                  style={[s.rememberRow, { marginBottom: 14 }]}
+                  onPress={() => setRemember(r => !r)}
+                >
+                  {remember
+                    ? <CheckSquare size={18} color={D.emerald} weight="fill" />
+                    : <Square size={18} color={D.light} weight="regular" />}
+                  <Text style={s.rememberTxt}>Don&apos;t ask again on this phone for 30 days</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => { setUseBackup((b) => !b); setCode(''); clearBanners(); }} hitSlop={8} style={s.resendRow}>
+                  <Text style={s.resendTxt}>{useBackup ? 'Use my authenticator app instead' : 'Lost your phone? Use a backup code'}</Text>
                 </Pressable>
               </>
             )}
@@ -563,8 +433,8 @@ export default function LoginScreen() {
             {/* Primary Button */}
             <Pressable accessibilityRole="button"
               onPress={primary[step].action}
-              disabled={loading || !isLoaded}
-              style={({ pressed }) => [s.signInBtn, pressed && { opacity: 0.88 }, (loading || !isLoaded) && { opacity: 0.7 }]}
+              disabled={loading}
+              style={({ pressed }) => [s.signInBtn, pressed && { opacity: 0.88 }, loading && { opacity: 0.7 }]}
             >
               <LinearGradient
                 colors={[D.emerald, D.emeraldLight]}
@@ -597,7 +467,7 @@ export default function LoginScreen() {
           {/* ── Footer ── */}
           <Text style={s.footer}>
             New to ShiftGO?{' '}
-            <Text style={s.footerLink}>Contact your administrator</Text>
+            <Text style={s.footerLink}>Open the invitation link your employer emailed you</Text>
           </Text>
 
         </ScrollView>

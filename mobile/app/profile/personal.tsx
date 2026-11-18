@@ -111,7 +111,7 @@ export default function PersonalInfoScreen() {
   });
 
   // Only phone + address are editable here. Name and email are account identity
-  // (managed via Clerk / HR); contracted hours are set by a manager.
+  // (managed by HR); contracted hours are set by a manager.
   const [form, setForm] = useState({ phone: '', address: '' });
 
   useEffect(() => {
