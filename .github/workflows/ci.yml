@@ -17,12 +17,14 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
+          # Throwaway database that exists only for this job: no password,
+          # local trust auth (nothing to leak, and secret scanners stay quiet).
           POSTGRES_USER: shiftgo
-          POSTGRES_PASSWORD: shiftgo_ci
           POSTGRES_DB: shiftgo_test
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U shiftgo"
+          --health-cmd "pg_isready -U shiftgo -d shiftgo_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
@@ -38,7 +40,7 @@ jobs:
       - name: Write test env
         run: |
           cat > .env.test <<'ENV'
-          DATABASE_URL=postgresql://shiftgo:shiftgo_ci@localhost:5432/shiftgo_test
+          DATABASE_URL=postgresql://shiftgo@localhost:5432/shiftgo_test
           NODE_ENV=test
           JWT_SECRET=ci-access-secret
           JWT_REFRESH_SECRET=ci-refresh-secret
