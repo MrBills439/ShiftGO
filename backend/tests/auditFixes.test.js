@@ -183,3 +183,23 @@ describe('Fix 3 — nobody reviews their own timesheet; team leaders only their 
     expect(res.body.data.status).toBe('APPROVED');
   });
 });
+
+describe('Week 2 — no fallback tenant', () => {
+  const { agencyIdFor } = require('../src/utils/agency');
+
+  test('agencyIdFor returns the caller agency', () => {
+    expect(agencyIdFor({ user: { agencyId: 'agency_x' } })).toBe('agency_x');
+    expect(agencyIdFor({ agencyId: 'agency_y' })).toBe('agency_y');
+  });
+
+  test('agencyIdFor throws instead of falling back to a shared agency', () => {
+    expect(() => agencyIdFor({ user: {} })).toThrow('No agency in request context');
+    expect(() => agencyIdFor(undefined)).toThrow();
+  });
+
+  test('new rows must name their agency (no database default)', async () => {
+    await expect(
+      prisma.house.create({ data: { name: 'No agency', address: 'x', latitude: 0, longitude: 0 } }),
+    ).rejects.toThrow();
+  });
+});

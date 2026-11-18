@@ -73,7 +73,8 @@ async function sendPush(fcmToken, notification) {
 
 async function createAndSend(userId, type, title, body, data = null) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { fcmToken: true, agencyId: true } });
-  await prisma.notification.create({ data: { agencyId: user?.agencyId || 'default-agency', userId, type, title, body, data } });
+  if (!user) return; // never file a notification under a guessed agency
+  await prisma.notification.create({ data: { agencyId: user.agencyId, userId, type, title, body, data } });
   if (user?.fcmToken) await sendPush(user.fcmToken, { title, body });
 }
 
