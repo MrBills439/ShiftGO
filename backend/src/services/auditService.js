@@ -1,5 +1,7 @@
 const prisma = require('../lib/prisma');
 const { agencyIdFor } = require('../utils/agency');
+const logger = require('../lib/logger');
+const metrics = require('../lib/metrics');
 
 function auditContext(req) {
   return {
@@ -31,14 +33,50 @@ async function createAuditLog(entry, client = prisma) {
       },
     });
   } catch (err) {
-    console.error('[AuditLog] failed to create audit log:', err.message);
+    // Never fail the user's action because the audit write failed, but make it
+    // impossible to miss: structured error log + a /metrics counter to alert on.
+    metrics.recordAuditWriteFailure();
+    logger.error('audit.write_failed', {
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      agencyId: entry.agencyId,
+      actorId: entry.actorId ?? null,
+      error: err.message,
+    });
     return null;
   }
+}
+
+/**
+ * Record that someone VIEWED or DOWNLOADED a sensitive record (DBS, right to
+ * work, residents). Reads change nothing, so without this there is no trace of
+ * who looked at a person's criminal-record check. Only identifiers and a few
+ * non-sensitive facts go in `newValue` — never the record's contents.
+ */
+async function logAccess(req, { action, entityType, entityId, subjectUserId = null, details = {} }) {
+  return createAuditLog({
+    ...auditContext(req),
+    action,
+    entityType,
+    entityId,
+    newValue: { subjectUserId, ...details },
+  });
+}
+
+/** Attach `actor: { id, name }` to each log in one query (AuditLog has no relation). */
+async function withActors(logs) {
+  const ids = [...new Set(logs.map((l) => l.actorId).filter(Boolean))];
+  if (ids.length === 0) return logs.map((l) => ({ ...l, actor: null }));
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return logs.map((l) => ({ ...l, actor: byId.get(l.actorId) ?? null }));
 }
 
 async function listAuditLogs(filters = {}) {
   const where = {};
   where.agencyId = filters.agencyId;
+  if (Array.isArray(filters.actions)) where.action = { in: filters.actions };
   if (filters.entityType) where.entityType = filters.entityType;
   if (filters.entityId) where.entityId = filters.entityId;
   if (filters.actorId) where.actorId = filters.actorId;
@@ -57,4 +95,4 @@ async function listAuditLogs(filters = {}) {
   });
 }
 
-module.exports = { auditContext, createAuditLog, listAuditLogs };
+module.exports = { auditContext, createAuditLog, listAuditLogs, logAccess, withActors };

@@ -9,6 +9,7 @@ const counters = {
   slowRequests: 0, // durationMs >= SLOW_REQUEST_MS
   dbQueries: 0,
   dbSlowQueries: 0,
+  auditWriteFailures: 0, // audit rows that could not be saved — should stay 0
 };
 
 let durationSumMs = 0;
@@ -31,6 +32,10 @@ function recordDbQuery(slow) {
   if (slow) counters.dbSlowQueries += 1;
 }
 
+function recordAuditWriteFailure() {
+  counters.auditWriteFailures += 1;
+}
+
 function snapshot() {
   return {
     ...counters,
@@ -40,4 +45,4 @@ function snapshot() {
   };
 }
 
-module.exports = { recordRequest, recordSlowRequest, recordDbQuery, snapshot };
+module.exports = { recordRequest, recordSlowRequest, recordDbQuery, recordAuditWriteFailure, snapshot };

@@ -40,6 +40,8 @@ afterEach(async () => {
 
 afterAll(async () => {
   await prisma.user.deleteMany({ where: { agencyId: { in: [agencyA.id, agencyB.id] } } });
+  // Access to sensitive records is now audit-logged; remove those rows first.
+  await prisma.auditLog.deleteMany({ where: { agencyId: { in: [agencyA.id, agencyB.id] } } });
   await prisma.agency.deleteMany({ where: { id: { in: [agencyA.id, agencyB.id] } } });
   await prisma.$disconnect();
 });

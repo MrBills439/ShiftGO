@@ -44,6 +44,8 @@ afterAll(async () => {
   for (const f of strayFiles) { try { fs.unlinkSync(f); } catch { /* noop */ } }
   await prisma.shareCode.deleteMany({ where: { agencyId: agency.id } });
   await prisma.user.deleteMany({ where: { agencyId: agency.id } });
+  // Access to sensitive records is now audit-logged; remove those rows first.
+  await prisma.auditLog.deleteMany({ where: { agencyId: { in: [agency.id] } } });
   await prisma.agency.deleteMany({ where: { id: agency.id } });
   await prisma.$disconnect();
 });

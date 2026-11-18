@@ -259,10 +259,22 @@ describe('Audit logs', () => {
     expect(res.status).toBe(403);
   });
 
-  it('allows managers to view and filter audit logs', async () => {
+  it('blocks managers from the full audit log (HR only)', async () => {
+    const res = await request(app)
+      .get('/audit-logs')
+      .set('Authorization', `Bearer ${tokenFor(manager)}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('allows HR to view and filter audit logs', async () => {
+    const hr = await prisma.user.create({
+      data: { agencyId: agency.id, name: 'Audit HR', email: `audit-hr-${Date.now()}@shiftgo.test`, role: 'HR' },
+    });
     const res = await request(app)
       .get(`/audit-logs?entityType=Shift&entityId=${shiftToCancel.id}`)
-      .set('Authorization', `Bearer ${tokenFor(manager)}`);
+      .set('Authorization', `Bearer ${tokenFor(hr)}`);
+    await prisma.user.delete({ where: { id: hr.id } });
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual(expect.arrayContaining([
@@ -275,7 +287,10 @@ describe('Audit logs', () => {
   });
 
   it('does not throw when audit persistence fails', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const logger = require('../src/lib/logger');
+    const metrics = require('../src/lib/metrics');
+    const failuresBefore = metrics.snapshot().auditWriteFailures;
+    const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});
     const result = await createAuditLog({
       actorId: manager.id,
       actorRole: 'MANAGER',
@@ -289,10 +304,11 @@ describe('Audit logs', () => {
     });
 
     expect(result).toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[AuditLog] failed to create audit log:',
-      'database unavailable',
-    );
+    expect(errorSpy).toHaveBeenCalledWith('audit.write_failed', expect.objectContaining({
+      action: 'AUDIT_FAILURE_TEST',
+      error: 'database unavailable',
+    }));
+    expect(metrics.snapshot().auditWriteFailures).toBe(failuresBefore + 1);
     errorSpy.mockRestore();
   });
 });

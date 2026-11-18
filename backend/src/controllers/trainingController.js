@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
 const { canViewPersonRecords } = require('../services/accessScope');
+const { auditContext, createAuditLog } = require('../services/auditService');
 
 async function listMyTraining(req, res) {
   const trainings = await prisma.training.findMany({
@@ -29,6 +30,9 @@ async function createTraining(req, res) {
   const training = await prisma.training.create({
     data: { agencyId: agencyIdFor(req), userId, title, description, status, completedAt, expiresAt },
   });
+  await createAuditLog({
+    ...auditContext(req), action: 'TRAINING_CREATED', entityType: 'Training', entityId: training.id, newValue: training,
+  });
   created(res, training);
 }
 
@@ -45,6 +49,10 @@ async function updateTraining(req, res) {
   const training = await prisma.training.update({
     where: { id },
     data,
+  });
+  await createAuditLog({
+    ...auditContext(req), action: 'TRAINING_UPDATED', entityType: 'Training', entityId: training.id,
+    oldValue: record, newValue: training,
   });
   ok(res, training);
 }

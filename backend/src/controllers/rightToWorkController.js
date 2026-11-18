@@ -2,6 +2,11 @@ const path = require('path');
 const service = require('../services/rightToWorkService');
 const { ok, fail, notFound } = require('../utils/response');
 const { canViewPersonRecords } = require('../services/accessScope');
+const { auditContext, createAuditLog, logAccess } = require('../services/auditService');
+
+// Audit summary of a right-to-work record. The share code itself is never
+// copied into the log.
+const rtwSummary = (r) => r && ({ shareDate: r.shareDate, status: r.status, hasDocument: Boolean(r.hasDocument) });
 const { agencyIdFor } = require('../utils/agency');
 const storage = require('../lib/storage');
 const { validateRtwUpload } = require('../lib/fileValidation');
@@ -48,6 +53,10 @@ async function acceptRtwDocument(req, res, userId) {
       { filename: path.basename(promoted.acceptedAbsPath), originalname: req.file.originalname },
       req.user.id,
     );
+    await createAuditLog({
+      ...auditContext(req), action: 'RTW_DOCUMENT_UPLOADED', entityType: 'ShareCode', entityId: saved.id,
+      newValue: { subjectUserId: userId, documentName: saved.documentName },
+    });
     ok(res, saved);
   } catch (err) {
     if (promoted) {
@@ -69,7 +78,12 @@ async function getMine(req, res) {
 
 async function updateMine(req, res) {
   try {
-    ok(res, await service.upsert(agencyIdFor(req), req.user.id, req.body, req.user.id));
+    const saved = await service.upsert(agencyIdFor(req), req.user.id, req.body, req.user.id);
+    await createAuditLog({
+      ...auditContext(req), action: 'RTW_SHARE_CODE_UPDATED', entityType: 'ShareCode', entityId: saved.id,
+      newValue: { subjectUserId: req.user.id, ...rtwSummary(saved) },
+    });
+    ok(res, saved);
   } catch (err) {
     if (err.statusCode) return fail(res, err.message, err.statusCode);
     throw err;
@@ -86,12 +100,21 @@ async function list(req, res) {
 
 async function getForUser(req, res) {
   if (!(await canViewPersonRecords(req.user, req.params.userId, agencyIdFor(req)))) return notFound(res);
-  ok(res, await service.getForUser(agencyIdFor(req), req.params.userId));
+  const record = await service.getForUser(agencyIdFor(req), req.params.userId);
+  if (req.params.userId !== req.user.id) {
+    await logAccess(req, { action: 'RTW_RECORD_VIEWED', entityType: 'ShareCode', entityId: record.id ?? req.params.userId, subjectUserId: req.params.userId });
+  }
+  ok(res, record);
 }
 
 async function updateForUser(req, res) {
   try {
-    ok(res, await service.upsert(agencyIdFor(req), req.params.userId, req.body, req.user.id));
+    const saved = await service.upsert(agencyIdFor(req), req.params.userId, req.body, req.user.id);
+    await createAuditLog({
+      ...auditContext(req), action: 'RTW_SHARE_CODE_UPDATED', entityType: 'ShareCode', entityId: saved.id,
+      newValue: { subjectUserId: req.params.userId, ...rtwSummary(saved) },
+    });
+    ok(res, saved);
   } catch (err) {
     if (err.statusCode) return fail(res, err.message, err.statusCode);
     throw err;
@@ -109,10 +132,12 @@ async function getDocument(req, res) {
   }
   const doc = await service.resolveDocument(agencyIdFor(req), target);
   if (!doc) return fail(res, 'No document on file for this worker', 404);
+  await logAccess(req, { action: 'RTW_DOCUMENT_DOWNLOADED', entityType: 'ShareCode', entityId: target, subjectUserId: target });
   res.download(doc.absolutePath, doc.downloadName);
 }
 
 async function exportZip(req, res) {
+  await logAccess(req, { action: 'RTW_BULK_EXPORTED', entityType: 'Agency', entityId: agencyIdFor(req) });
   await service.streamAgencyZip(agencyIdFor(req), res);
 }
 
