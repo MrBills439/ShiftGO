@@ -6,7 +6,8 @@ const { AVATARS_DIR } = require('./lib/storage');
 const { requestLogger } = require('./middleware/requestLogger');
 const metrics = require('./lib/metrics');
 
-const webhookRoutes = require('./routes/webhooks');
+const { authHandler } = require('./auth');
+const invitationRoutes = require('./routes/invitations');
 const dashboardRoutes = require('./routes/dashboard');
 const staffRoutes = require('./routes/staff');
 const agencyRoutes = require('./routes/agency');
@@ -51,9 +52,12 @@ app.use(cors({
   },
 }));
 
-// Mounted before express.json() — Clerk's webhook signature verification
-// needs the raw request body, not pre-parsed JSON.
-app.use('/webhooks', webhookRoutes);
+// Sign-in (Better Auth): every /auth/* route. Mounted BEFORE express.json()
+// because Better Auth reads the raw request body itself.
+app.all('/auth/*', authHandler);
+
+// Accepting an invitation (sets the first password). Public, rate-limited.
+app.use('/invitations', express.json({ limit: '10kb' }), invitationRoutes);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));

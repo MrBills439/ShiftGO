@@ -39,7 +39,7 @@ We do not rely on your consent, so you cannot be refused work for asking questio
 
 ## Who sees it
 - Your managers and HR see what they need for their role. Team leaders see only the staff at their own services.
-- Our service providers: ShiftGO and its hosting, sign-in (Clerk), notifications (Google Firebase, Expo) and error reporting. Some are based in the United States. Transfers are covered by the UK's approved safeguards.
+- Our service providers: ShiftGO and its hosting, email delivery (Resend), notifications (Google Firebase, Expo) and error reporting. Some are based in the United States. Transfers are covered by the UK's approved safeguards.
 We never sell your information.
 
 ## How long we keep it

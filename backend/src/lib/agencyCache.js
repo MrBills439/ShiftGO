@@ -2,8 +2,8 @@
  * Tiny in-process cache for Agency *settings* only — the handful of
  * slow-changing scalar fields (name, timezone, weekly-hours ceiling) that are
  * re-read on nearly every dashboard load, staff-allocation call, and shift
- * assignment. These change only through PATCH /agency or the Clerk
- * organization.updated webhook, both of which call invalidate() below.
+ * assignment. These change only through PATCH /agency, which calls
+ * invalidate() below.
  *
  * NOT a general query cache: it never holds shifts, timesheets, clock state,
  * users, or anything operational. A 60s TTL bounds staleness even if an

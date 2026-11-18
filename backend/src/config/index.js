@@ -6,9 +6,13 @@ const isProd = process.env.NODE_ENV === 'production';
 
 const required = [
   'DATABASE_URL',
-  ...(isTest ? [] : ['CLERK_SECRET_KEY', 'CLERK_WEBHOOK_SIGNING_SECRET']),
-  ...(isProd ? ['CORS_ORIGINS'] : []),
+  // Sign-in (Better Auth). The secret signs session cookies and tokens: 32+
+  // random characters, never shared between environments.
+  ...(isProd ? ['CORS_ORIGINS', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL', 'WEB_APP_URL'] : []),
 ];
+if (isProd && (process.env.BETTER_AUTH_SECRET || '').length < 32) {
+  throw new Error('BETTER_AUTH_SECRET must be at least 32 characters.');
+}
 // Right-to-Work documents in an S3-compatible bucket (see lib/rtwStore.js).
 if ((process.env.RTW_STORAGE_DRIVER || 'local').toLowerCase() === 's3') required.push('S3_BUCKET');
 const RTW_DRIVERS = ['local', 's3'];
@@ -43,10 +47,16 @@ module.exports = {
   db: {
     url: process.env.DATABASE_URL,
   },
-  clerk: {
-    secretKey: process.env.CLERK_SECRET_KEY,
-    webhookSigningSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
+  auth: {
+    secret: process.env.BETTER_AUTH_SECRET || 'dev-only-insecure-secret-change-me-0123456789',
+    // Public URL of THIS API (used by Better Auth for origin checks).
+    baseURL: process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || 4000}`,
+    // HR, managers: two-step verification required before using the API.
+    // Tests switch it off globally (tests/ set REQUIRE_2FA_FOR_ADMINS=false).
+    require2faForAdmins: process.env.REQUIRE_2FA_FOR_ADMINS !== 'false',
   },
+  // Public URL of the web app — invitation links point here.
+  webAppUrl: (process.env.WEB_APP_URL || 'http://localhost:3000').replace(/\/$/, ''),
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
   },

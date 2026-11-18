@@ -7,6 +7,9 @@ export interface AuthUser {
   role: Role;
   phone?: string | null;
   onboardedAt?: string | null;
+  twoFactorEnabled?: boolean | null;
+  /** HR/managers must turn on two-step verification before using the app. */
+  twoFactorRequired?: boolean;
 }
 
 export interface AuthTokens {

@@ -13,7 +13,7 @@ const C = {
 };
 
 /**
- * Shown when Clerk has a valid session but the backend profile couldn't be
+ * Shown when there is a valid session but the backend profile couldn't be
  * loaded (no user row yet, deactivated account, or the API is unreachable).
  * Replaces silently landing on an empty tab screen.
  */

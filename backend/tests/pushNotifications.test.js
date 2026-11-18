@@ -55,10 +55,11 @@ describe('Push notification readiness', () => {
   it('reports unhealthy when Firebase is required but missing', async () => {
     process.env.NODE_ENV = 'production';
     // Production config refuses to boot without these; placeholders are enough
-    // here (auth under Jest never calls Clerk). Without them the test only
+    // here (auth under Jest never loads Better Auth). Without them the test only
     // passed on machines that had a real backend/.env.
-    process.env.CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY || 'sk_test_placeholder';
-    process.env.CLERK_WEBHOOK_SIGNING_SECRET = process.env.CLERK_WEBHOOK_SIGNING_SECRET || 'whsec_placeholder';
+    process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET || 'test-placeholder-secret-0123456789abcdef';
+    process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL || 'http://localhost:4000';
+    process.env.WEB_APP_URL = process.env.WEB_APP_URL || 'http://localhost:3000';
     process.env.CORS_ORIGINS = process.env.CORS_ORIGINS || 'http://localhost:3000';
     process.env.FIREBASE_REQUIRED = 'true';
     delete process.env.FIREBASE_PROJECT_ID;

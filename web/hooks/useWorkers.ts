@@ -139,7 +139,7 @@ export function useOffboardingPreview(userId: string, enabled = true) {
   });
 }
 
-/** PATCH /users/:id/system-access — HR only. Syncs the Clerk org role + User.role. */
+/** PATCH /users/:id/system-access — HR only. Changes User.role; applies on their next request. */
 export function useChangeSystemAccess(userId: string) {
   const qc = useQueryClient();
   return useMutation({

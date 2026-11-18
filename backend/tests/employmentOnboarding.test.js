@@ -6,27 +6,15 @@ process.env.RATE_LIMIT_DISABLED = 'true';
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
 
-// Clerk stubs. The invitation just returns an id; getUser returns whatever the
-// current test sets via `mockClerkUser`.
-let mockInvitationId = 'inv_x';
-let mockClerkUser = null;
-jest.mock('../src/utils/clerkClient', () => ({
-  organizations: {
-    createOrganizationInvitation: jest.fn(async () => ({ id: mockInvitationId, status: 'pending' })),
-  },
-  users: {
-    getUser: jest.fn(async () => mockClerkUser),
-    banUser: jest.fn(async () => ({})),
-    unbanUser: jest.fn(async () => ({})),
-  },
-}));
-jest.mock('@clerk/express/webhooks', () => ({ verifyWebhook: jest.fn() }));
-const { verifyWebhook } = require('@clerk/express/webhooks');
-
 const app = require('../src/app');
 const { signAccess } = require('../src/utils/jwt');
 const appPrisma = require('../src/lib/prisma');
-const clerkStub = require('../src/utils/clerkClient');
+const invitationsRouter = require('../src/routes/invitations');
+const { outbox } = require('../src/lib/email');
+
+// Accepting an invitation hashes the password with Better Auth; that's covered
+// by tests-auth/. Here a stand-in hasher keeps this suite on plain Jest.
+invitationsRouter.hashPassword = async (p) => `test-hash:${p}`;
 
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -36,10 +24,15 @@ const as = (u) => ({
   post: (p, b) => request(app).post(p).set('Authorization', `Bearer ${tokenFor(u)}`).send(b || {}),
   patch: (p, b) => request(app).patch(p).set('Authorization', `Bearer ${tokenFor(u)}`).send(b || {}),
 });
-const postEvent = (event) => {
-  verifyWebhook.mockResolvedValueOnce(event);
-  return request(app).post('/webhooks/clerk').set('Content-Type', 'application/json').send('{}');
+/** The one-time token from the most recent invitation email sent to `email`. */
+const inviteToken = (email) => {
+  const mail = [...outbox].reverse().find((m) => m.to === email);
+  if (!mail) throw new Error(`no invitation email for ${email}`);
+  return decodeURIComponent(/accept-invite\?token=([^\s"&]+)/.exec(mail.text)[1]);
 };
+/** The person opens their invitation link and chooses a password. */
+const accept = (email, body = {}) => request(app).post('/invitations/accept')
+  .send({ token: inviteToken(email), password: 'a long enough password', ...body });
 
 let agencyA, agencyB, hrA, mgrA, wkrA, hrB;
 let deptCareA, deptOpsA, jtSupportA, locHouseA, locOfficeA, deptCareB;
@@ -48,8 +41,8 @@ const mkUser = (agencyId, role, tag, extra = {}) =>
   prisma.user.create({ data: { agencyId, role, name: `Emp ${tag}`, email: `emp-${tag}-${suffix}@shiftgo.test`, passwordHash: 'x', ...extra } });
 
 beforeAll(async () => {
-  agencyA = await prisma.agency.create({ data: { name: `Emp A ${suffix}`, clerkOrgId: `org_a_${suffix}`, employeeIdPrefix: 'EMA' } });
-  agencyB = await prisma.agency.create({ data: { name: `Emp B ${suffix}`, clerkOrgId: `org_b_${suffix}`, employeeIdPrefix: 'EMB' } });
+  agencyA = await prisma.agency.create({ data: { name: `Emp A ${suffix}`, employeeIdPrefix: 'EMA' } });
+  agencyB = await prisma.agency.create({ data: { name: `Emp B ${suffix}`, employeeIdPrefix: 'EMB' } });
   hrA = await mkUser(agencyA.id, 'HR', 'hrA');
   mgrA = await mkUser(agencyA.id, 'MANAGER', 'mgrA');
   wkrA = await mkUser(agencyA.id, 'WORKER', 'wkrA');
@@ -63,7 +56,10 @@ beforeAll(async () => {
   locOfficeA = await prisma.location.create({ data: { agencyId: agencyA.id, name: 'Head Office', type: 'OFFICE' } });
 });
 
+beforeEach(() => { outbox.length = 0; });
+
 afterEach(async () => {
+  await prisma.account.deleteMany({ where: { user: { email: { contains: 'newhire' } } } });
   await prisma.auditLog.deleteMany({ where: { agencyId: { in: [agencyA.id, agencyB.id] } } });
   await prisma.pendingEmployee.deleteMany({ where: { agencyId: { in: [agencyA.id, agencyB.id] } } });
   await prisma.user.deleteMany({ where: { agencyId: { in: [agencyA.id, agencyB.id] }, email: { contains: 'newhire' } } });
@@ -87,15 +83,9 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-const membershipEvent = (orgClerkId, clerkUserId, orgRole = 'org:worker') => ({
-  type: 'organizationMembership.created',
-  data: { role: orgRole, organization: { id: orgClerkId }, public_user_data: { user_id: clerkUserId } },
-});
-
 // ─────────────────────── HR create employee → staging ─────────────────────
 describe('HR create employee — employment data is staged', () => {
   test('creates a PendingEmployee with all employment fields for this agency', async () => {
-    mockInvitationId = `inv_full_${suffix}`;
     const email = `newhire-full-${suffix}@shiftgo.test`;
     const res = await as(hrA).post('/users', {
       name: 'Grace Newhire', email, role: 'WORKER',
@@ -112,24 +102,21 @@ describe('HR create employee — employment data is staged', () => {
       lineManagerId: mgrA.id, contractedHours: 36, workPatternType: 'ROTA', employmentType: 'PERMANENT',
       invitedById: hrA.id, consumedAt: null,
     });
-    expect(pending.invitationId).toBe(mockInvitationId);
+    expect(pending.inviteTokenHash).toMatch(/^[a-f0-9]{64}$/); // only a hash of the emailed token is stored
   });
 
   test('a cross-agency department / job title / location is rejected before any invite is sent', async () => {
-    const clerkClient = require('../src/utils/clerkClient');
-    clerkClient.organizations.createOrganizationInvitation.mockClear();
 
     const bad = await as(hrA).post('/users', {
       name: 'Bad Dept', email: `newhire-baddept-${suffix}@shiftgo.test`, role: 'WORKER', departmentId: deptCareB.id,
     });
     expect(bad.status).toBe(400);
     expect(bad.body.code).toBe('INVALID_DEPARTMENT');
-    expect(clerkClient.organizations.createOrganizationInvitation).not.toHaveBeenCalled();
+    expect(outbox).toHaveLength(0); // no invitation email
     expect(await prisma.pendingEmployee.count({ where: { agencyId: agencyA.id } })).toBe(0);
   });
 
   test('create with no employment fields still works and auto-generates an Employee ID', async () => {
-    mockInvitationId = `inv_plain_${suffix}`;
     const email = `newhire-plain-${suffix}@shiftgo.test`;
     const res = await as(hrA).post('/users', { name: 'Plain', email, role: 'WORKER' });
     expect(res.status).toBe(201);
@@ -199,7 +186,6 @@ describe('employment validation on PATCH /users/:id', () => {
   });
 
   test('POST /users with a matching Department + Job Title succeeds and stages both', async () => {
-    mockInvitationId = `inv_match_${suffix}`;
     const email = `newhire-match-${suffix}@shiftgo.test`;
     const res = await as(hrA).post('/users', {
       name: 'Matched Hire', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id,
@@ -210,15 +196,13 @@ describe('employment validation on PATCH /users/:id', () => {
   });
 
   test('POST /users with a mismatched Department + Job Title is rejected before any invite', async () => {
-    const clerkClient = require('../src/utils/clerkClient');
-    clerkClient.organizations.createOrganizationInvitation.mockClear();
     const res = await as(hrA).post('/users', {
       name: 'Bad Pair', email: `newhire-badpair-${suffix}@shiftgo.test`, role: 'WORKER',
       departmentId: deptOpsA.id, jobTitleId: jtSupportA.id, // jtSupportA = Care
     });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('JOB_TITLE_DEPARTMENT_MISMATCH');
-    expect(clerkClient.organizations.createOrganizationInvitation).not.toHaveBeenCalled();
+    expect(outbox).toHaveLength(0); // no invitation email
     expect(await prisma.pendingEmployee.count({ where: { agencyId: agencyA.id } })).toBe(0);
   });
 
@@ -283,82 +267,81 @@ describe('employee directory', () => {
   });
 });
 
-// ─────────────────────────── webhook consumption ─────────────────────────
-describe('onboarding — webhook consumes staged employment data', () => {
-  test('membership.created applies the pending employment data and marks it consumed', async () => {
+// ─────────────────────────── invitation acceptance ─────────────────────────
+describe('onboarding — accepting the invitation applies staged employment data', () => {
+  test('accepting creates the account with all staged employment data and consumes the invitation', async () => {
     const email = `newhire-webhook-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_wh_${suffix}`;
     await as(hrA).post('/users', {
       name: 'Webhook Hire', email, role: 'WORKER',
       departmentId: deptCareA.id, jobTitleId: jtSupportA.id, primaryLocationId: locHouseA.id,
       employeeNumber: 'WH-1', contractedHours: 36, employmentType: 'PERMANENT',
     });
+    expect(await prisma.user.findUnique({ where: { email } })).toBeNull(); // nothing until they accept
 
-    const clerkUserId = `user_wh_${suffix}`;
-    mockClerkUser = { firstName: 'Webhook', lastName: 'Hire', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    const res = await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
-    expect(res.status).toBe(200);
+    const res = await accept(email);
+    expect(res.status).toBe(201);
 
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toMatchObject({
-      agencyId: agencyA.id, role: 'WORKER',
+      agencyId: agencyA.id, role: 'WORKER', status: 'ACTIVE', emailVerified: true, name: 'Webhook Hire',
       departmentId: deptCareA.id, jobTitleId: jtSupportA.id, primaryLocationId: locHouseA.id,
       employeeNumber: 'WH-1', contractedHours: 36, employmentType: 'PERMANENT', workPatternType: 'ROTA',
     });
+    const account = await prisma.account.findFirst({ where: { userId: user.id } });
+    expect(account).toMatchObject({ providerId: 'credential', accountId: user.id, password: 'test-hash:a long enough password' });
     const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
     expect(pending.consumedAt).not.toBeNull();
+    expect(pending.inviteTokenHash).toBeNull(); // the link can never be used again
   });
 
-  test('a duplicate webhook delivery is idempotent (no second apply, consumedAt unchanged)', async () => {
+  test('an invitation link works once', async () => {
     const email = `newhire-webhook-idem-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_idem_${suffix}`;
     await as(hrA).post('/users', { name: 'Idem', email, role: 'WORKER', departmentId: deptCareA.id });
+    const token = inviteToken(email);
+    expect((await accept(email)).status).toBe(201);
 
-    const clerkUserId = `user_idem_${suffix}`;
-    mockClerkUser = { firstName: 'Idem', lastName: 'Hire', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
-    const first = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
-
-    // change the department in the DB; a retry must NOT re-apply anything.
-    await prisma.user.update({ where: { clerkUserId }, data: { departmentId: deptOpsA.id } });
-    await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
-    expect(user.departmentId).toBe(deptOpsA.id); // NOT reverted to Care
-    const second = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
-    expect(second.consumedAt.toISOString()).toBe(first.consumedAt.toISOString());
+    const again = await request(app).post('/invitations/accept').send({ token, password: 'another long password' });
+    expect(again.status).toBe(410);
+    expect(again.body.code).toBe('INVITE_INVALID');
+    expect(await prisma.account.count({ where: { user: { email } } })).toBe(1);
   });
 
-  test('another agency cannot consume agency A pending data (same email joining agency B)', async () => {
-    const email = `newhire-crosswebhook-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_cross_${suffix}`;
-    await as(hrA).post('/users', { name: 'Cross', email, role: 'WORKER', departmentId: deptCareA.id, employeeNumber: 'X-9' });
-
-    const clerkUserId = `user_cross_${suffix}`;
-    mockClerkUser = { firstName: 'Cross', lastName: 'Hire', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    // The person accepts a membership in agency B instead.
-    const res = await postEvent(membershipEvent(agencyB.clerkOrgId, clerkUserId));
+  test('the preview shows who and which agency; it is not a way in', async () => {
+    const email = `newhire-preview-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { name: 'Preview Person', email, role: 'TEAM_LEADER' });
+    const res = await request(app).get(`/invitations/${encodeURIComponent(inviteToken(email))}`);
     expect(res.status).toBe(200);
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
-    expect(user.agencyId).toBe(agencyB.id);
-    expect(user.departmentId).toBeNull();       // agency A's pending data NOT applied
-    expect(user.employeeNumber).toBeNull();
-    const pendingA = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
-    expect(pendingA.consumedAt).toBeNull();     // still waiting for an agency-A membership
+    expect(res.body.data).toEqual({ email, name: 'Preview Person', agencyName: agencyA.name, role: 'TEAM_LEADER' });
+    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
   });
 
-  test('membership.created with NO pending row behaves exactly as before', async () => {
-    const clerkUserId = `user_nopending_${suffix}`;
-    const email = `emp-nopending-${suffix}@shiftgo.test`;
-    mockClerkUser = { firstName: 'No', lastName: 'Pending', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    const res = await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId, 'org:manager'));
-    expect(res.status).toBe(200);
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
-    expect(user).toMatchObject({ agencyId: agencyA.id, role: 'MANAGER', name: 'No Pending', email });
-    expect(user.departmentId).toBeNull();
-    expect(user.workPatternType).toBe('ROTA'); // DB default
-    await prisma.user.delete({ where: { clerkUserId } });
+  test('an unknown, tampered or expired token creates nothing', async () => {
+    expect((await request(app).post('/invitations/accept').send({ token: 'x'.repeat(43), password: 'a long enough password' })).status).toBe(410);
+
+    const email = `newhire-expired-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { name: 'Expired', email, role: 'WORKER' });
+    await prisma.pendingEmployee.update({ where: { agencyId_email: { agencyId: agencyA.id, email } }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect((await accept(email)).status).toBe(410);
+    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+  });
+
+  test('a short password is refused and the invitation stays usable', async () => {
+    const email = `newhire-weakpw-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { name: 'Weak', email, role: 'WORKER' });
+    const weak = await accept(email, { password: 'short' });
+    expect(weak.status).toBe(400);
+    expect(weak.body.code).toBe('WEAK_PASSWORD');
+    expect((await accept(email)).status).toBe(201);
+  });
+
+  test('re-inviting sends a fresh link and the old link stops working', async () => {
+    const email = `newhire-reissue-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { name: 'Reissue', email, role: 'WORKER' });
+    const oldToken = inviteToken(email);
+    await as(hrA).post('/users', { name: 'Reissue', email, role: 'WORKER' });
+    expect(inviteToken(email)).not.toBe(oldToken);
+    expect((await request(app).post('/invitations/accept').send({ token: oldToken, password: 'a long enough password' })).status).toBe(410);
+    expect((await accept(email)).status).toBe(201);
   });
 });
 
@@ -368,9 +351,8 @@ describe('onboarding hardening — the recoverable write (staging) runs first', 
     jest.restoreAllMocks(); // undo any prisma sp(y)ies; jest.fn() stubs are untouched
   });
 
-  test('staging DB write fails → NO Clerk invitation is sent, nothing is staged, no user', async () => {
+  test('staging DB write fails → NO invitation email is sent, nothing is staged, no user', async () => {
     const email = `newhire-stagefail-${suffix}@shiftgo.test`;
-    clerkStub.organizations.createOrganizationInvitation.mockClear();
     jest.spyOn(appPrisma.pendingEmployee, 'upsert').mockRejectedValueOnce(new Error('simulated DB failure'));
 
     const res = await as(hrA).post('/users', {
@@ -379,28 +361,27 @@ describe('onboarding hardening — the recoverable write (staging) runs first', 
     });
 
     expect(res.status).toBe(500);
-    expect(clerkStub.organizations.createOrganizationInvitation).not.toHaveBeenCalled();
+    expect(outbox).toHaveLength(0); // no invitation email
     expect(await appPrisma.pendingEmployee.count({ where: { agencyId: agencyA.id, email } })).toBe(0);
     expect(await appPrisma.user.findUnique({ where: { email } })).toBeNull();
   });
 
-  test('Clerk invitation fails right after staging → the freshly-staged row is rolled back', async () => {
+  test('the invitation email fails right after staging → the freshly-staged row is rolled back', async () => {
     const email = `newhire-invfail-${suffix}@shiftgo.test`;
-    const dupErr = new Error('duplicate'); dupErr.errors = [{ code: 'duplicate_record' }];
-    clerkStub.organizations.createOrganizationInvitation.mockRejectedValueOnce(dupErr);
+    jest.spyOn(require('../src/lib/email'), 'sendEmail').mockRejectedValueOnce(new Error('provider down'));
 
     const res = await as(hrA).post('/users', {
       name: 'Inv Fail', email, role: 'WORKER', departmentId: deptCareA.id, employeeNumber: 'IF-1',
     });
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('INVITE_EMAIL_FAILED');
     expect(await appPrisma.pendingEmployee.count({ where: { agencyId: agencyA.id, email } })).toBe(0);
     expect(await appPrisma.user.findUnique({ where: { email } })).toBeNull();
   });
 
-  test('Clerk invitation fails on a re-invite → a pre-existing staging row is preserved (data not lost)', async () => {
+  test('the email fails on a re-invite → a pre-existing staging row is preserved (data not lost)', async () => {
     const email = `newhire-reinvite-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_reinvite_${suffix}`;
     const first = await as(hrA).post('/users', {
       name: 'Re Invite', email, role: 'WORKER', departmentId: deptCareA.id, employeeNumber: 'RI-1',
     });
@@ -408,10 +389,9 @@ describe('onboarding hardening — the recoverable write (staging) runs first', 
     const before = await appPrisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
     expect(before).not.toBeNull();
 
-    const dupErr = new Error('duplicate'); dupErr.errors = [{ code: 'duplicate_record' }];
-    clerkStub.organizations.createOrganizationInvitation.mockRejectedValueOnce(dupErr);
+    jest.spyOn(require('../src/lib/email'), 'sendEmail').mockRejectedValueOnce(new Error('provider down'));
     const second = await as(hrA).post('/users', { name: 'Re Invite', email, role: 'MANAGER', departmentId: deptOpsA.id });
-    expect(second.status).toBe(409);
+    expect(second.status).toBe(502);
 
     const after = await appPrisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
     expect(after).not.toBeNull();       // NOT rolled back — HR's staged data survives
@@ -419,11 +399,10 @@ describe('onboarding hardening — the recoverable write (staging) runs first', 
   });
 });
 
-// ═════ hardening: webhook can't fully apply staged data → NEEDS_REVIEW ═════
+// ═════ hardening: acceptance can't fully apply staged data → NEEDS_REVIEW ═════
 describe('onboarding hardening — incomplete employment setup is recorded, not hidden', () => {
-  test('employee number taken between invite and webhook → user + safe fields applied, number skipped, row flagged', async () => {
+  test('employee number taken between invite and acceptance → user + safe fields applied, number skipped, row flagged', async () => {
     const email = `newhire-empnorace-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_race_${suffix}`;
     await as(hrA).post('/users', {
       name: 'Race Hire', email, role: 'WORKER',
       departmentId: deptCareA.id, jobTitleId: jtSupportA.id, primaryLocationId: locHouseA.id,
@@ -434,14 +413,11 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
       agencyId: agencyA.id, role: 'WORKER', name: 'Blocker',
       email: `newhire-blocker-${suffix}@shiftgo.test`, passwordHash: 'x', employeeNumber: 'RACE-1',
     } });
+    const res = await accept(email);
+    expect(res.status).toBe(201);
 
-    const clerkUserId = `user_race_${suffix}`;
-    mockClerkUser = { firstName: 'Race', lastName: 'Hire', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    const res = await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
-    expect(res.status).toBe(200);
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
-    expect(user).not.toBeNull();                    // membership still created
+    const user = await prisma.user.findUnique({ where: { email } });
+    expect(user).not.toBeNull();                    // account still created
     expect(user.departmentId).toBe(deptCareA.id);   // valid staged data applied
     expect(user.jobTitleId).toBe(jtSupportA.id);
     expect(user.primaryLocationId).toBe(locHouseA.id);
@@ -453,21 +429,20 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
     expect(pending.needsReview).toBe(true);
     expect(pending.reviewNote).toMatch(/employee number/i);
 
-    // duplicate webhook: idempotent, no repeated mutation of user or row
+    // the link cannot be replayed to re-run onboarding
     const consumedAtBefore = pending.consumedAt.toISOString();
-    await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
+    expect((await request(app).post('/invitations/accept').send({ token: 'replayed-token-value-0000000000000', password: 'a long enough password' })).status).toBe(410);
     const after = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
     expect(after.consumedAt.toISOString()).toBe(consumedAtBefore);
     expect(after.needsReview).toBe(true);
-    expect((await prisma.user.findUnique({ where: { clerkUserId } })).employeeNumber).toBeNull();
+    expect((await prisma.user.findUnique({ where: { email } })).employeeNumber).toBeNull();
 
     await prisma.user.delete({ where: { id: blocker.id } });
-    await prisma.user.delete({ where: { clerkUserId } });
+    await prisma.user.delete({ where: { email } }); // account rows cascade
   });
 
-  test('a department deactivated between invite and webhook → applied without it, row flagged', async () => {
+  test('a department deactivated between invite and acceptance → applied without it, row flagged', async () => {
     const email = `newhire-staledept-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_stale_${suffix}`;
     const tmpDept = await prisma.department.create({ data: { agencyId: agencyA.id, name: `Temp ${suffix}` } });
     const jtTmp = await prisma.jobTitle.create({ data: { agencyId: agencyA.id, name: `Temp Title ${suffix}`, departmentId: tmpDept.id } });
     await as(hrA).post('/users', {
@@ -475,12 +450,9 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
       departmentId: tmpDept.id, jobTitleId: jtTmp.id, employeeNumber: 'STALE-1',
     });
     await prisma.department.update({ where: { id: tmpDept.id }, data: { active: false } });
+    await accept(email);
 
-    const clerkUserId = `user_stale_${suffix}`;
-    mockClerkUser = { firstName: 'Stale', lastName: 'Dept', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    const user = await prisma.user.findUnique({ where: { email } });
     expect(user.departmentId).toBeNull();          // deactivated dept not applied
     expect(user.jobTitleId).toBe(jtTmp.id);        // still-active field applied
     expect(user.employeeNumber).toBe('STALE-1');
@@ -490,24 +462,21 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
     expect(pending.reviewNote).toMatch(/department/i);
     expect(pending.consumedAt).not.toBeNull();
 
-    await prisma.user.delete({ where: { clerkUserId } });
+    await prisma.user.delete({ where: { email } }); // account rows cascade
     await prisma.jobTitle.delete({ where: { id: jtTmp.id } });
     await prisma.department.delete({ where: { id: tmpDept.id } });
   });
 
   test('the fully-successful path leaves the staging row consumed and NOT flagged', async () => {
     const email = `newhire-clean-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_clean_${suffix}`;
     await as(hrA).post('/users', {
       name: 'Clean Hire', email, role: 'WORKER',
       departmentId: deptCareA.id, jobTitleId: jtSupportA.id, primaryLocationId: locHouseA.id,
       lineManagerId: mgrA.id, employeeNumber: 'CLEAN-1', contractedHours: 40, employmentType: 'PERMANENT',
     });
-    const clerkUserId = `user_clean_${suffix}`;
-    mockClerkUser = { firstName: 'Clean', lastName: 'Hire', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
+    await accept(email);
 
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toMatchObject({
       departmentId: deptCareA.id, jobTitleId: jtSupportA.id, primaryLocationId: locHouseA.id,
       lineManagerId: mgrA.id, employeeNumber: 'CLEAN-1', contractedHours: 40, employmentType: 'PERMANENT',
@@ -517,7 +486,7 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
     expect(pending.needsReview).toBe(false);
     expect(pending.reviewNote).toBeNull();
 
-    await prisma.user.delete({ where: { clerkUserId } });
+    await prisma.user.delete({ where: { email } }); // account rows cascade
   });
 });
 
@@ -525,18 +494,15 @@ describe('onboarding hardening — incomplete employment setup is recorded, not 
 describe('onboarding hardening — onboarding-review endpoints', () => {
   async function makeFlaggedRow(tag) {
     const email = `newhire-flag-${tag}-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_flag_${tag}_${suffix}`;
     const tmpDept = await prisma.department.create({ data: { agencyId: agencyA.id, name: `Flag ${tag} ${suffix}` } });
     await as(hrA).post('/users', { name: `Flag ${tag}`, email, role: 'WORKER', departmentId: tmpDept.id });
     await prisma.department.update({ where: { id: tmpDept.id }, data: { active: false } });
-    const clerkUserId = `user_flag_${tag}_${suffix}`;
-    mockClerkUser = { firstName: 'Flag', lastName: tag, primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    await postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
-    return { email, clerkUserId, tmpDept };
+    await accept(email);
+    return { email, tmpDept };
   }
 
   test('GET /users/onboarding-review lists flagged rows for HR, hides other agencies, 403s a worker', async () => {
-    const { email, clerkUserId, tmpDept } = await makeFlaggedRow('list');
+    const { email, tmpDept } = await makeFlaggedRow('list');
 
     const hr = await as(hrA).get('/users/onboarding-review');
     expect(hr.status).toBe(200);
@@ -549,12 +515,12 @@ describe('onboarding hardening — onboarding-review endpoints', () => {
 
     expect((await as(wkrA).get('/users/onboarding-review')).status).toBe(403);
 
-    await prisma.user.delete({ where: { clerkUserId } });
+    await prisma.user.delete({ where: { email } }); // account rows cascade
     await prisma.department.delete({ where: { id: tmpDept.id } });
   });
 
   test('POST /users/onboarding-review/:id/resolve clears the flag — HR only, tenant-scoped', async () => {
-    const { email, clerkUserId, tmpDept } = await makeFlaggedRow('resolve');
+    const { email, tmpDept } = await makeFlaggedRow('resolve');
     const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
 
     expect((await as(mgrA).post(`/users/onboarding-review/${pending.id}/resolve`)).status).toBe(403);
@@ -566,7 +532,7 @@ describe('onboarding hardening — onboarding-review endpoints', () => {
 
     expect((await as(hrA).get('/users/onboarding-review')).body.data.find((r) => r.email === email)).toBeUndefined();
 
-    await prisma.user.delete({ where: { clerkUserId } });
+    await prisma.user.delete({ where: { email } }); // account rows cascade
     await prisma.department.delete({ where: { id: tmpDept.id } });
   });
 });
@@ -582,19 +548,7 @@ describe('HR Onboarding V1', () => {
     emergencyContactPhone: '+44 7700 900222',
     emergencyContactRelationship: 'Sibling',
   };
-  const acceptEvent = (clerkUserId, email, clerkName) => {
-    const [firstName, ...rest] = (clerkName ?? '').split(' ');
-    mockClerkUser = {
-      firstName: firstName || null,
-      lastName: rest.join(' ') || null,
-      primaryEmailAddressId: 'e1',
-      emailAddresses: [{ id: 'e1', emailAddress: email }],
-    };
-    return postEvent(membershipEvent(agencyA.clerkOrgId, clerkUserId));
-  };
-
   test('a complete V1 onboarding stages every new field on PendingEmployee', async () => {
-    mockInvitationId = `inv_v1full_${suffix}`;
     const email = `newhire-v1full-${suffix}@shiftgo.test`;
     const res = await as(hrA).post('/users', {
       ...V1, email, role: 'WORKER',
@@ -616,15 +570,12 @@ describe('HR Onboarding V1', () => {
     expect(pending.employeeNumber).toMatch(/^EMA-\d{4,}$/);
   });
 
-  test('the webhook copies every V1 field to the User; phone is no longer dropped', async () => {
-    mockInvitationId = `inv_v1apply_${suffix}`;
+  test('accepting copies every V1 field to the User; phone is not dropped', async () => {
     const email = `newhire-v1apply-${suffix}@shiftgo.test`;
     await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'BANK' });
+    await accept(email);
 
-    const clerkUserId = `user_v1apply_${suffix}`;
-    await acceptEvent(clerkUserId, email, 'Grace Onboarding Ltd');
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toMatchObject({
       phone: V1.phone,
       address: V1.address,
@@ -644,60 +595,22 @@ describe('HR Onboarding V1', () => {
     });
   });
 
-  test('a staged HR name is preferred over an empty/email-like Clerk name at initial consumption', async () => {
-    mockInvitationId = `inv_v1name_${suffix}`;
+  test('the HR-entered name wins over a name typed when accepting', async () => {
     const email = `newhire-v1name-${suffix}@shiftgo.test`;
     await as(hrA).post('/users', { name: 'Priya Legal Name', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
-
-    const clerkUserId = `user_v1name_${suffix}`;
-    await acceptEvent(clerkUserId, email, ''); // Clerk has NO name yet
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
-    expect(user.name).toBe('Priya Legal Name'); // not the email
+    expect((await accept(email, { name: 'P' })).status).toBe(201);
+    expect((await prisma.user.findUnique({ where: { email } })).name).toBe('Priya Legal Name');
   });
 
-  test('a later blank Clerk name (membership.updated) cannot erase the good ShiftGO name', async () => {
-    mockInvitationId = `inv_v1nameguard_${suffix}`;
-    const email = `newhire-v1nameguard-${suffix}@shiftgo.test`;
-    await as(hrA).post('/users', { name: 'Otis Legal Name', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
-    const clerkUserId = `user_v1nameguard_${suffix}`;
-    await acceptEvent(clerkUserId, email, '');
-    expect((await prisma.user.findUnique({ where: { clerkUserId } })).name).toBe('Otis Legal Name');
-
-    // a role change arrives; Clerk STILL has no name
-    await acceptEvent(clerkUserId, email, ''); // organizationMembership.created again, blank name
-    expect((await prisma.user.findUnique({ where: { clerkUserId } })).name).toBe('Otis Legal Name');
-
-    // a legitimate Clerk profile update later DOES sync a real name
-    verifyWebhook.mockResolvedValueOnce({
-      type: 'user.updated',
-      data: { id: clerkUserId, first_name: 'Otis', last_name: 'Realname', email_addresses: [{ id: 'e1', email_address: email }], primary_email_address_id: 'e1' },
-    });
-    await request(app).post('/webhooks/clerk').set('Content-Type', 'application/json').send('{}');
-    expect((await prisma.user.findUnique({ where: { clerkUserId } })).name).toBe('Otis Realname');
-  });
-
-  test('duplicate webhook delivery stays idempotent for the V1 fields', async () => {
-    mockInvitationId = `inv_v1idem_${suffix}`;
-    const email = `newhire-v1idem-${suffix}@shiftgo.test`;
-    await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
-    const clerkUserId = `user_v1idem_${suffix}`;
-    await acceptEvent(clerkUserId, email, 'Grace Onboarding Ltd');
-    const first = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
-
-    // tamper the user, then redeliver — nothing must be re-applied
-    await prisma.user.update({ where: { clerkUserId }, data: { phone: 'CHANGED', address: 'CHANGED' } });
-    await acceptEvent(clerkUserId, email, 'Grace Onboarding Ltd');
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
-    expect(user.phone).toBe('CHANGED');
-    expect(user.address).toBe('CHANGED');
-    const second = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
-    expect(second.consumedAt.toISOString()).toBe(first.consumedAt.toISOString());
+  test('if HR left the name blank, the name typed when accepting is used', async () => {
+    const email = `newhire-v1noname-${suffix}@shiftgo.test`;
+    await as(hrA).post('/users', { name: 'Placeholder', email, role: 'WORKER' });
+    await prisma.pendingEmployee.update({ where: { agencyId_email: { agencyId: agencyA.id, email } }, data: { name: null } });
+    expect((await accept(email, { name: 'Self Named' })).status).toBe(201);
+    expect((await prisma.user.findUnique({ where: { email } })).name).toBe('Self Named');
   });
 
   test('a retry updates the V1 staged values and reuses the Employee ID', async () => {
-    mockInvitationId = `inv_v1retry_${suffix}`;
     const email = `newhire-v1retry-${suffix}@shiftgo.test`;
     const first = await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
     const firstNumber = first.body.data.employeeNumber;
@@ -730,14 +643,11 @@ describe('HR Onboarding V1', () => {
   });
 
   test('a legacy invite with no optional V1 fields still works end to end', async () => {
-    mockInvitationId = `inv_v1legacy_${suffix}`;
     const email = `newhire-v1legacy-${suffix}@shiftgo.test`;
     const res = await as(hrA).post('/users', { name: 'Bare Minimum', email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
     expect(res.status).toBe(201);
-
-    const clerkUserId = `user_v1legacy_${suffix}`;
-    await acceptEvent(clerkUserId, email, 'Bare Minimum');
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
+    await accept(email);
+    const user = await prisma.user.findUnique({ where: { email } });
     expect(user.name).toBe('Bare Minimum');
     expect(user.phone).toBeNull();
     expect(user.address).toBeNull();
@@ -753,27 +663,6 @@ describe('HR Onboarding V1', () => {
     expect(fresh.emergencyContactName).toBeNull();
     expect(fresh.emergencyContactPhone).toBeNull();
     expect(fresh.emergencyContactRelationship).toBeNull();
-  });
-
-  test("agency B accepting an agency-A invite does not pick up agency A's staged personal data", async () => {
-    mockInvitationId = `inv_v1cross_${suffix}`;
-    const email = `newhire-v1cross-${suffix}@shiftgo.test`;
-    await as(hrA).post('/users', { ...V1, email, role: 'WORKER', departmentId: deptCareA.id, jobTitleId: jtSupportA.id, employmentType: 'PERMANENT' });
-
-    const clerkUserId = `user_v1cross_${suffix}`;
-    mockClerkUser = { firstName: 'Cross', lastName: 'Join', primaryEmailAddressId: 'e1', emailAddresses: [{ id: 'e1', emailAddress: email }] };
-    const res = await postEvent(membershipEvent(agencyB.clerkOrgId, clerkUserId)); // joins agency B
-    expect(res.status).toBe(200);
-
-    const user = await prisma.user.findUnique({ where: { clerkUserId } });
-    expect(user.agencyId).toBe(agencyB.id);
-    expect(user.name).toBe('Cross Join'); // Clerk name, NOT agency A's staged "Grace Onboarding Ltd"
-    expect(user.phone).toBeNull();
-    expect(user.emergencyContactName).toBeNull();
-    const pendingA = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agencyA.id, email } } });
-    expect(pendingA.consumedAt).toBeNull();
-
-    await prisma.user.deleteMany({ where: { clerkUserId } });
   });
 });
 
@@ -803,8 +692,9 @@ describe('Employee Detail V1', () => {
     // deactivation metadata keys are present (null on an active user)
     expect(res.body.data).toHaveProperty('deactivatedAt', null);
     expect(res.body.data).toHaveProperty('deactivatedBy', null);
-    // no Clerk internals / secrets
-    expect(res.body.data).not.toHaveProperty('clerkUserId');
+    // no sign-in internals / secrets
+    expect(res.body.data).not.toHaveProperty('passwordHash');
+    expect(res.body.data).not.toHaveProperty('accounts');
     expect(res.body.data).not.toHaveProperty('passwordHash');
   });
 
@@ -882,7 +772,6 @@ describe('Employee Detail V1', () => {
 
   test('existing deactivation behaviour is unchanged and surfaces on the detail response', async () => {
     const victim = await mkUser(agencyA.id, 'WORKER', `det-deact-${Math.random().toString(16).slice(2)}`, {
-      clerkUserId: `clerk_victim_${Math.random().toString(16).slice(2)}`,
     });
     const d = await as(hrA).post(`/users/${victim.id}/deactivate`, { reason: 'Left the company' });
     expect(d.status).toBe(200);

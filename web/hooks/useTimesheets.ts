@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, authedDownload } from '@/lib/api';
 import { AttendanceReviewItem, Timesheet } from '@/types';
 
 export function useMyTimesheets() {
@@ -76,23 +76,5 @@ export function useResolveReview() {
 }
 
 export function exportTimesheetPDF(houseId: string) {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('shiftgo_access') : '';
-  const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-  const url = `${base}/timesheets/house/${houseId}/export`;
-  const a = document.createElement('a');
-  a.href = url;
-  a.setAttribute('target', '_blank');
-  const req = new XMLHttpRequest();
-  req.open('GET', url, true);
-  req.setRequestHeader('Authorization', `Bearer ${token}`);
-  req.responseType = 'blob';
-  req.onload = () => {
-    const blob = new Blob([req.response], { type: 'application/pdf' });
-    const objUrl = URL.createObjectURL(blob);
-    a.href = objUrl;
-    a.download = `timesheet-${houseId}.pdf`;
-    a.click();
-    URL.revokeObjectURL(objUrl);
-  };
-  req.send();
+  return authedDownload(`/timesheets/house/${houseId}/export`, `timesheet-${houseId}.pdf`);
 }

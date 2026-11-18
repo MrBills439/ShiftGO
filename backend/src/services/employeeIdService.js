@@ -9,7 +9,7 @@
  * (Prisma `{ increment: 1 }`). Postgres row-locks the agency row, so two HR
  * users onboarding at the same moment get two distinct numbers — never the
  * same one. The counter only moves forward. A number left unused by a failed
- * Clerk invite just leaves a gap; the counter is never decremented or reused.
+ * failed invitation just leaves a gap; the counter is never decremented or reused.
  */
 const prisma = require('../lib/prisma');
 

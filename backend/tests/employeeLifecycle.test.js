@@ -3,15 +3,9 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-access-secret';
 process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'test-refresh-secret';
 process.env.RATE_LIMIT_DISABLED = 'true';
 
-jest.mock('../src/utils/clerkClient', () => ({
-  organizations: {},
-  users: { banUser: jest.fn(), unbanUser: jest.fn() },
-}));
-
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
 const app = require('../src/app');
-const clerkStub = require('../src/utils/clerkClient');
 const { signAccess } = require('../src/utils/jwt');
 
 const prisma = new PrismaClient();
@@ -28,12 +22,11 @@ const DAY = 24 * HOUR;
 let agA, agB;
 let hrA, mgrA, wkrA, tlA, hrB;
 let deptA, jtA, houseA;
-let deadA, deadMgrA, deadB, workingA, futureA, noClerkA, noClerkDeadA;
+let deadA, deadMgrA, deadB, workingA, futureA;
 
 const mkUser = (agencyId, role, tag, extra = {}) =>
   prisma.user.create({ data: {
-    agencyId, role, name: `LC ${tag}`, email: `lc-${tag}-${suffix}@shiftgo.test`, passwordHash: 'x',
-    clerkUserId: `clerk_lc_${tag}_${suffix}`, ...extra,
+    agencyId, role, name: `LC ${tag}`, email: `lc-${tag}-${suffix}@shiftgo.test`, passwordHash: 'x', ...extra,
   } });
 
 const mkShift = (workerId, over = {}) =>
@@ -71,19 +64,10 @@ beforeAll(async () => {
   deadB = await mkUser(agB.id, 'WORKER', 'deadB', { status: 'DEACTIVATED', deactivatedAt: new Date(), deactivatedById: hrB.id });
   workingA = await mkUser(agA.id, 'WORKER', 'workingA');
   futureA = await mkUser(agA.id, 'WORKER', 'futureA');
-  // No linked Clerk identity — cannot be suspended / restored via Clerk.
-  noClerkA = await mkUser(agA.id, 'WORKER', 'noClerkA', { clerkUserId: null });
-  noClerkDeadA = await mkUser(agA.id, 'WORKER', 'noClerkDeadA', { clerkUserId: null, ...deactivatedShape });
 
   // history for deadA that must survive reactivation
   await mkShift(deadA.id, { startTime: new Date(Date.now() - 10 * DAY), endTime: new Date(Date.now() - 10 * DAY + 8 * HOUR), date: new Date(Date.now() - 10 * DAY), status: 'COMPLETED' });
   await prisma.training.create({ data: { agencyId: agA.id, userId: deadA.id, title: 'Manual Handling', status: 'COMPLETED', completedAt: new Date('2026-01-01') } });
-});
-
-beforeEach(() => {
-  // Happy path by default; individual tests override with mockRejectedValueOnce.
-  clerkStub.users.banUser.mockReset().mockResolvedValue({});
-  clerkStub.users.unbanUser.mockReset().mockResolvedValue({});
 });
 
 afterEach(async () => {
@@ -125,7 +109,7 @@ describe('POST /users/:id/reactivate', () => {
       status: 'ACTIVE', deactivatedAt: null, deactivatedById: null, deactivationReason: null,
       employeeNumber: 'KEEP-1', departmentId: deptA.id, jobTitleId: jtA.id,
       employmentType: 'PERMANENT', workPatternType: 'FIXED', contractedHours: 30, role: 'WORKER',
-      phone: '+44 7700 900123', address: '9 Elm Road', clerkUserId: `clerk_lc_deadA_${suffix}`,
+      phone: '+44 7700 900123', address: '9 Elm Road',
     });
 
     // history untouched, same User.id reused
@@ -193,7 +177,6 @@ describe('deactivation active-attendance safety', () => {
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('EMPLOYEE_CURRENTLY_WORKING');
     expect((await prisma.user.findUnique({ where: { id: workingA.id } })).status).toBe('ACTIVE');
-    expect(clerkStub.users.banUser).not.toHaveBeenCalled(); // never banned mid-shift
   });
 
   test('blocked when the employee has an open AttendanceMonitor; the monitor is NOT auto-closed', async () => {
@@ -206,7 +189,6 @@ describe('deactivation active-attendance safety', () => {
     expect(res.body.code).toBe('EMPLOYEE_CURRENTLY_WORKING');
     expect((await prisma.attendanceMonitor.findUnique({ where: { id: monitor.id } })).closedAt).toBeNull();
     expect((await prisma.user.findUnique({ where: { id: workingA.id } })).status).toBe('ACTIVE');
-    expect(clerkStub.users.banUser).not.toHaveBeenCalled(); // never banned with an open monitor
   });
 
   test('a normal deactivation (no active attendance) still succeeds and does NOT delete future shifts', async () => {
@@ -223,95 +205,54 @@ describe('deactivation active-attendance safety', () => {
   });
 });
 
-// ───────────────────── Account Suspension / Clerk Security V1 ─────────────────────
-describe('deactivation — Clerk ban', () => {
-  test('a valid deactivation bans the target’s own clerkUserId, then flips local status', async () => {
+// ───────────────────── Sign-out on deactivation ─────────────────────
+const mkSession = (userId) => prisma.session.create({
+  data: {
+    id: `s_${Math.random().toString(16).slice(2)}`, token: `t_${Math.random().toString(16).slice(2)}`,
+    userId, expiresAt: new Date(Date.now() + DAY),
+  },
+});
+
+describe('deactivation signs the person out everywhere', () => {
+  test('every session of the target is deleted; other people\'s sessions are untouched', async () => {
+    await mkSession(futureA.id);
+    await mkSession(futureA.id); // e.g. web + phone
+    const bystander = await mkSession(wkrA.id);
+
     const res = await as(hrA).post(`/users/${futureA.id}/deactivate`, { reason: 'left the company' });
     expect(res.status).toBe(200);
-    expect(clerkStub.users.banUser).toHaveBeenCalledTimes(1);
-    expect(clerkStub.users.banUser).toHaveBeenCalledWith(`clerk_lc_futureA_${suffix}`);
-    expect((await prisma.user.findUnique({ where: { id: futureA.id } })).status).toBe('DEACTIVATED');
+    expect(await prisma.session.count({ where: { userId: futureA.id } })).toBe(0);
+    expect(await prisma.session.findUnique({ where: { id: bystander.id } })).toBeTruthy();
+
+    const audit = await prisma.auditLog.findFirst({ where: { agencyId: agA.id, action: 'USER_DEACTIVATED', entityId: futureA.id } });
+    expect(audit.newValue.sessionsRevoked).toBe(2);
+    await prisma.session.deleteMany({ where: { userId: wkrA.id } });
   });
 
-  test('a MANAGER deactivation also goes through Clerk banUser', async () => {
-    const res = await as(mgrA).post(`/users/${futureA.id}/deactivate`, { reason: 'contract ended' });
-    expect(res.status).toBe(200);
-    expect(clerkStub.users.banUser).toHaveBeenCalledWith(`clerk_lc_futureA_${suffix}`);
+  test('a deactivated person is refused even with a still-valid token', async () => {
+    const res = await as(deadA).get('/users/me');
+    expect(res.status).toBe(401);
   });
 
-  test('Clerk ban failure leaves the employee ACTIVE with no success audit and no attendance/shift mutation', async () => {
-    clerkStub.users.banUser.mockRejectedValueOnce(new Error('clerk 500'));
-    await mkShift(futureA.id, { startTime: new Date(Date.now() + 2 * DAY) });
-    const shiftsBefore = await prisma.shift.count({ where: { workerId: futureA.id } });
-
-    const res = await as(hrA).post(`/users/${futureA.id}/deactivate`, { reason: 'left' });
-    expect(res.status).toBe(502);
-    expect(res.body.code).toBe('CLERK_SUSPENSION_FAILED');
-
-    const fresh = await prisma.user.findUnique({ where: { id: futureA.id } });
-    expect(fresh.status).toBe('ACTIVE');
-    expect(fresh.deactivatedAt).toBeNull();
-    expect(await prisma.auditLog.count({ where: { action: 'USER_DEACTIVATED', entityId: futureA.id } })).toBe(0);
-    expect(await prisma.shift.count({ where: { workerId: futureA.id } })).toBe(shiftsBefore);
-  });
-
-  test('an employee with no clerkUserId is rejected (409 NO_CLERK_IDENTITY) before any Clerk call', async () => {
-    const res = await as(hrA).post(`/users/${noClerkA.id}/deactivate`, { reason: 'no identity' });
+  test('a blocked deactivation (IN_PROGRESS shift) keeps their sessions', async () => {
+    await mkShift(workingA.id, { startTime: new Date(Date.now() - HOUR), endTime: new Date(Date.now() + HOUR), date: new Date(), status: 'IN_PROGRESS' });
+    await mkSession(workingA.id);
+    const res = await as(hrA).post(`/users/${workingA.id}/deactivate`, { reason: 'trying to offboard' });
     expect(res.status).toBe(409);
-    expect(res.body.code).toBe('NO_CLERK_IDENTITY');
-    expect(clerkStub.users.banUser).not.toHaveBeenCalled();
-    expect((await prisma.user.findUnique({ where: { id: noClerkA.id } })).status).toBe('ACTIVE');
-  });
-
-  test('an IN_PROGRESS shift blocks BEFORE Clerk banUser is reached', async () => {
-    await mkShift(futureA.id, { startTime: new Date(Date.now() - HOUR), endTime: new Date(Date.now() + HOUR), date: new Date(), status: 'IN_PROGRESS' });
-    const res = await as(hrA).post(`/users/${futureA.id}/deactivate`, { reason: 'still on shift' });
-    expect(res.status).toBe(409);
-    expect(res.body.code).toBe('EMPLOYEE_CURRENTLY_WORKING');
-    expect(clerkStub.users.banUser).not.toHaveBeenCalled();
+    expect(await prisma.session.count({ where: { userId: workingA.id } })).toBe(1);
+    await prisma.session.deleteMany({ where: { userId: workingA.id } });
   });
 });
 
-describe('reactivation — Clerk unban', () => {
-  test('HR reactivation unbans the target’s own clerkUserId, then flips local status', async () => {
-    const res = await as(hrA).post(`/users/${deadA.id}/reactivate`);
+describe('reactivation', () => {
+  test('HR reactivation restores ACTIVE without creating any session (they sign in again)', async () => {
+    const res = await as(hrA).post(`/users/${deadMgrA.id}/reactivate`);
     expect(res.status).toBe(200);
-    expect(clerkStub.users.unbanUser).toHaveBeenCalledTimes(1);
-    expect(clerkStub.users.unbanUser).toHaveBeenCalledWith(`clerk_lc_deadA_${suffix}`);
-    expect(clerkStub.users.banUser).not.toHaveBeenCalled();
-    const fresh = await prisma.user.findUnique({ where: { id: deadA.id } });
-    expect(fresh.status).toBe('ACTIVE');
-    expect(fresh.role).toBe('WORKER');
-    expect(fresh.employeeNumber).toBe('KEEP-1'); // employment metadata preserved
-    expect(fresh.id).toBe(deadA.id); // same User.id
-  });
-
-  test('Clerk unban failure leaves the employee DEACTIVATED with no success audit', async () => {
-    clerkStub.users.unbanUser.mockRejectedValueOnce(new Error('clerk down'));
-    const res = await as(hrA).post(`/users/${deadA.id}/reactivate`);
-    expect(res.status).toBe(502);
-    expect(res.body.code).toBe('CLERK_REACTIVATION_FAILED');
-    expect((await prisma.user.findUnique({ where: { id: deadA.id } })).status).toBe('DEACTIVATED');
-    expect(await prisma.auditLog.count({ where: { action: 'USER_REACTIVATED', entityId: deadA.id } })).toBe(0);
-  });
-
-  test('a deactivated employee with no clerkUserId is rejected (409 NO_CLERK_IDENTITY) before any Clerk call', async () => {
-    const res = await as(hrA).post(`/users/${noClerkDeadA.id}/reactivate`);
-    expect(res.status).toBe(409);
-    expect(res.body.code).toBe('NO_CLERK_IDENTITY');
-    expect(clerkStub.users.unbanUser).not.toHaveBeenCalled();
-    expect((await prisma.user.findUnique({ where: { id: noClerkDeadA.id } })).status).toBe('DEACTIVATED');
-  });
-
-  test('an already-active employee is rejected BEFORE Clerk unbanUser is reached', async () => {
-    const res = await as(hrA).post(`/users/${wkrA.id}/reactivate`);
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe('ALREADY_ACTIVE');
-    expect(clerkStub.users.unbanUser).not.toHaveBeenCalled();
+    expect((await prisma.user.findUnique({ where: { id: deadMgrA.id } })).status).toBe('ACTIVE');
+    expect(await prisma.session.count({ where: { userId: deadMgrA.id } })).toBe(0);
   });
 });
 
-// ───────────────────────── Offboarding preview ─────────────────────────
 describe('GET /users/:id/offboarding-preview', () => {
   test('counts future assigned shifts, in-progress shifts, training, and current role only', async () => {
     await mkShift(futureA.id, { startTime: new Date(Date.now() + 2 * DAY) });

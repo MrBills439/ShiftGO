@@ -479,7 +479,7 @@ function ManageTimesheetsView() {
         subtitle="Review, confirm, and export worker attendance records"
         action={canExport && selectedHouse && (
           <button
-            onClick={() => { exportTimesheetPDF(selectedHouse); toast.info('Downloading PDF…'); }}
+            onClick={() => { toast.info('Downloading PDF…'); exportTimesheetPDF(selectedHouse).catch(() => toast.error('Could not download the PDF.')); }}
             className="btn-secondary"
           >
             <FilePdfIcon size={16} /> Export PDF

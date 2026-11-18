@@ -78,7 +78,7 @@ const employmentBody = [
 // HR Onboarding V1 + Employee Detail: optional personal + emergency-contact
 // fields, accepted on user create AND update. Every field optional; length caps
 // only — no strict phone/address formatting. `name`/`email` are NOT here (name
-// follows the Clerk sync rules, email is immutable).
+// is edited by the person, email is immutable).
 const personalContactBody = [
   body('phone').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 40 }).withMessage('Phone must be 40 characters or fewer'),
   body('address').optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 500 }).withMessage('Address must be 500 characters or fewer'),

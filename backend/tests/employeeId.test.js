@@ -6,14 +6,7 @@ process.env.RATE_LIMIT_DISABLED = 'true';
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
 
-let mockInvitationId = 'inv_eid';
-jest.mock('../src/utils/clerkClient', () => ({
-  organizations: {
-    createOrganizationInvitation: jest.fn(async () => ({ id: mockInvitationId, status: 'pending' })),
-  },
-  users: { getUser: jest.fn() },
-}));
-const clerkStub = require('../src/utils/clerkClient');
+const email = require('../src/lib/email');
 
 const app = require('../src/app');
 const { signAccess } = require('../src/utils/jwt');
@@ -32,7 +25,7 @@ let agA, agB, agCon, agNo;
 let hrA, hrB, hrCon, hrNo, mgrNo;
 
 const mkAgency = (tag, extra = {}) =>
-  prisma.agency.create({ data: { name: `EID ${tag} ${suffix}`, clerkOrgId: `org_eid_${tag}_${suffix}`, ...extra } });
+  prisma.agency.create({ data: { name: `EID ${tag} ${suffix}`, ...extra } });
 const mkUser = (agencyId, role, tag) =>
   prisma.user.create({ data: { agencyId, role, name: `EID ${tag}`, email: `eid-${tag}-${suffix}@shiftgo.test`, passwordHash: 'x' } });
 
@@ -65,7 +58,6 @@ afterAll(async () => {
 });
 
 const hire = (hr, over = {}) => {
-  mockInvitationId = `inv_${Math.random().toString(16).slice(2)}`;
   return as(hr).post('/users', {
     name: 'New Hire', email: `newhire-${Math.random().toString(16).slice(2)}-${suffix}@shiftgo.test`,
     role: 'WORKER', ...over,
@@ -137,9 +129,7 @@ describe('Employee ID auto-generation on invite', () => {
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('NO_EMPLOYEE_ID_PREFIX');
     expect(res.body.message).toMatch(/prefix/i);
-    expect(clerkStub.organizations.createOrganizationInvitation).not.toHaveBeenCalledWith(
-      expect.objectContaining({ organizationId: agNo.clerkOrgId }),
-    );
+    expect(email.outbox.some((m) => m.to.includes('newhire') && m.subject.includes(agNo.name))).toBe(false);
     expect(await prisma.pendingEmployee.count({ where: { agencyId: agNo.id } })).toBe(0);
   });
 
@@ -209,14 +199,16 @@ describe('Prefix change', () => {
   });
 });
 
-// ───────────────────────── Clerk failure + retry ────────────────────────
-describe('Clerk failure and retry', () => {
-  test('a failed Clerk invite leaves a gap; the next hire does not reuse the number', async () => {
-    const quota = new Error('quota'); quota.errors = [{ code: 'organization_membership_quota_exceeded' }];
-    clerkStub.organizations.createOrganizationInvitation.mockRejectedValueOnce(quota);
+// ───────────────────── invitation email failure + retry ─────────────────
+describe('Invitation email failure and retry', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  test('a failed invitation email leaves a gap; the next hire does not reuse the number', async () => {
+    jest.spyOn(email, 'sendEmail').mockRejectedValueOnce(new Error('provider down'));
 
     const failed = await hire(hrA);
-    expect(failed.status).toBe(403); // number SEQ-0001 was reserved then abandoned
+    expect(failed.status).toBe(502); // number SEQ-0001 was reserved then abandoned
+    expect(failed.body.code).toBe('INVITE_EMAIL_FAILED')
     expect(await prisma.pendingEmployee.count({ where: { agencyId: agA.id } })).toBe(0); // rolled back
 
     const next = await hire(hrA);
@@ -225,15 +217,14 @@ describe('Clerk failure and retry', () => {
 
   test('retrying a still-staged invite reuses the staged Employee ID (no fresh number)', async () => {
     const email = `newhire-retry-${suffix}@shiftgo.test`;
-    mockInvitationId = `inv_retry_${suffix}`;
     const first = await as(hrA).post('/users', { name: 'Retry', email, role: 'WORKER' });
     expect(first.body.data.employeeNumber).toBe('SEQ-0001');
 
-    // re-invite the same email (pending row still there) — must reuse SEQ-0001
-    const dupe = new Error('dup'); dupe.errors = [{ code: 'duplicate_record' }];
-    clerkStub.organizations.createOrganizationInvitation.mockRejectedValueOnce(dupe);
+    // re-invite the same email (pending row still there): the link is re-sent
+    // and the staged SEQ-0001 is reused — no fresh number is burned
     const retry = await as(hrA).post('/users', { name: 'Retry', email, role: 'WORKER' });
-    expect(retry.status).toBe(409);
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.employeeNumber).toBe('SEQ-0001');
 
     const pending = await prisma.pendingEmployee.findUnique({ where: { agencyId_email: { agencyId: agA.id, email } } });
     expect(pending.employeeNumber).toBe('SEQ-0001');

@@ -3,10 +3,8 @@ import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/store/authStore';
 
 /**
- * Shown when Clerk has a valid session but we could not load the matching
- * ShiftGO profile from the backend (no user row yet, deactivated account, or
- * the API is down). Replaces the old behaviour of spinning forever / bouncing
- * between /dashboard and /sign-in.
+ * Shown when there is a session but we could not load the ShiftGO profile from
+ * the backend (usually the API is briefly unavailable). Avoids spinning forever.
  */
 export function ProfileSyncError() {
   const retrySync = useAuthStore((s) => s.retrySync);

@@ -1,17 +1,17 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments, type Href } from 'expo-router';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
-import { ClerkAuthSync } from '../components/ClerkAuthSync';
+import { AuthSync } from '../components/AuthSync';
+import { TwoFactorRequired } from '../components/TwoFactorRequired';
+import { authClient } from '../services/authClient';
 import { ProfileSyncError } from '../components/ProfileSyncError';
 import { AnnouncementsPopup } from '../components/AnnouncementsPopup';
 import { PrivacyNoticeGate, usePrivacyNoticePending } from '../components/PrivacyNoticeGate';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useAuthStore } from '../store/authStore';
 import { identifyUser } from '../lib/monitoring';
-import { tokenCache } from '../lib/tokenCache';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,7 +25,9 @@ const queryClient = new QueryClient({
 });
 
 function AuthGate() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { data: session, isPending } = authClient.useSession();
+  const isLoaded = !isPending;
+  const isSignedIn = !!session?.session;
   const router = useRouter();
   const segments = useSegments();
   const qc = useQueryClient();
@@ -89,7 +91,7 @@ function AuthGate() {
     return () => sub.remove();
   }, [qc]);
 
-  // Signed into Clerk, but the profile sync exhausted its retries — show a real
+  // Signed in, but the profile sync exhausted its retries — show a real
   // error instead of empty tab screens behind the UI. (After all hooks.)
   const showSyncError = isLoaded && isSignedIn && !inAuth && !inOnboarding && !syncLoading && syncError;
   const signedInAndSynced =
@@ -99,6 +101,8 @@ function AuthGate() {
   const showAnnouncements = signedInAndSynced && !noticePending;
 
   if (showSyncError) return <ProfileSyncError />;
+  // HR/managers: the API refuses everything until two-step verification is on.
+  if (signedInAndSynced && user?.twoFactorRequired) return <TwoFactorRequired />;
 
   return (
     <>
@@ -113,15 +117,10 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
-        <ClerkProvider
-          publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
-          tokenCache={tokenCache}
-        >
-          <QueryClientProvider client={queryClient}>
-            <ClerkAuthSync />
-            <AuthGate />
-          </QueryClientProvider>
-        </ClerkProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthSync />
+          <AuthGate />
+        </QueryClientProvider>
       </SafeAreaProvider>
     </ErrorBoundary>
   );

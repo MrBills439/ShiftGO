@@ -281,8 +281,10 @@ DATABASE_URL="postgresql://..." npm run db:migrate:deploy   # never `db:migrate`
 ```bash
 # 1. Set up production database (Railway, AWS RDS, DigitalOcean, etc.)
 
-# 2. Set env vars on the Railway backend service (DATABASE_URL, CLERK_*,
-#    CORS_ORIGINS, FIREBASE_*, UPLOAD_DIR, ...). Railway provides PORT.
+# 2. Set env vars on the Railway backend service: DATABASE_URL,
+#    BETTER_AUTH_SECRET (openssl rand -base64 32), BETTER_AUTH_URL (this API's
+#    public URL), WEB_APP_URL, CORS_ORIGINS, RESEND_API_KEY, EMAIL_FROM,
+#    FIREBASE_*, UPLOAD_DIR, ... Railway provides PORT. See docs/AUTH.md.
 
 # 3. Push to the deploy branch. Railway builds backend/Dockerfile, then runs
 #    the Pre-Deploy Command (npm run db:migrate:deploy), then starts the server.
@@ -291,13 +293,18 @@ DATABASE_URL="postgresql://..." npm run db:migrate:deploy   # never `db:migrate`
 # 4. Verify health
 curl https://<backend-domain>/health
 # Response: { "status": "ok", "app": "ShiftGO" }
+
+# 5. Create the first agency and email its HR lead an invitation
+railway run npm run agency:create -- --name "Acme Care" --hr-email hr@acme.example --hr-name "Jo Smith"
 ```
 
 ### Build & Deploy Frontend (Web)
 ```bash
 # 1. Update environment
-cp web/.env.example web/.env.production
-# Set: NEXT_PUBLIC_API_URL=https://api.yourdomain.com
+# Set: API_PROXY_TARGET=https://<backend-domain>
+# The browser only talks to the web app; /api/* is forwarded to the backend,
+# so the session cookie is first-party. Add the web URL to the backend's
+# CORS_ORIGINS and WEB_APP_URL.
 
 # 2. Build
 npm run build
