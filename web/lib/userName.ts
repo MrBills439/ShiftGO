@@ -1,8 +1,8 @@
 /**
  * Display-name helpers.
  *
- * The backend `User.name` is non-nullable and, for users Clerk has no first/last
- * name for, ends up holding the email address itself. Never show that as a name,
+ * The backend `User.name` is non-nullable and, for someone invited without a
+ * name, can hold the email address itself. Never show that as a name,
  * and never derive a name from the local-part of an email. When there is no real
  * name, fall back to something neutral.
  */

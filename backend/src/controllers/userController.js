@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const prisma = require('../lib/prisma');
+const config = require('../config');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
@@ -522,7 +523,9 @@ async function changeSystemAccess(req, res) {
 async function getMe(req, res) {
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
   if (!user) return notFound(res);
-  ok(res, user);
+  // Tells the apps to show the two-step set-up screen before anything else.
+  const twoFactorRequired = config.auth.require2faForAdmins && ['HR', 'MANAGER'].includes(user.role) && !user.twoFactorEnabled;
+  ok(res, { ...user, twoFactorRequired });
 }
 
 // First-run onboarding: capture name + phone and stamp onboardedAt so the

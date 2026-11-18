@@ -1,8 +1,7 @@
 'use client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, authedDownload } from '@/lib/api';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export interface PrivacyNotice {
   version: string;
@@ -93,17 +92,6 @@ export function useResolveDeletion() {
 }
 
 // ─── Personal data export ───────────────────────────────────────────────────
-async function authedDownload(pathname: string, filename: string) {
-  const token = await window.Clerk?.session?.getToken();
-  const res = await fetch(`${BASE}${pathname}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-  if (!res.ok) throw new Error(`Download failed (${res.status})`);
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 const today = () => new Date().toISOString().slice(0, 10);
 

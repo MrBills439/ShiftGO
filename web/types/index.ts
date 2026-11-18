@@ -53,6 +53,11 @@ export interface AuthUser {
   email: string;
   role: Role;
   agency?: { name: string };
+  /** HR and managers must turn this on before using the dashboard. */
+  twoFactorEnabled?: boolean | null;
+  /** HR/managers must turn on two-step verification before using the app. */
+  twoFactorRequired?: boolean;
+  emailVerified?: boolean;
 }
 
 export interface House {
