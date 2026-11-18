@@ -17,6 +17,17 @@ const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 // Generation-triggered notifications (items 8-21) live in
 // tests/fixedWorkPatternGenerationNotifications.test.js.
 
+
+/** Re-run `fn` until it returns something truthy, or give up after `timeoutMs`. */
+async function eventually(fn, timeoutMs = 3000, stepMs = 25) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await fn();
+    if (value || Date.now() > deadline) return value;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+}
+
 describe('Manual shift assignment notifications — target-aware (Phase 4)', () => {
   let agency;
   let hr;
@@ -88,8 +99,9 @@ describe('Manual shift assignment notifications — target-aware (Phase 4)', () 
       startTime: start.toISOString(), endTime: end.toISOString(), date: start.toISOString(),
     });
     expect(res.status).toBe(201);
-    await new Promise((r) => setTimeout(r, 50)); // notification fires non-blocking, after the response
-    const notif = await prisma.notification.findFirst({ where: { userId: workerRota.id, type: 'SHIFT_ASSIGNED' }, orderBy: { createdAt: 'desc' } });
+    // The notification is written fire-and-forget after the response; poll for
+    // it rather than sleeping a fixed 50 ms (too short on a busy CI runner).
+    const notif = await eventually(() => prisma.notification.findFirst({ where: { userId: workerRota.id, type: 'SHIFT_ASSIGNED' }, orderBy: { createdAt: 'desc' } }));
     expect(notif).toBeTruthy();
   });
 
@@ -101,8 +113,9 @@ describe('Manual shift assignment notifications — target-aware (Phase 4)', () 
       startTime: start.toISOString(), endTime: end.toISOString(), date: start.toISOString(),
     });
     expect(res.status).toBe(201);
-    await new Promise((r) => setTimeout(r, 50));
-    const notif = await prisma.notification.findFirst({ where: { userId: workerFixed.id, type: 'SHIFT_ASSIGNED' }, orderBy: { createdAt: 'desc' } });
+    // The notification is written fire-and-forget after the response; poll for
+    // it rather than sleeping a fixed 50 ms (too short on a busy CI runner).
+    const notif = await eventually(() => prisma.notification.findFirst({ where: { userId: workerFixed.id, type: 'SHIFT_ASSIGNED' }, orderBy: { createdAt: 'desc' } }));
     expect(notif).toBeTruthy();
     expect(notif.body).toContain(locationA.name);
   });
@@ -124,8 +137,9 @@ describe('Manual shift assignment notifications — target-aware (Phase 4)', () 
       startTime: start.toISOString(), endTime: end.toISOString(), date: start.toISOString(),
     });
     expect(res.status).toBe(201);
-    await new Promise((r) => setTimeout(r, 50));
-    const notif = await prisma.notification.findFirst({ where: { userId: w.id, type: 'SHIFT_ASSIGNED' }, orderBy: { createdAt: 'desc' } });
+    // The notification is written fire-and-forget after the response; poll for
+    // it rather than sleeping a fixed 50 ms (too short on a busy CI runner).
+    const notif = await eventually(() => prisma.notification.findFirst({ where: { userId: w.id, type: 'SHIFT_ASSIGNED' }, orderBy: { createdAt: 'desc' } }));
     const expectedLocal = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'America/New_York', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
     }).format(start);
@@ -140,8 +154,9 @@ describe('Manual shift assignment notifications — target-aware (Phase 4)', () 
       startTime: start.toISOString(), endTime: end.toISOString(), date: start.toISOString(),
     });
     expect(res.status).toBe(201);
-    await new Promise((r) => setTimeout(r, 50));
-    const notif = await prisma.notification.findFirst({ where: { userId: workerNoToken.id, type: 'SHIFT_ASSIGNED' } });
+    // The notification is written fire-and-forget after the response; poll for
+    // it rather than sleeping a fixed 50 ms (too short on a busy CI runner).
+    const notif = await eventually(() => prisma.notification.findFirst({ where: { userId: workerNoToken.id, type: 'SHIFT_ASSIGNED' } }));
     expect(notif).toBeTruthy(); // the DB row is written regardless of push delivery
   });
 

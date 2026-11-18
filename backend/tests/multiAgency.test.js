@@ -197,8 +197,9 @@ describe('Multi-agency data isolation', () => {
       .get(`/timesheets/house/${houseB.id}`)
       .set('Authorization', `Bearer ${tokenFor(managerA)}`);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.map((timesheet) => timesheet.id)).not.toContain(timesheetB.id);
+    // Another agency's house is indistinguishable from an unknown id.
+    expect(res.status).toBe(404);
+    expect(JSON.stringify(res.body)).not.toContain(timesheetB.id);
   });
 
   it('scopes audit log lists to the actor agency', async () => {

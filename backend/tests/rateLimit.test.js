@@ -73,3 +73,37 @@ describe('Rate limiting', () => {
     }
   });
 });
+
+describe('Rate limiting — shared care-home Wi-Fi', () => {
+  let agency2;
+  const staff = [];
+
+  beforeAll(async () => {
+    agency2 = await prisma.agency.create({ data: { name: `Rate Limit Shared IP ${suffix}` } });
+    for (let i = 0; i < 3; i += 1) {
+      staff.push(await prisma.user.create({
+        data: { agencyId: agency2.id, name: `Shared ${i}`, email: `rl-shared-${i}-${suffix}@shiftgo.test`, role: 'WORKER' },
+      }));
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.user.deleteMany({ where: { agencyId: agency2?.id } });
+    if (agency2) await prisma.agency.delete({ where: { id: agency2.id } });
+  });
+
+  it('gives each signed-in user their own budget behind one IP', async () => {
+    const app = loadApp(); // API_RATE_LIMIT_MAX=20 per user
+    // User 0 uses up their whole budget…
+    for (let i = 0; i < 20; i += 1) {
+      await request(app).get('/notifications/unread-count').set('Authorization', `Bearer ${tokenFor(staff[0])}`);
+    }
+    const blocked = await request(app).get('/notifications/unread-count').set('Authorization', `Bearer ${tokenFor(staff[0])}`);
+    expect(blocked.status).toBe(429);
+    // …but colleagues on the same IP are unaffected.
+    for (const colleague of staff.slice(1)) {
+      const res = await request(app).get('/notifications/unread-count').set('Authorization', `Bearer ${tokenFor(colleague)}`);
+      expect(res.status).toBe(200);
+    }
+  });
+});

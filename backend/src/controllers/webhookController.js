@@ -77,9 +77,10 @@ async function handleMembershipUpsert(data) {
   // Whole-Workforce Phase 1: apply any HR-staged employment data for THIS
   // agency + email. Idempotent under duplicate delivery (consumedAt guard);
   // an unrelated agency's pending row is never matched.
-  await consumePendingEmployee(user, agency.id, email).catch((err) =>
-    console.error('[webhook] failed to apply pending employment data:', err.message),
-  );
+  // A failure here propagates so the webhook answers 500 and Clerk retries.
+  // Safe to re-run: the user upsert above is idempotent and
+  // consumePendingEmployee only matches rows with consumedAt = null.
+  await consumePendingEmployee(user, agency.id, email);
 }
 
 /**
@@ -260,8 +261,12 @@ async function receive(req, res) {
     res.status(200).send('OK');
   } catch (err) {
     console.error(`[webhook] handler error for ${event.type}:`, err);
-    // Acknowledge anyway — a bad event shouldn't loop forever on Svix retries.
-    res.status(200).send('Handled with errors');
+    // Non-2xx so Clerk (Svix) redelivers. Svix retries on a fixed, bounded
+    // back-off schedule and then stops, so a permanently bad event cannot loop
+    // forever — while a transient failure (DB blip, Clerk API timeout) no longer
+    // silently drops a new hire who then can never sign in. Every handler above
+    // is idempotent, so redelivery is safe.
+    res.status(500).send('Handler failed — please retry');
   }
 }
 

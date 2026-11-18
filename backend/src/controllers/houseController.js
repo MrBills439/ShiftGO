@@ -1,6 +1,9 @@
 const prisma = require('../lib/prisma');
 const { ok, created, notFound, fail } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
+const { canAccessHouse } = require('../services/accessScope');
+
+const HOUSE_EDITABLE_FIELDS = ['name', 'address', 'latitude', 'longitude', 'geofenceRadius', 'autoConfirm', 'assignedHours'];
 
 async function listHouses(req, res) {
   const { role, id } = req.user;
@@ -28,6 +31,7 @@ async function listHouses(req, res) {
 }
 
 async function getHouse(req, res) {
+  if (!(await canAccessHouse(req.user, req.params.id, agencyIdFor(req)))) return notFound(res);
   const house = await prisma.house.findFirst({
     where: { id: req.params.id, agencyId: agencyIdFor(req) },
     include: {
@@ -68,7 +72,14 @@ async function updateHouse(req, res) {
   // Reassigning who manages a service is an HR-only decision (see the dedicated
   // "Change Manager" flow) — strip it here so opening general edits to Managers
   // doesn't let one reassign a service away from themselves or to someone else.
-  const { managerId, ...body } = req.body;
+  // Only these fields may be edited here. Anything else in the body (agencyId,
+  // id, locationId, timestamps, …) is ignored, so a request can never move a
+  // service into another agency or rewrite its identity.
+  const { managerId } = req.body;
+  const body = {};
+  for (const key of HOUSE_EDITABLE_FIELDS) {
+    if (req.body[key] !== undefined) body[key] = req.body[key];
+  }
   if (req.user.role === 'HR' && managerId !== undefined) {
     if (managerId) {
       const manager = await prisma.user.findFirst({ where: { id: managerId, agencyId: agencyIdFor(req) } });
@@ -105,8 +116,9 @@ async function deleteHouse(req, res) {
 }
 
 async function listSupportedPeople(req, res) {
-  const house = await prisma.house.findFirst({ where: { id: req.params.id, agencyId: agencyIdFor(req) } });
-  if (!house) return notFound(res);
+  // Residents' names, dates of birth and emergency contacts: team leaders only
+  // see the services they are assigned to.
+  if (!(await canAccessHouse(req.user, req.params.id, agencyIdFor(req)))) return notFound(res);
   const people = await prisma.supportedPerson.findMany({
     where: { houseId: req.params.id },
     orderBy: { name: 'asc' },

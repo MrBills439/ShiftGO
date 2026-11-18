@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
+const { canViewPersonRecords } = require('../services/accessScope');
 
 async function listMyTraining(req, res) {
   const trainings = await prisma.training.findMany({
@@ -12,6 +13,7 @@ async function listMyTraining(req, res) {
 
 async function getTrainingForUser(req, res) {
   const { userId } = req.params;
+  if (!(await canViewPersonRecords(req.user, userId, agencyIdFor(req)))) return notFound(res);
   const trainings = await prisma.training.findMany({
     where: { agencyId: agencyIdFor(req), userId },
     orderBy: { createdAt: 'desc' },
@@ -34,9 +36,15 @@ async function updateTraining(req, res) {
   const { id } = req.params;
   const record = await prisma.training.findFirst({ where: { id, agencyId: agencyIdFor(req) } });
   if (!record) return notFound(res);
+  // Whitelist: userId / agencyId / id are never editable, so a record can't be
+  // re-pointed at another person or moved into another agency.
+  const data = {};
+  for (const key of ['title', 'description', 'status', 'completedAt', 'expiresAt']) {
+    if (req.body[key] !== undefined) data[key] = req.body[key];
+  }
   const training = await prisma.training.update({
     where: { id },
-    data: req.body,
+    data,
   });
   ok(res, training);
 }

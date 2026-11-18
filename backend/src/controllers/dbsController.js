@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
-const { ok, created, fail } = require('../utils/response');
+const { ok, created, fail, notFound } = require('../utils/response');
+const { canViewPersonRecords } = require('../services/accessScope');
 const { agencyIdFor } = require('../utils/agency');
 
 async function getMyDbs(req, res) {
@@ -8,6 +9,7 @@ async function getMyDbs(req, res) {
 }
 
 async function getDbsForUser(req, res) {
+  if (!(await canViewPersonRecords(req.user, req.params.userId, agencyIdFor(req)))) return notFound(res);
   const dbs = await prisma.dbsCheck.findFirst({ where: { agencyId: agencyIdFor(req), userId: req.params.userId } });
   ok(res, dbs ?? null);
 }

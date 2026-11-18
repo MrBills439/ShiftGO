@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const timesheetService = require('../services/timesheetService');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
+const { canAccessHouse } = require('../services/accessScope');
 const { ok, fail } = require('../utils/response');
 
 async function myTimesheets(req, res) {
@@ -9,7 +10,32 @@ async function myTimesheets(req, res) {
   ok(res, data);
 }
 
+/**
+ * Who may review (approve / reject / resolve) a given timesheet:
+ *  - never the worker it belongs to — no one signs off their own hours;
+ *  - team leaders only for timesheets at a house they are assigned to;
+ *  - managers / HR anywhere in their agency.
+ * Returns an error response to send, or null when the review may proceed.
+ * Unknown / other-agency timesheets fall through so the service's own 404 runs.
+ */
+async function reviewBlock(req) {
+  const ts = await prisma.timesheet.findFirst({
+    where: { id: req.params.id, agencyId: agencyIdFor(req) },
+    select: { workerId: true, houseId: true },
+  });
+  if (!ts) return null;
+  if (ts.workerId === req.user.id) {
+    return { status: 403, message: 'You cannot review your own timesheet. Ask another manager to do it.' };
+  }
+  if (req.user.role === 'TEAM_LEADER') {
+    const allowed = ts.houseId && (await canAccessHouse(req.user, ts.houseId, agencyIdFor(req)));
+    if (!allowed) return { status: 404, message: 'Timesheet not found' };
+  }
+  return null;
+}
+
 async function houseTimesheets(req, res) {
+  if (!(await canAccessHouse(req.user, req.params.houseId, agencyIdFor(req)))) return fail(res, 'Service not found', 404);
   const data = await timesheetService.getHouseTimesheets(req.params.houseId, agencyIdFor(req));
   ok(res, data);
 }
@@ -21,6 +47,8 @@ async function needsReview(req, res) {
 }
 
 async function resolveReview(req, res) {
+  const blocked = await reviewBlock(req);
+  if (blocked) return fail(res, blocked.message, blocked.status);
   try {
     const { clockOutTime, reason } = req.body;
     const result = await timesheetService.resolveReview(req.params.id, req.user.id, agencyIdFor(req), {
@@ -49,6 +77,8 @@ async function resolveReview(req, res) {
 }
 
 async function confirmTimesheet(req, res) {
+  const blocked = await reviewBlock(req);
+  if (blocked) return fail(res, blocked.message, blocked.status);
   try {
     const oldTimesheet = await prisma.timesheet.findFirst({ where: { id: req.params.id, agencyId: agencyIdFor(req) } });
     const ts = await timesheetService.confirmTimesheet(req.params.id, req.user.id, agencyIdFor(req));
@@ -67,6 +97,8 @@ async function confirmTimesheet(req, res) {
 }
 
 async function rejectTimesheet(req, res) {
+  const blocked = await reviewBlock(req);
+  if (blocked) return fail(res, blocked.message, blocked.status);
   try {
     const oldTimesheet = await prisma.timesheet.findFirst({ where: { id: req.params.id, agencyId: agencyIdFor(req) } });
     const ts = await timesheetService.rejectTimesheet(req.params.id, req.user.id, req.body.reason, agencyIdFor(req));

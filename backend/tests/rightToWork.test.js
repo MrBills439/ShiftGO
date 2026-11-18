@@ -100,8 +100,9 @@ describe('right-to-work agency isolation', () => {
     const read = await request(app)
       .get(`/right-to-work/user/${workerA.id}`)
       .set('Authorization', `Bearer ${tokenFor(hrB)}`);
-    // getForUser resolves against the caller's agency -> a MISSING record, never agency A's data.
-    expect(read.body.data.code).toBeNull();
+    // Another agency's worker is indistinguishable from an unknown id -> 404, never agency A's data.
+    expect(read.status).toBe(404);
+    expect(JSON.stringify(read.body)).not.toContain('WE4PWW7D6');
 
     const write = await request(app)
       .put(`/right-to-work/user/${workerA.id}`)
