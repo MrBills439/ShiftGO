@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   PencilSimple, CaretRight, SignOut,
   Bell, User, Phone, Envelope, CalendarDots,
-  BookOpen, IdentificationCard, Megaphone, ShieldCheck, ArrowsClockwise,
+  BookOpen, IdentificationCard, Megaphone, ShieldCheck, ArrowsClockwise, LockKey,
 } from 'phosphor-react-native';
 import { useAuthStore } from '../../store/authStore';
 import { getMe, getMyTraining, getMyDbs } from '../../services/profileService';
@@ -311,8 +311,15 @@ export default function ProfileScreen() {
                 <Text style={[s.verifiedTxt, !dbsVerified && { color: D.muted }]}>{dbsLabel}</Text>
               </View>
             }
-            last
             onPress={() => router.push('/profile/dbs')}
+          />
+          <MenuRow
+            iconBg="rgba(0,95,86,0.08)"
+            icon={<LockKey size={18} color={D.emerald} weight="regular" />}
+            title="Privacy & your data"
+            subtitle="Privacy notice, your data, delete account"
+            last
+            onPress={() => router.push('/profile/privacy')}
           />
         </View>
 

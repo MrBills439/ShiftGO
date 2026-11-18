@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import { ClerkAuthSync } from '../components/ClerkAuthSync';
 import { ProfileSyncError } from '../components/ProfileSyncError';
 import { AnnouncementsPopup } from '../components/AnnouncementsPopup';
+import { PrivacyNoticeGate, usePrivacyNoticePending } from '../components/PrivacyNoticeGate';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useAuthStore } from '../store/authStore';
 import { identifyUser } from '../lib/monitoring';
@@ -91,14 +92,18 @@ function AuthGate() {
   // Signed into Clerk, but the profile sync exhausted its retries — show a real
   // error instead of empty tab screens behind the UI. (After all hooks.)
   const showSyncError = isLoaded && isSignedIn && !inAuth && !inOnboarding && !syncLoading && syncError;
-  const showAnnouncements =
-    isLoaded && isSignedIn && !inAuth && !inOnboarding && !syncLoading && !syncError && !!user;
+  const signedInAndSynced =
+    isLoaded && !!isSignedIn && !inAuth && !inOnboarding && !syncLoading && !syncError && !!user;
+  // The privacy notice comes first; announcements wait until it is acknowledged.
+  const noticePending = usePrivacyNoticePending(signedInAndSynced);
+  const showAnnouncements = signedInAndSynced && !noticePending;
 
   if (showSyncError) return <ProfileSyncError />;
 
   return (
     <>
       <Stack screenOptions={{ headerShown: false }} />
+      <PrivacyNoticeGate enabled={signedInAndSynced} />
       <AnnouncementsPopup enabled={showAnnouncements} />
     </>
   );
