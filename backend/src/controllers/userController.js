@@ -175,7 +175,7 @@ async function createUser(req, res) {
   const { employeeNumber: _customEmployeeNumber, ...employmentRest } = employmentData;
 
   // HR Onboarding V1: personal + emergency-contact values are staged on the
-  // PendingEmployee row and applied to the User by the membership webhook.
+  // PendingEmployee row and applied to the User when the invitation is accepted.
   // Only keys actually present in the request are staged — a retry that omits a
   // field leaves the previously staged value in place (same semantics as the
   // employment fields). `name` is always present (required by the validator).
@@ -300,7 +300,7 @@ async function updateUser(req, res) {
 }
 
 // ─── Whole-Workforce Phase 1 (hardening): onboarding rows that need HR ────
-// A PendingEmployee is flagged needsReview when the membership webhook could
+// A PendingEmployee is flagged needsReview when invitation acceptance could
 // not apply every staged field (employee-number clash, or a
 // department/job title/location/line manager removed or deactivated between
 // invite and acceptance). The User + auth membership already exist — these are

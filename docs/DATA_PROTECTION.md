@@ -28,7 +28,7 @@ consented to: do not add "I consent" wording.
    considered.
 2. **Register with the ICO** and pay the data protection fee.
 3. **Data processing agreements**: one between you and each agency, and
-   check you have them with Clerk, Railway, Google (Firebase), Expo, your
+   check you have them with Resend (email), Railway, Google (Firebase), Expo, your
    storage provider and Sentry. Document US transfers (UK IDTA / UK
    Extension to the EU–US Data Privacy Framework).
 4. **Privacy notice text.** The built-in template is a draft. Each agency's

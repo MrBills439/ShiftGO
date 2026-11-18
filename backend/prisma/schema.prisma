@@ -1110,10 +1110,9 @@ model FixedWorkPatternDay {
 }
 
 // Server-side staging for HR-created employees. Employment data is written here
-// (never into client-controlled Clerk metadata) when the invitation is sent,
-// and consumed by the organizationMembership webhook once the person accepts.
-// `consumedAt` makes consumption idempotent under duplicate webhook delivery;
-// the (agencyId, email) pair scopes it so another agency can never adopt it.
+// when the invitation is sent and applied to the new User when the person
+// accepts it (POST /invitations/accept). `consumedAt` makes acceptance
+// single-use; the (agencyId, email) pair scopes it to one agency.
 model PendingEmployee {
   id                           String          @id @default(cuid())
   agencyId                     String
@@ -1131,7 +1130,7 @@ model PendingEmployee {
   workPatternType              WorkPatternType @default(ROTA)
   employmentType               EmploymentType?
   // ── HR Onboarding V1: personal + emergency-contact values staged here before
-  //    the Clerk invite, applied to the User by the membership webhook. All
+  //    the invitation, applied to the User when it is accepted. All
   //    nullable; a legacy invite without them still works. ──
   name                         String? // HR-entered legal/display name (see name-authority rule)
   phone                        String?

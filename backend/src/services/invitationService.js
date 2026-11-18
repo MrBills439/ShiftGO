@@ -1,5 +1,5 @@
 /**
- * Staff invitations (replaces Clerk organization invitations + the membership
+ * Staff invitations (replaced Clerk organization invitations + the membership
  * webhook).
  *
  *   1. HR creates an employee  -> userController stages a PendingEmployee row
@@ -131,7 +131,7 @@ async function acceptInvitation({ token, password, name, hashPassword }) {
   const existing = await prisma.user.findUnique({ where: { email: pending.email }, select: { id: true } });
   if (existing) throw httpErr('An account with this email already exists. Sign in instead.', 409, 'ACCOUNT_EXISTS');
 
-  // Name authority (unchanged from the Clerk era): a name HR entered — often
+  // Name authority: a name HR entered — often
   // the legal name — wins; the person's own input is used only when HR left it
   // blank. They can still edit their display name later in their profile.
   const displayName = (pending.name && pending.name.trim()) || (typeof name === 'string' && name.trim()) || pending.email;
