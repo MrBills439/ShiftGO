@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { missedClockInJob } = require('./missedClockInJob');
 const { attendanceJob } = require('./attendanceJob');
 const { runFixedWorkPatternGenerationJob } = require('./fixedWorkPatternGenerationJob');
+const { runRetentionJob } = require('./retentionJob');
 const { withJobLock } = require('./jobLock');
 const { captureError } = require('../lib/monitoring');
 
@@ -41,7 +42,11 @@ function startScheduler() {
   // explicitly so the schedule means the same thing wherever this runs.
   cron.schedule('30 2 * * *', locked('fixedWorkPatternGeneration', runFixedWorkPatternGenerationJob, { maxRunMs: 30 * 60_000 }), { timezone: 'UTC' });
 
-  console.log('[Scheduler] Started — missedClockIn (5min), attendance grace machine (1min), fixed work pattern top-up (daily 02:30 UTC); one instance per tick via advisory lock');
+  // Once daily, 03:15 UTC — data retention (GPS coordinates, expired RTW
+  // records). Report-only unless RETENTION_ENABLED=true; see retentionJob.js.
+  cron.schedule('15 3 * * *', locked('retention', runRetentionJob, { maxRunMs: 30 * 60_000 }), { timezone: 'UTC' });
+
+  console.log('[Scheduler] Started — missedClockIn (5min), attendance grace machine (1min), fixed work pattern top-up (daily 02:30 UTC), retention (daily 03:15 UTC); one instance per tick via advisory lock');
 }
 
 module.exports = { startScheduler };
