@@ -27,6 +27,7 @@ const rightToWorkRoutes = require('./routes/rightToWork');
 const shiftChangeRoutes = require('./routes/shiftChange');
 const orgStructureRoutes = require('./routes/orgStructure');
 const fixedWorkPatternRoutes = require('./routes/fixedWorkPatterns');
+const dataRightsRoutes = require('./routes/dataRights');
 const errorHandler = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimit');
 const config = require('./config');
@@ -155,6 +156,8 @@ app.use('/departments', orgStructureRoutes.departments);
 app.use('/job-titles', orgStructureRoutes.jobTitles);
 app.use('/locations', orgStructureRoutes.locations);
 app.use('/fixed-work-patterns', fixedWorkPatternRoutes);
+app.use('/privacy-notice', dataRightsRoutes.privacy);
+app.use('/deletion-requests', dataRightsRoutes.deletionRequests);
 
 // 404 handler
 app.use((req, res) => {

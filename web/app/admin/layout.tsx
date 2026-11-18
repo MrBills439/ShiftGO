@@ -5,6 +5,7 @@ import { useAuth } from '@clerk/nextjs';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ProfileSyncError } from '@/components/auth/ProfileSyncError';
 import { useAuthStore } from '@/store/authStore';
+import { PrivacyNoticeGate } from '@/components/privacy/PrivacyNoticeGate';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading, error } = useAuthStore();
@@ -37,11 +38,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
+    <PrivacyNoticeGate>
     <div className="flex min-h-screen bg-surface">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         <div className="p-6 lg:p-8">{children}</div>
       </main>
     </div>
+    </PrivacyNoticeGate>
   );
 }

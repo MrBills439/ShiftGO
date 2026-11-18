@@ -229,7 +229,8 @@ describe('scheduler.js — fixed work pattern job registration', () => {
   it('19/20. existing jobs remain registered with unchanged cadence', () => {
     const { startScheduler } = require('../src/jobs/scheduler');
     startScheduler();
-    expect(scheduledCalls.length).toBe(3);
+    expect(scheduledCalls.length).toBe(4); // + daily data-retention job
+    expect(scheduledCalls.some((c) => c.expr === '15 3 * * *')).toBe(true); // retentionJob
     expect(scheduledCalls.some((c) => c.expr === '*/5 * * * *')).toBe(true); // missedClockInJob, unchanged
     expect(scheduledCalls.some((c) => c.expr === '* * * * *')).toBe(true); // attendanceJob, unchanged
   });

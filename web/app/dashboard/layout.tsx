@@ -7,6 +7,7 @@ import { CommandPalette } from '@/components/operations/CommandPalette';
 import { AnnouncementsPopup } from '@/components/announcements/AnnouncementsPopup';
 import { ProfileSyncError } from '@/components/auth/ProfileSyncError';
 import { useAuthStore } from '@/store/authStore';
+import { PrivacyNoticeGate } from '@/components/privacy/PrivacyNoticeGate';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading, error } = useAuthStore();
@@ -38,6 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
+    <PrivacyNoticeGate>
     <div className="flex min-h-screen bg-surface">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
@@ -46,5 +48,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <CommandPalette />
       <AnnouncementsPopup />
     </div>
+    </PrivacyNoticeGate>
   );
 }

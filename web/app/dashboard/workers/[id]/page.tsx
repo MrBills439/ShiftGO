@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeftIcon, PencilSimpleIcon, UserMinusIcon, ArrowCounterClockwiseIcon,
-  WarningCircleIcon, UsersThreeIcon, ShieldCheckIcon,
+  WarningCircleIcon, UsersThreeIcon, ShieldCheckIcon, DownloadSimpleIcon,
 } from '@phosphor-icons/react';
 import { clsx } from 'clsx';
 import { Card } from '@/components/ui/Card';
@@ -22,6 +22,7 @@ import {
 import { useDepartmentOptions, useJobTitleOptions, useLocationOptions, WORK_PATTERN_LABELS, EMPLOYMENT_TYPE_LABELS } from '@/hooks/useOrgStructure';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
+import { downloadEmployeeData } from '@/hooks/useDataRights';
 import { ROLE_META, initials } from '@/lib/roles';
 import { EmployeeComplianceTab } from '@/components/staff/EmployeeComplianceTab';
 import { EmployeeTrainingTab } from '@/components/staff/EmployeeTrainingTab';
@@ -143,6 +144,17 @@ export default function EmployeeDetailPage() {
               <Button variant="secondary" size="sm" icon={<PencilSimpleIcon size={14} />} onClick={() => setTab('employment')}>
                 Edit Employee
               </Button>
+              {isHr && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<DownloadSimpleIcon size={14} />}
+                  onClick={() => downloadEmployeeData(employee.id, employee.name).catch(() => toast.error('Could not export this employee’s data.'))}
+                  title="Subject access request: everything held about this person"
+                >
+                  Export data
+                </Button>
+              )}
               {!deactivated ? (
                 <Button variant="danger" size="sm" icon={<UserMinusIcon size={14} />} onClick={() => setDeactivateOpen(true)}>
                   Deactivate

@@ -5,6 +5,7 @@ const { allow, atLeast } = require('../middleware/roleGuard');
 const { avatarUpload } = require('../middleware/upload');
 const { validators } = require('../middleware/validators');
 const asyncHandler = require('../middleware/asyncHandler');
+const dataRights = require('../controllers/dataRightsController');
 
 router.use(auth);
 
@@ -14,6 +15,12 @@ router.post('/me/onboarding', validators.updateMe, asyncHandler(ctrl.completeOnb
 router.post('/me/avatar', avatarUpload.single('avatar'), asyncHandler(ctrl.uploadAvatar));
 router.delete('/me/avatar', asyncHandler(ctrl.removeAvatar));
 router.patch('/me/fcm-token', validators.updateFcmToken, asyncHandler(ctrl.updateFcmToken));
+
+// Data-protection rights (self-service). Declared before '/:id'.
+router.get('/me/export', asyncHandler(dataRights.exportMine));
+router.get('/me/deletion-request', asyncHandler(dataRights.getMyDeletionRequest));
+router.post('/me/deletion-request', asyncHandler(dataRights.requestDeletion));
+router.post('/me/deletion-request/cancel', asyncHandler(dataRights.cancelDeletion));
 
 // Team leaders may list workers (needed to assign staff to a house), and —
 // Fixed Staff Scheduling V1 — the unfiltered agency roster (needed to pick any
@@ -36,6 +43,7 @@ router.post('/:id/deactivate', validators.deactivateUser, atLeast('MANAGER'), as
 // Employee Lifecycle V1 — offboarding awareness + reactivation.
 router.get('/:id/offboarding-preview', validators.getUser, atLeast('MANAGER'), asyncHandler(ctrl.offboardingPreview));
 router.post('/:id/reactivate', validators.reactivateUser, allow('HR'), asyncHandler(ctrl.reactivateUser));
+router.get('/:id/export', validators.getUser, allow('HR'), asyncHandler(dataRights.exportForUser));
 router.get('/:id', validators.getUser, atLeast('MANAGER'), asyncHandler(ctrl.getUser));
 router.patch('/:id', validators.updateUser, atLeast('MANAGER'), asyncHandler(ctrl.updateUser));
 // System Access / Role Management V1 — HR only; keeps Clerk org role + User.role in sync.
