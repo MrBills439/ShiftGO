@@ -203,9 +203,13 @@ describe('Multi-agency data isolation', () => {
   });
 
   it('scopes audit log lists to the actor agency', async () => {
+    const hrA = await prisma.user.create({
+      data: { agencyId: agencyA.id, name: 'Agency A HR', email: `agency-a-hr-${suffix}@shiftgo.test`, role: 'HR' },
+    });
     const res = await request(app)
       .get('/audit-logs?entityType=Shift')
-      .set('Authorization', `Bearer ${tokenFor(managerA)}`);
+      .set('Authorization', `Bearer ${tokenFor(hrA)}`);
+    await prisma.user.delete({ where: { id: hrA.id } });
 
     expect(res.status).toBe(200);
     expect(res.body.data.map((log) => log.action)).toContain('AGENCY_A_TEST');

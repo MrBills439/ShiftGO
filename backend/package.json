@@ -18,9 +18,11 @@
     "setup:pilot": "node scripts/setupPilotAgency.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1171.0",
     "@clerk/backend": "^3.16.8",
     "@clerk/express": "^2.1.59",
     "@prisma/client": "^5.7.0",
+    "@sentry/node": "^10.78.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

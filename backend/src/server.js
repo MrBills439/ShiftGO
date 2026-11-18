@@ -1,4 +1,7 @@
 require('dotenv').config();
+// Before anything else, so startup failures are reported too.
+const { initMonitoring, captureError, flushMonitoring } = require('./lib/monitoring');
+initMonitoring();
 const app = require('./app');
 const config = require('./config');
 const prisma = require('./lib/prisma');
@@ -26,6 +29,7 @@ async function shutdown(signal) {
   logger.info('server.shutdown', { signal });
   server.close(async () => {
     try {
+      await flushMonitoring();
       await prisma.$disconnect();
     } catch (err) {
       logger.error('server.shutdown_error', { message: err.message });
@@ -35,6 +39,17 @@ async function shutdown(signal) {
   // Don't hang forever if connections won't drain.
   setTimeout(() => process.exit(0), 10_000).unref();
 }
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('process.unhandled_rejection', { message: reason?.message || String(reason) });
+  captureError(reason instanceof Error ? reason : new Error(String(reason)), { source: 'unhandledRejection' });
+});
+process.on('uncaughtException', async (err) => {
+  logger.error('process.uncaught_exception', { message: err.message, stack: err.stack });
+  captureError(err, { source: 'uncaughtException' });
+  await flushMonitoring();
+  process.exit(1); // state is unknown after an uncaught exception — let Railway restart us
+});
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

@@ -212,16 +212,16 @@ describe('scheduler.js — fixed work pattern job registration', () => {
   it('1. the fixed-pattern job is registered, once daily at 02:30 UTC', () => {
     const { startScheduler } = require('../src/jobs/scheduler');
     startScheduler();
-    const fixedCall = scheduledCalls.find((c) => c.fn === mockRunJob);
+    const fixedCall = scheduledCalls.find((c) => c.expr === '30 2 * * *');
     expect(fixedCall).toBeTruthy();
     expect(fixedCall.expr).toBe('30 2 * * *');
     expect(fixedCall.opts).toEqual(expect.objectContaining({ timezone: 'UTC' }));
   });
 
-  it('2. the scheduled callback IS the generation job (scheduler does not wrap/duplicate its logic)', async () => {
+  it('2. one scheduled tick runs the generation job exactly once (wrapped only in the cluster job lock)', async () => {
     const { startScheduler } = require('../src/jobs/scheduler');
     startScheduler();
-    const fixedCall = scheduledCalls.find((c) => c.fn === mockRunJob);
+    const fixedCall = scheduledCalls.find((c) => c.expr === '30 2 * * *');
     await fixedCall.fn();
     expect(mockRunJob).toHaveBeenCalledTimes(1);
   });

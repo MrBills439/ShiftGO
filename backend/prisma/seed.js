@@ -6,10 +6,20 @@ const prisma = new PrismaClient();
 async function main() {
   const pw = await bcrypt.hash('password123', 12);
 
+  // Local demo tenant. Every seeded row belongs to it explicitly — there is no
+  // fallback agency.
+  const agency = await prisma.agency.upsert({
+    where: { id: 'seed-agency' },
+    update: {},
+    create: { id: 'seed-agency', name: 'Demo Care Agency' },
+  });
+  const agencyId = agency.id;
+
   const hr = await prisma.user.upsert({
     where: { email: 'hr@shiftgo.com' },
     update: {},
     create: {
+      agencyId,
       name: 'HR Admin', email: 'hr@shiftgo.com', passwordHash: pw, role: 'HR',
       phone: '+44 7700 900001',
     },
@@ -19,6 +29,7 @@ async function main() {
     where: { email: 'manager@shiftgo.com' },
     update: {},
     create: {
+      agencyId,
       name: 'Jane Manager', email: 'manager@shiftgo.com', passwordHash: pw, role: 'MANAGER',
       phone: '+44 7700 900002',
     },
@@ -28,6 +39,7 @@ async function main() {
     where: { email: 'tl@shiftgo.com' },
     update: {},
     create: {
+      agencyId,
       name: 'Tom Leader', email: 'tl@shiftgo.com', passwordHash: pw, role: 'TEAM_LEADER',
       phone: '+44 7700 900003',
     },
@@ -37,6 +49,7 @@ async function main() {
     where: { email: 'worker@shiftgo.com' },
     update: {},
     create: {
+      agencyId,
       name: 'Alice Worker', email: 'worker@shiftgo.com', passwordHash: pw, role: 'WORKER',
       phone: '+44 7700 900123',
       bio: 'Care support worker with 3 years of experience.',
@@ -49,6 +62,7 @@ async function main() {
     update: {},
     create: {
       id: 'seed-house-1',
+      agencyId,
       name: 'Maple House',
       address: '10 Maple Street, London, E1 1AA',
       latitude: 51.5145,
@@ -111,7 +125,7 @@ async function main() {
       where: { userId: worker.id, title: t.title },
     });
     if (!existing) {
-      await prisma.training.create({ data: { userId: worker.id, ...t } });
+      await prisma.training.create({ data: { agencyId, userId: worker.id, ...t } });
     }
   }
 
@@ -120,6 +134,7 @@ async function main() {
     where: { userId: worker.id },
     update: {},
     create: {
+      agencyId,
       userId: worker.id,
       status: 'CLEAR',
       reference: 'DBS-2025-00123456',

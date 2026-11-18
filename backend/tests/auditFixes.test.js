@@ -183,3 +183,89 @@ describe('Fix 3 — nobody reviews their own timesheet; team leaders only their 
     expect(res.body.data.status).toBe('APPROVED');
   });
 });
+
+describe('Week 2 — no fallback tenant', () => {
+  const { agencyIdFor } = require('../src/utils/agency');
+
+  test('agencyIdFor returns the caller agency', () => {
+    expect(agencyIdFor({ user: { agencyId: 'agency_x' } })).toBe('agency_x');
+    expect(agencyIdFor({ agencyId: 'agency_y' })).toBe('agency_y');
+  });
+
+  test('agencyIdFor throws instead of falling back to a shared agency', () => {
+    expect(() => agencyIdFor({ user: {} })).toThrow('No agency in request context');
+    expect(() => agencyIdFor(undefined)).toThrow();
+  });
+
+  test('new rows must name their agency (no database default)', async () => {
+    await expect(
+      prisma.house.create({ data: { name: 'No agency', address: 'x', latitude: 0, longitude: 0 } }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('Week 2 — audit trail for sensitive records', () => {
+  const latest = (where) => prisma.auditLog.findFirst({ where: { agencyId: agencyA.id, ...where }, orderBy: { createdAt: 'desc' } });
+
+  test('viewing someone else\'s DBS is logged, without the notes', async () => {
+    const subject = await makeUser(agencyA.id, 'WORKER', 'dbs-subject');
+    await request(app).post('/dbs').set(auth(hrA))
+      .send({ userId: subject.id, status: 'FLAGGED', reference: 'DBS-SECRET-REF', notes: 'conviction details here' });
+    const write = await latest({ action: 'DBS_RECORD_CREATED', actorId: hrA.id });
+    expect(write).toBeTruthy();
+    expect(JSON.stringify(write)).not.toContain('conviction details');
+    expect(JSON.stringify(write)).not.toContain('DBS-SECRET-REF');
+
+    const res = await request(app).get(`/dbs/user/${subject.id}`).set(auth(managerA));
+    expect(res.status).toBe(200);
+    const view = await latest({ action: 'DBS_RECORD_VIEWED', actorId: managerA.id });
+    expect(view.newValue.subjectUserId).toBe(subject.id);
+    expect(JSON.stringify(view)).not.toContain('conviction details');
+  });
+
+  test('viewing a right-to-work record is logged; share code is not copied into the log', async () => {
+    const subject = await makeUser(agencyA.id, 'WORKER', 'rtw-subject');
+    await request(app).put(`/right-to-work/user/${subject.id}`).set(auth(hrA)).send({ code: 'QQ1WW2EE3', shareDate: new Date().toISOString() });
+    await request(app).get(`/right-to-work/user/${subject.id}`).set(auth(managerA));
+    const view = await latest({ action: 'RTW_RECORD_VIEWED', actorId: managerA.id });
+    expect(view.newValue.subjectUserId).toBe(subject.id);
+    const write = await latest({ action: 'RTW_SHARE_CODE_UPDATED', actorId: hrA.id });
+    expect(write).toBeTruthy();
+    expect(JSON.stringify(write)).not.toContain('QQ1WW2EE3');
+  });
+
+  test('viewing a service\'s residents is logged', async () => {
+    await request(app).get(`/houses/${houseA.id}/supported-people`).set(auth(managerA));
+    expect(await latest({ action: 'RESIDENTS_VIEWED', actorId: managerA.id, entityId: houseA.id })).toBeTruthy();
+  });
+
+  test('the full audit log is HR only', async () => {
+    expect((await request(app).get('/audit-logs').set(auth(managerA))).status).toBe(403);
+    expect((await request(app).get('/audit-logs').set(auth(hrA))).status).toBe(200);
+  });
+
+  test('activity feed: real headings and actor names, no sensitive-access entries', async () => {
+    await prisma.auditLog.create({
+      data: { agencyId: agencyA.id, actorId: managerA.id, action: 'SHIFT_CANCELLED', entityType: 'Shift', entityId: 'shift-x' },
+    });
+    const res = await request(app).get('/activity?limit=100').set(auth(managerA));
+    expect(res.status).toBe(200);
+    const cancelled = res.body.data.find((e) => e.entityId === 'shift-x');
+    expect(cancelled).toMatchObject({
+      action: 'Shift cancelled',
+      type: 'shift_cancelled',
+      actor: { id: managerA.id, name: managerA.name },
+      description: `${managerA.name} cancelled a shift`,
+    });
+    const actions = res.body.data.map((e) => e.title);
+    expect(actions.join(' ')).not.toMatch(/DBS|RTW|RESIDENTS/);
+  });
+
+  test('a failed audit write is counted, not silently dropped', async () => {
+    const metrics = require('../src/lib/metrics');
+    const { createAuditLog } = require('../src/services/auditService');
+    const before = metrics.snapshot().auditWriteFailures;
+    await createAuditLog({ agencyId: 'agency-that-does-not-exist', action: 'X', entityType: 'X', entityId: 'x' });
+    expect(metrics.snapshot().auditWriteFailures).toBe(before + 1);
+  });
+});

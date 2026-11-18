@@ -51,3 +51,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Uploaded files (avatars, right-to-work documents) — user data, never commit
+backend/uploads/

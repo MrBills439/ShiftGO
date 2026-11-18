@@ -64,6 +64,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.shareCode.deleteMany({ where: { userId: workerB.id } });
   await prisma.user.deleteMany({ where: { id: { in: [managerA.id, managerB.id, workerB.id] } } });
+  // Access to sensitive records is now audit-logged; remove those rows first.
+  await prisma.auditLog.deleteMany({ where: { agencyId: { in: [agencyA.id, agencyB.id] } } });
   await prisma.agency.deleteMany({ where: { id: { in: [agencyA.id, agencyB.id] } } });
   for (const f of writtenFiles) { try { fs.unlinkSync(f); } catch { /* noop */ } }
   await prisma.$disconnect();

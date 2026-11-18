@@ -2,6 +2,7 @@ const prisma = require('../lib/prisma');
 const { ok, created, notFound, fail } = require('../utils/response');
 const { agencyIdFor } = require('../utils/agency');
 const { canAccessHouse } = require('../services/accessScope');
+const { auditContext, createAuditLog, logAccess } = require('../services/auditService');
 
 const HOUSE_EDITABLE_FIELDS = ['name', 'address', 'latitude', 'longitude', 'geofenceRadius', 'autoConfirm', 'assignedHours'];
 
@@ -123,6 +124,7 @@ async function listSupportedPeople(req, res) {
     where: { houseId: req.params.id },
     orderBy: { name: 'asc' },
   });
+  await logAccess(req, { action: 'RESIDENTS_VIEWED', entityType: 'House', entityId: req.params.id, details: { count: people.length } });
   ok(res, people);
 }
 
@@ -141,6 +143,10 @@ async function createSupportedPerson(req, res) {
       emergencyContactPhone: emergencyContactPhone || undefined,
     },
   });
+  await createAuditLog({
+    ...auditContext(req), action: 'RESIDENT_ADDED', entityType: 'SupportedPerson', entityId: person.id,
+    newValue: { houseId: house.id },
+  });
   created(res, person);
 }
 
@@ -150,6 +156,10 @@ async function deleteSupportedPerson(req, res) {
   });
   if (!person) return notFound(res);
   await prisma.supportedPerson.delete({ where: { id: person.id } });
+  await createAuditLog({
+    ...auditContext(req), action: 'RESIDENT_REMOVED', entityType: 'SupportedPerson', entityId: person.id,
+    oldValue: { houseId: person.houseId, name: person.name },
+  });
   ok(res, { deleted: true });
 }
 

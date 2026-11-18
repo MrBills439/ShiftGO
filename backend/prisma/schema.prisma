@@ -332,7 +332,7 @@ model User {
 
 model House {
   id             String   @id @default(cuid())
-  agencyId       String   @default("default-agency")
+  agencyId       String
   name           String
   address        String
   latitude       Float
@@ -408,7 +408,7 @@ model HouseTeamLeader {
 
 model Shift {
   id                 String      @id @default(cuid())
-  agencyId           String      @default("default-agency")
+  agencyId           String
   // Location-Backed Shift V1: a Shift now targets EXACTLY ONE attendance
   // target — houseId (ROTA) or locationId (FIXED) — enforced at the
   // application layer by shiftService.assertShiftAttendanceTarget, never by a
@@ -509,7 +509,7 @@ model ShiftClaim {
 
 model ClockEvent {
   id             String          @id @default(cuid())
-  agencyId       String          @default("default-agency")
+  agencyId       String
   workerId       String
   // Location-Backed Attendance Records V1: exactly one of houseId/locationId is
   // set, matching the owning Shift's resolved attendance target (ROTA->House,
@@ -559,7 +559,7 @@ model ClockEvent {
 // single source of truth — it is not a movement history.
 model AttendanceMonitor {
   id                         String         @id @default(cuid())
-  agencyId                   String         @default("default-agency")
+  agencyId                   String
   shiftId                    String         @unique
   workerId                   String
   // Location-Backed Attendance Records V1: mirrors the owning Shift's
@@ -602,7 +602,7 @@ model AttendanceMonitor {
 
 model AuditLog {
   id         String   @id @default(cuid())
-  agencyId   String   @default("default-agency")
+  agencyId   String
   actorId    String?
   actorRole  String?
   action     String
@@ -624,7 +624,7 @@ model AuditLog {
 
 model Timesheet {
   id              String          @id @default(cuid())
-  agencyId        String          @default("default-agency")
+  agencyId        String
   workerId        String
   // Location-Backed Attendance Records V1: mirrors the owning Shift's
   // resolved attendance target — see ClockEvent.houseId for the full note.
@@ -673,7 +673,7 @@ model Timesheet {
 
 model Notification {
   id        String           @id @default(cuid())
-  agencyId  String           @default("default-agency")
+  agencyId  String
   userId    String
   type      NotificationType
   title     String
@@ -696,7 +696,7 @@ model Notification {
 
 model Training {
   id          String         @id @default(cuid())
-  agencyId    String         @default("default-agency")
+  agencyId    String
   userId      String
   title       String
   description String?
@@ -715,7 +715,7 @@ model Training {
 
 model DbsCheck {
   id        String    @id @default(cuid())
-  agencyId  String    @default("default-agency")
+  agencyId  String
   userId    String    @unique
   status    DbsStatus @default(PENDING)
   reference String?
@@ -735,7 +735,7 @@ model DbsCheck {
 /// derived, not stored: no record, or `shareDate` older than 90 days.
 model ShareCode {
   id           String   @id @default(cuid())
-  agencyId     String   @default("default-agency")
+  agencyId     String
   userId       String   @unique
   code         String
   shareDate    DateTime
@@ -755,7 +755,7 @@ model ShareCode {
 
 model LeaveRequest {
   id              String             @id @default(cuid())
-  agencyId        String             @default("default-agency")
+  agencyId        String
   workerId        String
   startDate       DateTime
   endDate         DateTime
