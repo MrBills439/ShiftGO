@@ -9,6 +9,7 @@ import { useUsers } from '@/hooks/useWorkers';
 import { useAgency, useUpdateAgencySettings } from '@/hooks/useAgency';
 import { useToast } from '@/hooks/useToast';
 import { OrgStructureManager } from '@/components/admin/OrgStructureManager';
+import { PrivacyNoticeEditor, DeletionRequestsPanel } from '@/components/admin/PrivacyAdmin';
 import { clsx } from 'clsx';
 
 export default function AdminPage() {
@@ -23,7 +24,7 @@ export default function AdminPage() {
   const [globalRadius, setGlobalRadius] = useState('50');
   const [maxHours, setMaxHours] = useState('');
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<'general' | 'organisation'>('general');
+  const [tab, setTab] = useState<'general' | 'organisation' | 'privacy'>('general');
   const [empPrefix, setEmpPrefix] = useState('');
 
   useEffect(() => {
@@ -91,7 +92,7 @@ export default function AdminPage() {
       <Header title="Admin Panel" subtitle="Global platform settings — HR access only" />
 
       <div className="inline-flex rounded-lg border border-outline-variant bg-surface p-1 mb-6">
-        {(['general', 'organisation'] as const).map((t) => (
+        {(['general', 'organisation', 'privacy'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -104,6 +105,13 @@ export default function AdminPage() {
           </button>
         ))}
       </div>
+
+      {tab === 'privacy' && (
+        <div className="grid lg:grid-cols-2 gap-6 items-start">
+          <PrivacyNoticeEditor />
+          <DeletionRequestsPanel />
+        </div>
+      )}
 
       {tab === 'organisation' && (
         <div className="grid lg:grid-cols-2 gap-6 items-start">

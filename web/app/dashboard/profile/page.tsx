@@ -9,6 +9,7 @@ import {
 import { Header } from '@/components/layout/Header';
 import { Modal } from '@/components/ui/Modal';
 import { LeaveBalanceCard } from '@/components/leave/LeaveBalanceCard';
+import { YourDataCard } from '@/components/privacy/YourDataCard';
 import { useProfile, useUpdateProfile, useUploadAvatar, useMyTraining, useMyDbs } from '@/hooks/useProfile';
 import { useMyTimesheets } from '@/hooks/useTimesheets';
 import { useLeaveBalance } from '@/hooks/useLeaveRequests';
@@ -385,6 +386,9 @@ export default function ProfilePage() {
           <p className="mb-2 ml-1 text-[11px] font-semibold uppercase tracking-widest text-fg-subtle">Leave balance</p>
           <LeaveBalanceCard balance={leaveBalance} isLoading={leaveBalanceLoading} />
         </div>
+
+        {/* ── Privacy: notice, download my data, deletion request ── */}
+        <YourDataCard />
       </div>
 
       {/* Edit profile modal */}
