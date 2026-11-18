@@ -47,7 +47,8 @@ export function PrivacyNoticeGate({ children }: { children: React.ReactNode }) {
             <p className="text-xs text-fg-muted">Please read how your information is used.</p>
           </div>
         </div>
-        <div className="max-h-[60vh] overflow-y-auto px-6 py-5" tabIndex={0}>
+        {/* Focusable so keyboard users can scroll the notice (WCAG 2.1.1). */}
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-5" tabIndex={0} role="region" aria-label="Privacy notice text">
           <NoticeText text={notice.text} />
         </div>
         <div className="space-y-3 border-t border-border px-6 py-4">

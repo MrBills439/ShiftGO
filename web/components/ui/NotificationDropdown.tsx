@@ -11,9 +11,9 @@ import { NotificationsSkeleton } from './Skeleton';
 
 const TYPE_ICON: Record<string, { icon: React.ElementType; bg: string; color: string }> = {
   SHIFT_ASSIGNED:   { icon: CalendarBlankIcon,  bg: 'bg-[#e3f0f8]',      color: 'text-[#1a6b8a]' },
-  SHIFT_REMOVED:    { icon: CalendarBlankIcon,  bg: 'bg-error-container', color: 'text-error-DEFAULT' },
+  SHIFT_REMOVED:    { icon: CalendarBlankIcon,  bg: 'bg-error-container', color: 'text-error' },
   SHIFT_REMINDER:   { icon: ClockCountdownIcon, bg: 'bg-[#fff8e1]',       color: 'text-[#784a00]' },
-  MISSED_CLOCK_IN:  { icon: ClockCountdownIcon, bg: 'bg-error-container', color: 'text-error-DEFAULT' },
+  MISSED_CLOCK_IN:  { icon: ClockCountdownIcon, bg: 'bg-error-container', color: 'text-error' },
   CLOCK_OUT_PROMPT: { icon: CheckCircleIcon,    bg: 'bg-[#e6f4f0]',       color: 'text-primary' },
   GENERAL:          { icon: InfoIcon,           bg: 'bg-surface-high',    color: 'text-on-surface-variant' },
 };
@@ -72,7 +72,7 @@ export function NotificationDropdown({ onClose }: Props) {
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold text-on-surface">Notifications</p>
           {unread > 0 && (
-            <span className="min-w-[18px] h-[18px] rounded-full bg-error-DEFAULT text-white text-[9px] font-bold flex items-center justify-center px-1">
+            <span className="min-w-[18px] h-[18px] rounded-full bg-error text-white text-[9px] font-bold flex items-center justify-center px-1">
               {unread > 9 ? '9+' : unread}
             </span>
           )}
@@ -88,10 +88,12 @@ export function NotificationDropdown({ onClose }: Props) {
             </button>
           )}
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close notifications"
             className="p-1 rounded text-outline hover:text-on-surface hover:bg-surface-low transition-colors"
           >
-            <XIcon size={14} />
+            <XIcon size={14} aria-hidden="true" />
           </button>
         </div>
       </div>

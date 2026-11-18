@@ -148,10 +148,10 @@ export function RotaWeekView({ rota, houses, workers, mode, onAddShift, onOpenSh
             <MagnifyingGlassIcon size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
             <input
               type="text"
-              placeholder="Search staff…"
+              aria-label="Search staff" placeholder="Search staff…"
               value={staffSearch}
               onChange={(e) => setStaffSearch(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-600/20"
+              className="w-full rounded-md border border-border-strong bg-surface py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-600"
             />
           </div>
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">

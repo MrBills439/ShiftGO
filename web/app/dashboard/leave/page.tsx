@@ -182,10 +182,10 @@ function ManageLeaveView() {
       <div className="glass-card p-4 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <label htmlFor="leave-status" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               Status
             </label>
-            <select className="input-field" value={status} onChange={(e) => setStatus(e.target.value as LeaveStatus | '')}>
+            <select id="leave-status" className="input-field" value={status} onChange={(e) => setStatus(e.target.value as LeaveStatus | '')}>
               <option value="">All statuses</option>
               {STATUS_OPTIONS.map((option) => (
                 <option key={option} value={option}>{option.replace('_', ' ')}</option>
@@ -193,10 +193,10 @@ function ManageLeaveView() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <label htmlFor="leave-worker" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               Worker
             </label>
-            <select className="input-field" value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+            <select id="leave-worker" className="input-field" value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
               <option value="">All workers</option>
               {workers.map((worker) => (
                 <option key={worker.id} value={worker.id}>{worker.name}</option>
@@ -204,22 +204,22 @@ function ManageLeaveView() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <label htmlFor="leave-from" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               From
             </label>
-            <input className="input-field" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <input id="leave-from" className="input-field" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <label htmlFor="leave-to" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               To
             </label>
-            <input className="input-field" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <input id="leave-to" className="input-field" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </div>
         </div>
       </div>
 
       {conflictWarning && (
-        <div className="mb-4 rounded-lg border border-error-DEFAULT bg-error-container px-4 py-3 text-sm text-error-DEFAULT">
+        <div className="mb-4 rounded-lg border border-error bg-error-container px-4 py-3 text-sm text-error">
           {conflictWarning}
         </div>
       )}
@@ -283,7 +283,7 @@ function ManageLeaveView() {
                             <button
                               onClick={() => openReject(leave)}
                               disabled={approveLeave.isPending || rejectLeave.isPending || cancelLeave.isPending}
-                              className="inline-flex items-center gap-1.5 text-xs font-medium text-error-DEFAULT hover:bg-error-container px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-error hover:bg-error-container px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
                             >
                               <XCircleIcon size={14} /> Reject
                             </button>
@@ -311,10 +311,10 @@ function ManageLeaveView() {
       <Modal open={!!rejectTarget} onClose={closeReject} title="Reject Leave Request">
         <form onSubmit={submitReject} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <label htmlFor="leave-reason" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               Reason
             </label>
-            <textarea
+            <textarea id="leave-reason"
               className="input-field min-h-28 resize-none"
               value={rejectionReason}
               onChange={(e) => {
@@ -326,7 +326,7 @@ function ManageLeaveView() {
               required
             />
           </div>
-          {actionError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{actionError}</p>}
+          {actionError && <p className="text-sm text-error bg-error-container rounded-md px-3 py-2">{actionError}</p>}
           <div className="flex gap-3">
             <button type="button" onClick={closeReject} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" disabled={rejectLeave.isPending} className="btn-primary flex-1 justify-center">
@@ -342,7 +342,7 @@ function ManageLeaveView() {
             Cancel leave for <span className="font-semibold text-on-surface">{cancelTarget?.worker?.name}</span> from{' '}
             {cancelTarget ? formatDate(cancelTarget.startDate) : '—'} to {cancelTarget ? formatDate(cancelTarget.endDate) : '—'}?
           </p>
-          {actionError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{actionError}</p>}
+          {actionError && <p className="text-sm text-error bg-error-container rounded-md px-3 py-2">{actionError}</p>}
           <div className="flex gap-3">
             <button type="button" onClick={closeCancel} className="btn-secondary flex-1 justify-center">Keep Leave</button>
             <button type="button" onClick={submitCancel} disabled={cancelLeave.isPending} className="btn-primary flex-1 justify-center">
@@ -457,7 +457,7 @@ function MyLeaveView() {
                   </div>
                   <p className="text-sm text-on-surface-variant">Annual leave{leave.totalHours > 0 && <span> · {leave.totalHours}h</span>}</p>
                   {leave.status === 'REJECTED' && leave.rejectionReason && (
-                    <p className="mt-1 text-xs text-error-DEFAULT">Reason: {leave.rejectionReason}</p>
+                    <p className="mt-1 text-xs text-error">Reason: {leave.rejectionReason}</p>
                   )}
                   {leave.reviewedBy && (
                     <p className="mt-1 text-[11px] text-on-surface-variant font-inter">
@@ -483,10 +483,10 @@ function MyLeaveView() {
         <form onSubmit={submitRequest} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+              <label htmlFor="leave-start-date" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
                 Start Date
               </label>
-              <input
+              <input id="leave-start-date"
                 type="date"
                 className="input-field"
                 value={form.startDate}
@@ -495,10 +495,10 @@ function MyLeaveView() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+              <label htmlFor="leave-end-date" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
                 End Date
               </label>
-              <input
+              <input id="leave-end-date"
                 type="date"
                 className="input-field"
                 value={form.endDate}
@@ -518,12 +518,12 @@ function MyLeaveView() {
               <div className="rounded-md bg-surface-low px-3 py-2 text-xs text-on-surface-variant">
                 <span className="font-medium text-on-surface">{cost}h</span> ({days} working {days === 1 ? 'day' : 'days'} × {daily}h)
                 {remaining !== null && (
-                  <> · balance after: <span className={remaining < 0 ? 'font-medium text-error-DEFAULT' : 'font-medium text-on-surface'}>{remaining}h</span></>
+                  <> · balance after: <span className={remaining < 0 ? 'font-medium text-error' : 'font-medium text-on-surface'}>{remaining}h</span></>
                 )}
               </div>
             );
           })()}
-          {formError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{formError}</p>}
+          {formError && <p className="text-sm text-error bg-error-container rounded-md px-3 py-2">{formError}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={closeRequest} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" disabled={createLeave.isPending} className="btn-primary flex-1 justify-center">
@@ -539,7 +539,7 @@ function MyLeaveView() {
             Cancel your leave request from {cancelTarget ? formatDate(cancelTarget.startDate) : '—'} to{' '}
             {cancelTarget ? formatDate(cancelTarget.endDate) : '—'}?
           </p>
-          {cancelError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{cancelError}</p>}
+          {cancelError && <p className="text-sm text-error bg-error-container rounded-md px-3 py-2">{cancelError}</p>}
           <div className="flex gap-3">
             <button type="button" onClick={() => setCancelTarget(null)} className="btn-secondary flex-1 justify-center">Keep Request</button>
             <button type="button" onClick={submitCancel} disabled={cancelLeave.isPending} className="btn-primary flex-1 justify-center">

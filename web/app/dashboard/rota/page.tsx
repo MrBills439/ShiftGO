@@ -335,12 +335,13 @@ export default function RotaPage() {
             </p>
           )}
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-fg-muted">Who can claim this shift? *</label>
-            <div className="flex flex-wrap gap-2">
+            <p id="rota-cover-roles-label" className="mb-1.5 block text-xs font-semibold text-fg-muted">Who can claim this shift? *</p>
+            <div role="group" aria-labelledby="rota-cover-roles-label" className="flex flex-wrap gap-2">
               {COVER_ROLE_GROUPS.map((group) => (
                 <button
                   key={group.key}
                   type="button"
+                  aria-pressed={isGroupSelected(group, coverRoles)}
                   onClick={() => setCoverRoles((prev) => toggleGroupRoles(prev, group))}
                   className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
                     isGroupSelected(group, coverRoles)
@@ -354,9 +355,11 @@ export default function RotaPage() {
             </div>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-fg-muted">Urgency</label>
+            <p id="rota-cover-urgency-label" className="mb-1.5 block text-xs font-semibold text-fg-muted">Urgency</p>
             <button
               type="button"
+              aria-pressed={coverUrgent}
+              aria-describedby="rota-cover-urgency-label"
               onClick={() => setCoverUrgent((v) => !v)}
               className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
                 coverUrgent

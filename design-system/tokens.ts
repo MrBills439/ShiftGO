@@ -12,7 +12,7 @@ export const shiftGoTokens = {
       300: '#7ecab8',
       400: '#54b9a0',
       500: '#2a9984',
-      600: '#1d7f6e',
+      600: '#1c7969',
       700: '#126655',
       800: '#0a4d3a',
       900: '#021e1a',
@@ -27,7 +27,7 @@ export const shiftGoTokens = {
       200: '#e1dedd',
       300: '#d0cac7',
       400: '#a09790',
-      500: '#8b827a',
+      500: '#726b64',
       600: '#6b6460',
       700: '#4d4640',
       800: '#2f2a27',
@@ -51,13 +51,13 @@ export const shiftGoTokens = {
       bg: '#fef2f2',
       border: '#fecaca',
       text: '#7f1d1d',
-      solid: '#dc2626',
+      solid: '#d22424',
     },
     error: {
       bg: '#fef2f2',
       border: '#fecaca',
       text: '#7f1d1d',
-      solid: '#dc2626',
+      solid: '#d22424',
     },
     info: {
       bg: '#eff6ff',
@@ -71,7 +71,7 @@ export const shiftGoTokens = {
       day: '#2a9984',           // brand-500
       wakeNight: '#a855f7',     // purple
       sleepIn: '#f97316',       // orange
-      emergency: '#dc2626',     // red
+      emergency: '#d22424',     // red
     },
 
     // Dark Mode Palette

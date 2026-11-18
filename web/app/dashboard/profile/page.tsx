@@ -201,12 +201,12 @@ export default function ProfilePage() {
         {/* ── Identity card ── */}
         <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
           <div className="flex items-start gap-4">
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" tabIndex={-1} aria-hidden="true" onChange={handleAvatarChange} />
             <button
               type="button"
               onClick={pickAvatar}
               disabled={uploadAvatar.isPending}
-              className="group relative flex-shrink-0 rounded-2xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-600/25 disabled:opacity-60"
+              className="group relative flex-shrink-0 rounded-2xl disabled:opacity-60"
               aria-label="Change profile photo"
             >
               {photo ? (
@@ -400,8 +400,9 @@ export default function ProfilePage() {
             ['address', 'Address', 'text', '12 Oak Street, London'],
           ].map(([field, label, type, placeholder]) => (
             <div key={field}>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">{label}</label>
+              <label htmlFor={`profile-edit-${field}`} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">{label}</label>
               <input
+                id={`profile-edit-${field}`}
                 type={type}
                 placeholder={placeholder}
                 className="input-field"
@@ -411,8 +412,8 @@ export default function ProfilePage() {
             </div>
           ))}
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Bio</label>
-            <textarea
+            <label htmlFor="profile-bio" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Bio</label>
+            <textarea id="profile-bio"
               rows={3}
               placeholder="Tell us a bit about yourself…"
               className="input-field resize-none"

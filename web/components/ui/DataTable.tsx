@@ -108,12 +108,16 @@ export function DataTable<T>({
               {columns.map((column) => {
                 const active = sort?.id === column.id;
                 return (
-                  <th key={column.id} className={clsx('border-b border-border px-3 py-2 text-left text-xs font-semibold text-fg-muted', column.className)}>
+                  <th
+                    key={column.id}
+                    scope="col"
+                    aria-sort={column.sortValue ? (active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}
+                    className={clsx('border-b border-border px-3 py-2 text-left text-xs font-semibold text-fg-muted', column.className)}
+                  >
                     {column.sortValue ? (
                       <button
-                        className="inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-600/20"
+                        className="inline-flex items-center gap-1 rounded-sm"
                         onClick={() => setSort(active && sort.dir === 'asc' ? { id: column.id, dir: 'desc' } : { id: column.id, dir: 'asc' })}
-                        aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                       >
                         {column.header}
                         {active ? (sort.dir === 'asc' ? <CaretUpIcon size={12} /> : <CaretDownIcon size={12} />) : null}

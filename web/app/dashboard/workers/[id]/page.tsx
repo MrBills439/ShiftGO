@@ -118,7 +118,6 @@ export default function EmployeeDetailPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-center gap-4">
             {employee.profilePicture ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img src={`${API_BASE}${employee.profilePicture}`} alt="" className="h-14 w-14 rounded-full object-cover bg-surface-muted" />
             ) : (
               <div className={clsx('flex h-14 w-14 items-center justify-center rounded-full text-base font-semibold', ROLE_META[employee.role].avatarClass)}>

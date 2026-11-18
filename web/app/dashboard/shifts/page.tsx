@@ -345,10 +345,10 @@ function MyShiftsView() {
             </p>
           )}
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
+            <label htmlFor="shifts-reason-optional" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
               Reason (optional)
             </label>
-            <textarea
+            <textarea id="shifts-reason-optional"
               className="input-field resize-none"
               rows={3}
               value={dropReason}
@@ -638,7 +638,7 @@ function ManageShiftsView() {
                         {SHIFT_TYPE_META[s.shiftType]?.label ?? s.shiftType}
                       </span>
                       {s.urgent && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-error-DEFAULT bg-error-container px-2 py-0.5 text-[10px] font-semibold text-error-DEFAULT">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-error bg-error-container px-2 py-0.5 text-[10px] font-semibold text-error">
                           <FireIcon size={10} weight="fill" /> Urgent
                         </span>
                       )}
@@ -721,7 +721,7 @@ function ManageShiftsView() {
                         {SHIFT_TYPE_META[s.shiftType]?.label ?? s.shiftType}
                       </span>
                       {s.urgent && (
-                        <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-error-DEFAULT bg-error-container px-2 py-0.5 text-[10px] font-semibold text-error-DEFAULT">
+                        <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-error bg-error-container px-2 py-0.5 text-[10px] font-semibold text-error">
                           <FireIcon size={10} weight="fill" /> Urgent
                         </span>
                       )}
@@ -765,7 +765,7 @@ function ManageShiftsView() {
                               setCancelReason('');
                               setCancelError('');
                             }}
-                            className="p-1.5 rounded text-outline hover:text-error-DEFAULT hover:bg-error-container transition-colors"
+                            className="p-1.5 rounded text-outline hover:text-error hover:bg-error-container transition-colors"
                             aria-label="Cancel shift"
                           >
                             <TrashIcon size={15} />
@@ -788,12 +788,13 @@ function ManageShiftsView() {
           <LoadingOverlay show={createShift.isPending || updateShift.isPending} label={editingId ? 'Saving…' : 'Creating shift…'} />
 
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Shift kind</label>
-            <div className="flex rounded-md border border-outline-variant p-1">
+            <p id="shifts-kind-label" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Shift kind</p>
+            <div role="group" aria-labelledby="shifts-kind-label" className="flex rounded-md border border-outline-variant p-1">
               {(['ROTA', 'FIXED'] as ShiftKind[]).map((k) => (
                 <button
                   key={k}
                   type="button"
+                  aria-pressed={form.kind === k}
                   onClick={() => setForm((f) => ({ ...f, kind: k, houseId: k === 'ROTA' ? f.houseId : '', locationId: k === 'FIXED' ? f.locationId : '' }))}
                   className={clsx(
                     'flex-1 rounded px-3 py-1.5 text-xs font-semibold transition-colors',
@@ -808,16 +809,16 @@ function ManageShiftsView() {
 
           {form.kind === 'ROTA' ? (
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">House</label>
-              <select value={form.houseId} onChange={(e) => setForm({ ...form, houseId: e.target.value })} className="input-field" required>
+              <label htmlFor="shifts-house" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">House</label>
+              <select id="shifts-house" value={form.houseId} onChange={(e) => setForm({ ...form, houseId: e.target.value })} className="input-field" required>
                 <option value="">Select house…</option>
                 {houses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
               </select>
             </div>
           ) : (
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Location</label>
-              <select value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })} className="input-field" required>
+              <label htmlFor="shifts-location" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Location</label>
+              <select id="shifts-location" value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })} className="input-field" required>
                 <option value="">Select location…</option>
                 {locationOptions.map((l) => (
                   <option key={l.id} value={l.id}>{l.name}{l.type ? ` (${l.type})` : ''}</option>
@@ -832,8 +833,8 @@ function ManageShiftsView() {
           )}
 
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Worker</label>
-            <select value={form.workerId} onChange={(e) => setForm({ ...form, workerId: e.target.value })} className="input-field" required>
+            <label htmlFor="shifts-worker" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Worker</label>
+            <select id="shifts-worker" value={form.workerId} onChange={(e) => setForm({ ...form, workerId: e.target.value })} className="input-field" required>
               <option value="">Select worker…</option>
               {sortedWorkers.map((w: User) => (
                 <option key={w.id} value={w.id}>
@@ -846,28 +847,28 @@ function ManageShiftsView() {
             )}
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Date</label>
-            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" required />
+            <label htmlFor="shifts-date" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Date</label>
+            <input id="shifts-date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" required />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Start</label>
-              <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="input-field" required />
+              <label htmlFor="shifts-start" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Start</label>
+              <input id="shifts-start" type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="input-field" required />
             </div>
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">End</label>
-              <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="input-field" required />
+              <label htmlFor="shifts-end" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">End</label>
+              <input id="shifts-end" type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="input-field" required />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Shift Type</label>
-            <select value={form.shiftType} onChange={(e) => setForm({ ...form, shiftType: e.target.value })} className="input-field">
+            <label htmlFor="shifts-shift-type" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Shift Type</label>
+            <select id="shifts-shift-type" value={form.shiftType} onChange={(e) => setForm({ ...form, shiftType: e.target.value })} className="input-field">
               {SHIFT_TYPE_OPTIONS.map((type) => (
                 <option key={type} value={type}>{SHIFT_TYPE_META[type].label}</option>
               ))}
             </select>
           </div>
-          {err && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{err}</p>}
+          {err && <p className="text-sm text-error bg-error-container rounded-md px-3 py-2">{err}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={closeCreate} className="btn-secondary flex-1 justify-center">Cancel</button>
             <button type="submit" disabled={createShift.isPending || updateShift.isPending} className="btn-primary flex-1 justify-center">
@@ -893,10 +894,10 @@ function ManageShiftsView() {
         <form onSubmit={handleCancelShift} className="space-y-4">
           <LoadingOverlay show={deleteShift.isPending} label="Cancelling…" />
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <label htmlFor="shifts-reason" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               Reason
             </label>
-            <textarea
+            <textarea id="shifts-reason"
               className="input-field min-h-28 resize-none"
               value={cancelReason}
               onChange={(e) => {
@@ -908,7 +909,7 @@ function ManageShiftsView() {
               required
             />
           </div>
-          {cancelError && <p className="text-sm text-error-DEFAULT bg-error-container rounded-md px-3 py-2">{cancelError}</p>}
+          {cancelError && <p className="text-sm text-error bg-error-container rounded-md px-3 py-2">{cancelError}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={closeCancel} className="btn-secondary flex-1 justify-center">Keep Shift</button>
             <button type="submit" disabled={deleteShift.isPending} className="btn-primary flex-1 justify-center">
@@ -925,14 +926,15 @@ function ManageShiftsView() {
             This unassigns the current worker and opens the shift so eligible staff can claim it.
           </p>
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <p id="shifts-cover-roles-label" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               Who can claim this shift?
-            </label>
-            <div className="flex flex-wrap gap-2">
+            </p>
+            <div role="group" aria-labelledby="shifts-cover-roles-label" className="flex flex-wrap gap-2">
               {COVER_ROLE_GROUPS.map((group) => (
                 <button
                   key={group.key}
                   type="button"
+                  aria-pressed={isGroupSelected(group, coverRoles)}
                   onClick={() => setCoverRoles((prev) => toggleGroupRoles(prev, group))}
                   className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
                     isGroupSelected(group, coverRoles)
@@ -946,20 +948,22 @@ function ManageShiftsView() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+            <p id="shifts-cover-urgency-label" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
               Urgency
-            </label>
+            </p>
             <button
               type="button"
+              aria-pressed={coverUrgent}
+              aria-describedby="shifts-cover-urgency-label"
               onClick={() => setCoverUrgent((v) => !v)}
               className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
                 coverUrgent
-                  ? 'border-error-DEFAULT bg-error-container text-error-DEFAULT'
-                  : 'border-outline-variant text-on-surface-variant hover:border-error-DEFAULT/40'
+                  ? 'border-error bg-error-container text-error'
+                  : 'border-outline-variant text-on-surface-variant hover:border-error/40'
               }`}
             >
               <span>{coverUrgent ? 'Urgent — needs cover ASAP' : 'Not urgent'}</span>
-              <span className={`h-2.5 w-2.5 rounded-full ${coverUrgent ? 'bg-error-DEFAULT' : 'bg-neutral-300'}`} />
+              <span className={`h-2.5 w-2.5 rounded-full ${coverUrgent ? 'bg-error' : 'bg-neutral-300'}`} />
             </button>
           </div>
           <div className="flex gap-3 pt-1">

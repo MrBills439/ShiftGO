@@ -127,7 +127,7 @@ function RequestCard({ req, tab }: { req: ShiftChangeRequest; tab: string }) {
             <input
               value={overrideReason}
               onChange={(e) => setOverrideReason(e.target.value)}
-              placeholder="Reason for the override (required)"
+              aria-label="Reason for overriding the weekly hours limit (required)" placeholder="Reason for the override (required)"
               className="input-field w-full text-sm"
             />
           )}
@@ -148,7 +148,7 @@ function RequestCard({ req, tab }: { req: ShiftChangeRequest; tab: string }) {
             <div className="flex gap-2">
               <input
                 value={reason} onChange={(e) => setReason(e.target.value)}
-                placeholder="Reason (optional)" className="input-field flex-1 text-sm"
+                aria-label="Reason for rejecting (optional)" placeholder="Reason (optional)" className="input-field flex-1 text-sm"
               />
               <Button variant="primary" size="sm" disabled={reject.isPending} onClick={onReject}>Confirm reject</Button>
               <Button variant="ghost" size="sm" onClick={() => setRejecting(false)}>Cancel</Button>

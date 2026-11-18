@@ -446,6 +446,7 @@ function PatternFormModal({
                       <div className="flex flex-1 flex-wrap items-center gap-2">
                         <UiInput
                           type="time"
+                          aria-label={`${wd.label} start time`}
                           value={d.startTime}
                           onChange={(e) => updateDay(wd.value, { startTime: e.target.value })}
                           className="w-auto min-w-[7rem]"
@@ -453,6 +454,7 @@ function PatternFormModal({
                         <span className="text-xs text-fg-muted">to</span>
                         <UiInput
                           type="time"
+                          aria-label={`${wd.label} end time`}
                           value={d.endTime}
                           onChange={(e) => updateDay(wd.value, { endTime: e.target.value })}
                           className="w-auto min-w-[7rem]"

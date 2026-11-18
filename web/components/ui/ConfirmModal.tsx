@@ -19,8 +19,8 @@ export function ConfirmModal({
   return (
     <Modal open={open} onClose={onClose} title={title} width="max-w-sm">
       <div className="space-y-4">
-        <div className="flex items-start gap-3 p-3 bg-error-container/50 rounded-lg border border-error-DEFAULT/15">
-          <WarningCircleIcon size={18} className="text-error-DEFAULT flex-shrink-0 mt-0.5" weight="fill" />
+        <div className="flex items-start gap-3 p-3 bg-error-container/50 rounded-lg border border-error/15">
+          <WarningCircleIcon size={18} className="text-error flex-shrink-0 mt-0.5" weight="fill" />
           <p className="text-sm text-on-surface leading-relaxed">{message}</p>
         </div>
         <div className="flex gap-3 pt-1">

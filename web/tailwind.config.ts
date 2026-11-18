@@ -24,6 +24,8 @@ const config: Config = {
         },
         bg: shiftGoTokens.color.neutral[50],
         border: shiftGoTokens.color.neutral[200],
+        // Form-field borders need 3:1 against white (WCAG 1.4.11); decorative borders stay `border`.
+        'border-strong': '#9c938c',
         fg: {
           DEFAULT: shiftGoTokens.color.neutral[900],
           muted: shiftGoTokens.color.neutral[600],
@@ -31,24 +33,36 @@ const config: Config = {
           inverse: shiftGoTokens.color.neutral[0],
         },
         success: {
+          // DEFAULT: what bare `text-x` / `bg-x/10` use. Must read as text on white
+          // (WCAG 4.5:1): amber/green solids don't, so those use their dark text shade.
+          DEFAULT: shiftGoTokens.color.success.text,
           bg: shiftGoTokens.color.success.bg,
           border: shiftGoTokens.color.success.border,
           text: shiftGoTokens.color.success.text,
           solid: shiftGoTokens.color.success.solid,
         },
         warning: {
+          // DEFAULT: what bare `text-x` / `bg-x/10` use. Must read as text on white
+          // (WCAG 4.5:1): amber/green solids don't, so those use their dark text shade.
+          DEFAULT: shiftGoTokens.color.warning.text,
           bg: shiftGoTokens.color.warning.bg,
           border: shiftGoTokens.color.warning.border,
           text: shiftGoTokens.color.warning.text,
           solid: shiftGoTokens.color.warning.solid,
         },
         danger: {
+          // DEFAULT: what bare `text-x` / `bg-x/10` use. Must read as text on white
+          // (WCAG 4.5:1): amber/green solids don't, so those use their dark text shade.
+          DEFAULT: shiftGoTokens.color.danger.solid,
           bg: shiftGoTokens.color.danger.bg,
           border: shiftGoTokens.color.danger.border,
           text: shiftGoTokens.color.danger.text,
           solid: shiftGoTokens.color.danger.solid,
         },
         info: {
+          // DEFAULT: what bare `text-x` / `bg-x/10` use. Must read as text on white
+          // (WCAG 4.5:1): amber/green solids don't, so those use their dark text shade.
+          DEFAULT: shiftGoTokens.color.info.solid,
           bg: shiftGoTokens.color.info.bg,
           border: shiftGoTokens.color.info.border,
           text: shiftGoTokens.color.info.text,
