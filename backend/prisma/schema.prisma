@@ -191,27 +191,33 @@ enum LeaveLedgerType {
 }
 
 model Agency {
-  id                      String   @id @default(cuid())
+  id                      String    @id @default(cuid())
   name                    String
-  clerkOrgId              String?  @unique
+  clerkOrgId              String?   @unique
   // IANA timezone that defines this agency's operational "day" for the
   // dashboard, rota, attendance, payroll and reporting. Never the server's
   // (UTC on Railway) or the browser's timezone. See src/lib/agencyTime.js.
-  timezone                String   @default("Europe/London")
+  timezone                String    @default("Europe/London")
   // Maximum scheduled hours any one worker may be rostered in an agency week
   // (Mon 00:00 -> next Mon 00:00 in `timezone`). Assignments above this need an
   // explicit manager/HR override with a reason. Service logic reads this value
   // — never a hardcoded number. See src/services/staffAllocationService.js.
-  maxWeeklyScheduledHours Int      @default(60)
+  maxWeeklyScheduledHours Int       @default(60)
   // Whole-Workforce: employee IDs are auto-generated as `${employeeIdPrefix}-0001`.
   // The prefix is HR-configurable (uppercase, 2–8 alphanumerics). The counter is
   // reserved with a single atomic increment per hire and only ever moves
   // forward — a number left unused by a failed invite just leaves a gap; a
   // reused number is never acceptable. Not derived from `name` (names change).
   employeeIdPrefix        String?
-  employeeIdNextNumber    Int      @default(1)
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  employeeIdNextNumber    Int       @default(1)
+  // Staff privacy notice (UK GDPR Art. 13). null => ShiftGO's built-in
+  // template (src/services/privacyNoticeService.js) with the agency name filled
+  // in. Editing the text bumps privacyNoticeUpdatedAt, which is the version
+  // every user must acknowledge again.
+  privacyNoticeText       String?
+  privacyNoticeUpdatedAt  DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   users                User[]
   houses               House[]
@@ -236,6 +242,7 @@ model Agency {
   locations            Location[]
   pendingEmployees     PendingEmployee[]
   fixedWorkPatterns    FixedWorkPattern[]
+  deletionRequests     AccountDeletionRequest[]
 }
 
 model User {
@@ -278,6 +285,12 @@ model User {
   emergencyContactPhone        String?
   emergencyContactRelationship String?
 
+  // Privacy notice (UK GDPR Art. 13): which version of the agency's notice
+  // this person has acknowledged, and when. Acknowledgement, NOT consent —
+  // employee data is processed under contract / legal obligation.
+  privacyNoticeVersion        String?
+  privacyNoticeAcknowledgedAt DateTime?
+
   managedHouses         House[]              @relation("ManagerHouses")
   workerHouses          HouseWorker[]
   teamLeaderHouses      HouseTeamLeader[]
@@ -314,9 +327,11 @@ model User {
   directReports         User[]               @relation("UserLineManager")
 
   // Recurring Fixed Work Patterns V1.
-  fixedWorkPatterns           FixedWorkPattern[] @relation("FixedWorkPatternWorker")
-  createdFixedWorkPatterns    FixedWorkPattern[] @relation("FixedWorkPatternCreatedBy")
-  overriddenFixedWorkPatterns FixedWorkPattern[] @relation("FixedWorkPatternOverrideBy")
+  deletionRequests            AccountDeletionRequest[] @relation("DeletionRequestSubject")
+  resolvedDeletionRequests    AccountDeletionRequest[] @relation("DeletionRequestResolver")
+  fixedWorkPatterns           FixedWorkPattern[]       @relation("FixedWorkPatternWorker")
+  createdFixedWorkPatterns    FixedWorkPattern[]       @relation("FixedWorkPatternCreatedBy")
+  overriddenFixedWorkPatterns FixedWorkPattern[]       @relation("FixedWorkPatternOverrideBy")
 
   agency Agency @relation(fields: [agencyId], references: [id])
 
@@ -1135,4 +1150,35 @@ model PendingEmployee {
   @@index([agencyId, consumedAt])
   @@index([agencyId, needsReview])
   @@index([expiresAt])
+}
+
+enum DeletionRequestStatus {
+  PENDING // raised by the person, waiting for HR
+  COMPLETED // HR deactivated the account and erased what the law lets them
+  REJECTED // HR declined, with a reason (e.g. still employed)
+  CANCELLED // the person withdrew it
+}
+
+// "Delete my account" (UK GDPR Art. 17 + App Store / Play account-deletion
+// rules). The employer is the controller and must keep some records by law
+// (timesheets/payroll, right-to-work for 2 years after employment), so the
+// request goes to HR rather than wiping data instantly.
+model AccountDeletionRequest {
+  id             String                @id @default(cuid())
+  agencyId       String
+  userId         String
+  status         DeletionRequestStatus @default(PENDING)
+  reason         String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  agency     Agency @relation(fields: [agencyId], references: [id])
+  user       User   @relation("DeletionRequestSubject", fields: [userId], references: [id])
+  resolvedBy User?  @relation("DeletionRequestResolver", fields: [resolvedById], references: [id])
+
+  @@index([agencyId, status])
+  @@index([userId])
 }
