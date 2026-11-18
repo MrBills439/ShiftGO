@@ -3,6 +3,7 @@ const { missedClockInJob } = require('./missedClockInJob');
 const { attendanceJob } = require('./attendanceJob');
 const { runFixedWorkPatternGenerationJob } = require('./fixedWorkPatternGenerationJob');
 const { withJobLock } = require('./jobLock');
+const { captureError } = require('../lib/monitoring');
 
 /**
  * Run one tick of a job under the cluster-wide lock, so only one API instance
@@ -15,6 +16,7 @@ function locked(name, job, opts) {
       await withJobLock(name, job, opts);
     } catch (err) {
       console.error(`[Scheduler] ${name} error`, err.message);
+      captureError(err, { job: name, source: 'scheduler' });
     }
   };
 }

@@ -4,6 +4,8 @@
  *
  * Usage: app.use(errorHandler);
  */
+const { captureError } = require('../lib/monitoring');
+
 const errorHandler = (err, req, res, next) => {
   // Log error server-side for debugging
   const timestamp = new Date().toISOString();
@@ -44,6 +46,15 @@ const errorHandler = (err, req, res, next) => {
     statusCode = 401;
     errorCode = 'INVALID_TOKEN';
     message = 'Invalid or expired token';
+  }
+
+  // Unexpected failures go to error monitoring (when SENTRY_DSN is set).
+  // 4xx are expected client errors and are not reported.
+  if (statusCode >= 500) {
+    captureError(err, {
+      requestId: req.requestId, userId: req.user?.id, agencyId: req.user?.agencyId,
+      path: req.baseUrl ? `${req.baseUrl}${req.route?.path || ''}` : req.path, method,
+    });
   }
 
   // Production: don't leak stack traces
