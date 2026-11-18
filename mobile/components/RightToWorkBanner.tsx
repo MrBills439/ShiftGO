@@ -45,7 +45,7 @@ export function RightToWorkBanner() {
   }
 
   return (
-    <Pressable
+    <Pressable accessibilityRole="button"
       onPress={() => router.push('/profile/right-to-work')}
       style={({ pressed }) => [s.wrap, pressed && { opacity: 0.9 }]}
     >
@@ -61,7 +61,7 @@ export function RightToWorkBanner() {
         </Text>
       </View>
       <CaretRight size={14} color={D.muted} weight="bold" />
-      <Pressable onPress={dismiss} hitSlop={10} style={s.close}>
+      <Pressable onPress={dismiss} hitSlop={10} style={s.close} accessibilityRole="button" accessibilityLabel="Dismiss right-to-work reminder">
         <X size={13} color={D.light} weight="bold" />
       </Pressable>
     </Pressable>

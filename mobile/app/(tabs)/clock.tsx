@@ -270,7 +270,7 @@ export default function ClockScreen() {
             <Text style={s.greetSub}>{isFlexible ? (flex.session ? `Working at ${flex.session.location.name}` : 'Flexible working') : activeShift ? `Shift at ${activeTarget?.name ?? 'your shift location'}` : 'No shift scheduled today'}</Text>
           </View>
           <View style={s.headerRight}>
-            <Pressable
+            <Pressable hitSlop={6}
               style={s.iconBtn}
               onPress={() => router.push('/notifications')}
               accessibilityRole="button"
@@ -284,7 +284,7 @@ export default function ClockScreen() {
               )}
             </Pressable>
             {avatarUri
-              ? <Image source={{ uri: avatarUri }} style={s.avatarImg} />
+              ? <Image source={{ uri: avatarUri }} style={s.avatarImg} accessibilityLabel="Your profile photo" />
               : <View style={s.avatar}><Text style={s.avatarTxt}>{firstName[0]?.toUpperCase() ?? 'U'}</Text></View>}
           </View>
         </View>
@@ -397,7 +397,7 @@ export default function ClockScreen() {
                 {syncMessage}
               </Text>
               {(queueSummary.pendingCount > 0 || queueSummary.failedCount > 0) && (
-                <Pressable onPress={retrySync} style={s.retryBtn}>
+                <Pressable accessibilityRole="button" onPress={retrySync} style={s.retryBtn}>
                   <Text style={s.retryTxt}>Retry sync</Text>
                 </Pressable>
               )}
@@ -441,7 +441,7 @@ const s = StyleSheet.create({
   greetSub: { fontSize: 12, color: D.muted, marginTop: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconBtn: { width: 36, height: 36, borderRadius: 11, backgroundColor: D.white, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: D.border },
-  bellBadge: { position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, borderWidth: 1.5, borderColor: D.white },
+  bellBadge: { position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: '#CC3A3A', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, borderWidth: 1.5, borderColor: D.white },
   bellBadgeTxt: { fontSize: 9, fontWeight: '700', color: '#fff' },
   avatar: { width: 36, height: 36, borderRadius: 11, backgroundColor: D.emerald, alignItems: 'center', justifyContent: 'center' },
   avatarImg: { width: 36, height: 36, borderRadius: 11 },
@@ -451,7 +451,7 @@ const s = StyleSheet.create({
   nextIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: 'rgba(0,95,86,0.08)', alignItems: 'center', justifyContent: 'center' },
   nextLabel: { fontSize: 9, fontWeight: '700', color: D.emerald, letterSpacing: 0.8, marginBottom: 2 },
   nextDetail: { fontSize: 12, color: D.text, fontWeight: '500' },
-  cdLabel: { fontSize: 10, color: D.light },
+  cdLabel: { fontSize: 10, color: D.muted },
   cdValue: { fontSize: 13, color: D.emerald, fontWeight: '700' },
 
   hero: { borderRadius: 22, padding: 18, marginBottom: 10, overflow: 'hidden' },
@@ -478,7 +478,7 @@ const s = StyleSheet.create({
 
   progCard: { backgroundColor: D.white, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 4, borderWidth: 1, borderColor: D.border },
   progTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  progLabel: { fontSize: 9, fontWeight: '700', color: D.light, letterSpacing: 1.1 },
+  progLabel: { fontSize: 9, fontWeight: '700', color: D.muted, letterSpacing: 1.1 },
   progTimes: { fontSize: 11, fontWeight: '600', color: D.emerald },
   progRemain: { color: D.muted, fontWeight: '500' },
   progTrack: { height: 5, backgroundColor: '#EDF1F0', borderRadius: 999, overflow: 'hidden' },
@@ -497,6 +497,6 @@ const s = StyleSheet.create({
   si: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7 },
   siIcon: { width: 26, height: 26, borderRadius: 7, backgroundColor: 'rgba(0,95,86,0.08)', alignItems: 'center', justifyContent: 'center' },
   siV: { fontSize: 11, fontWeight: '700', color: D.text },
-  siS: { fontSize: 10, color: D.light, marginTop: 1 },
+  siS: { fontSize: 10, color: D.muted, marginTop: 1 },
   sl: { width: 1, height: 28, backgroundColor: D.border, marginHorizontal: 4 },
 });

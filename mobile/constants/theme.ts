@@ -22,11 +22,11 @@ export const D = {
   white: '#FFFFFF',
   text: '#0D1514',
   muted: '#607370',
-  light: '#96AEAB',
+  light: '#7E9290',
   border: '#E2EDEB',
 
   // Status
-  error: '#EF4444',
+  error: '#CC3A3A',
   errorBg: '#FEF2F2',
   errorBorder: '#FECACA',
   success: '#10B981',

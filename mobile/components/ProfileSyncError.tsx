@@ -32,12 +32,12 @@ export function ProfileSyncError() {
           may still be getting set up, or the server is briefly unavailable.
         </Text>
 
-        <Pressable style={styles.primaryBtn} onPress={retrySync} disabled={isLoading}>
+        <Pressable accessibilityRole="button" style={styles.primaryBtn} onPress={retrySync} disabled={isLoading}>
           {isLoading
             ? <ActivityIndicator color="#fff" />
             : <Text style={styles.primaryTxt}>Try again</Text>}
         </Pressable>
-        <Pressable style={styles.secondaryBtn} onPress={logout}>
+        <Pressable accessibilityRole="button" style={styles.secondaryBtn} onPress={logout}>
           <Text style={styles.secondaryTxt}>Sign out</Text>
         </Pressable>
       </View>

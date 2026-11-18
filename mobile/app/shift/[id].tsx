@@ -72,7 +72,7 @@ const ir = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#EEF2F1' },
   iconBox: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(0,95,86,0.09)', alignItems: 'center', justifyContent: 'center' },
   text: { flex: 1 },
-  label: { fontSize: 11, fontWeight: '600', color: D.light, letterSpacing: 0.3, marginBottom: 2 },
+  label: { fontSize: 11, fontWeight: '600', color: D.muted, letterSpacing: 0.3, marginBottom: 2 },
   value: { fontSize: 14, fontWeight: '600', color: D.text },
 });
 
@@ -167,7 +167,7 @@ export default function ShiftDetailScreen() {
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={s.header}>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -249,7 +249,7 @@ export default function ShiftDetailScreen() {
                 <Text style={s.locationTxt} numberOfLines={2}>{target.address}</Text>
               </View>
               {target.latitude != null && target.longitude != null && (
-                <Pressable
+                <Pressable accessibilityRole="button"
                   style={({ pressed }) => [s.dirBtn, pressed && { opacity: 0.8 }]}
                   onPress={() => openDirections(target.address as string, target.latitude as number, target.longitude as number)}
                 >
@@ -276,7 +276,7 @@ export default function ShiftDetailScreen() {
           </View>
 
           {canRequestChange && mode === null && (
-            <Pressable
+            <Pressable accessibilityRole="button"
               onPress={() => setMode('menu')}
               style={({ pressed }) => [s.cantBtn, pressed && { opacity: 0.75 }]}
             >
@@ -287,21 +287,21 @@ export default function ShiftDetailScreen() {
           {mode === 'menu' && (
             <View style={s.card}>
               <Text style={s.cardTitle}>Can’t work this shift?</Text>
-              <Pressable style={s.opt} onPress={() => setMode('cover')}>
+              <Pressable accessibilityRole="button" style={s.opt} onPress={() => setMode('cover')}>
                 <HandHeart size={18} color={D.emerald} weight="bold" />
                 <View style={{ flex: 1 }}>
                   <Text style={s.optTitle}>Request cover</Text>
                   <Text style={s.optSub}>A teammate takes this shift (manager approves)</Text>
                 </View>
               </Pressable>
-              <Pressable style={s.opt} onPress={() => setMode('swap')}>
+              <Pressable accessibilityRole="button" style={s.opt} onPress={() => setMode('swap')}>
                 <ArrowsClockwise size={18} color={D.emerald} weight="bold" />
                 <View style={{ flex: 1 }}>
                   <Text style={s.optTitle}>Swap with a teammate</Text>
                   <Text style={s.optSub}>Trade this shift for one of theirs (manager approves)</Text>
                 </View>
               </Pressable>
-              <Pressable onPress={resetChange}><Text style={s.linkTxt}>Cancel</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={resetChange}><Text style={s.linkTxt}>Cancel</Text></Pressable>
             </View>
           )}
 
@@ -314,7 +314,7 @@ export default function ShiftDetailScreen() {
               ) : (
                 <View style={{ marginTop: 8 }}>
                   {(eligible.data?.workers ?? []).filter((w) => w.eligible).map((w) => (
-                    <Pressable
+                    <Pressable accessibilityRole="button"
                       key={w.id}
                       style={[s.pick, targetWorkerId === w.id && s.pickOn]}
                       onPress={() => { setTargetWorkerId(w.id); setTargetShiftId(null); }}
@@ -339,7 +339,7 @@ export default function ShiftDetailScreen() {
                         const d = new Date(sh.startTime);
                         const label = `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · ${sh.house?.name ?? ''}`;
                         return (
-                          <Pressable key={sh.id} style={[s.pick, targetShiftId === sh.id && s.pickOn]} onPress={() => setTargetShiftId(sh.id)}>
+                          <Pressable accessibilityRole="button" key={sh.id} style={[s.pick, targetShiftId === sh.id && s.pickOn]} onPress={() => setTargetShiftId(sh.id)}>
                             <Text style={[s.pickTxt, targetShiftId === sh.id && s.pickTxtOn]}>{label}</Text>
                           </Pressable>
                         );
@@ -353,17 +353,18 @@ export default function ShiftDetailScreen() {
               )}
 
               <TextInput
+                accessibilityLabel="Reason (optional)"
                 style={s.reasonInput}
                 value={reason}
                 onChangeText={setReason}
                 placeholder="Reason (optional)"
-                placeholderTextColor={D.light}
+                placeholderTextColor={D.muted}
                 multiline
               />
 
               <View style={s.rowBtns}>
-                <Pressable onPress={resetChange}><Text style={s.linkTxt}>Cancel</Text></Pressable>
-                <Pressable
+                <Pressable accessibilityRole="button" onPress={resetChange}><Text style={s.linkTxt}>Cancel</Text></Pressable>
+                <Pressable accessibilityRole="button"
                   style={[s.sendBtn, ((mode === 'cover' ? !targetWorkerId : !(targetWorkerId && targetShiftId)) || coverMut.isPending || swapMut.isPending) && { opacity: 0.5 }]}
                   disabled={(mode === 'cover' ? !targetWorkerId : !(targetWorkerId && targetShiftId)) || coverMut.isPending || swapMut.isPending}
                   onPress={() => (mode === 'cover' ? coverMut.mutate() : swapMut.mutate())}
@@ -377,7 +378,7 @@ export default function ShiftDetailScreen() {
           )}
 
           {canDrop && (
-            <Pressable
+            <Pressable accessibilityRole="button"
               onPress={confirmDrop}
               disabled={drop.isPending}
               style={({ pressed }) => [s.dropBtn, (drop.isPending || pressed) && { opacity: 0.6 }]}

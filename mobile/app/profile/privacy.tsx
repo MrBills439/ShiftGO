@@ -66,7 +66,7 @@ export default function PrivacyScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back"
+        <Pressable hitSlop={4} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back"
           style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}>
           <ArrowLeft size={20} color={D.text} weight="bold" />
         </Pressable>
@@ -122,7 +122,7 @@ export default function PrivacyScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: D.white }} edges={['top', 'bottom']}>
           <View style={s.sheetHeader}>
             <Text style={s.title}>Privacy notice</Text>
-            <Pressable onPress={() => setNoticeOpen(false)} accessibilityRole="button" accessibilityLabel="Close" style={s.backBtn}>
+            <Pressable hitSlop={4} onPress={() => setNoticeOpen(false)} accessibilityRole="button" accessibilityLabel="Close" style={s.backBtn}>
               <X size={18} color={D.text} weight="bold" />
             </Pressable>
           </View>
@@ -136,7 +136,7 @@ export default function PrivacyScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: D.white }} edges={['top', 'bottom']}>
           <View style={s.sheetHeader}>
             <Text style={s.title}>Request account deletion</Text>
-            <Pressable onPress={() => setDeleteOpen(false)} accessibilityRole="button" accessibilityLabel="Close" style={s.backBtn}>
+            <Pressable hitSlop={4} onPress={() => setDeleteOpen(false)} accessibilityRole="button" accessibilityLabel="Close" style={s.backBtn}>
               <X size={18} color={D.text} weight="bold" />
             </Pressable>
           </View>
@@ -153,7 +153,7 @@ export default function PrivacyScreen() {
               style={s.input}
               accessibilityLabel="Reason (optional)"
               placeholder="Tell HR why, if you like"
-              placeholderTextColor={D.light}
+              placeholderTextColor={D.muted}
             />
             <Pressable onPress={submit} disabled={busy} accessibilityRole="button"
               style={({ pressed }) => [s.primary, (pressed || busy) && { opacity: 0.75 }]}>

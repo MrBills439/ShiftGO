@@ -18,13 +18,13 @@ import { timeAgo } from '../../lib/datetime';
 
 const typeConfig: Record<NotificationType, { icon: React.ReactNode; color: string; bg: string }> = {
   SHIFT_ASSIGNED:  { icon: <CalendarCheck size={18} color="#16A34A" weight="fill" />, color: '#16A34A', bg: 'rgba(22,163,74,0.10)' },
-  SHIFT_REMOVED:   { icon: <CalendarX size={18} color="#EF4444" weight="fill" />, color: '#EF4444', bg: 'rgba(239,68,68,0.10)' },
+  SHIFT_REMOVED:   { icon: <CalendarX size={18} color="#CC3A3A" weight="fill" />, color: '#CC3A3A', bg: 'rgba(239,68,68,0.10)' },
   SHIFT_REMINDER:  { icon: <Clock size={18} color="#F59E0B" weight="fill" />, color: '#F59E0B', bg: 'rgba(245,158,11,0.10)' },
   SHIFT_OPEN:          { icon: <CalendarCheck size={18} color="#D97706" weight="fill" />, color: '#D97706', bg: 'rgba(217,119,6,0.10)' },
   SHIFT_DROPPED:       { icon: <CalendarX size={18} color="#D97706" weight="fill" />, color: '#D97706', bg: 'rgba(217,119,6,0.10)' },
   SHIFT_CLAIMED_YOU:   { icon: <CalendarCheck size={18} color="#16A34A" weight="fill" />, color: '#16A34A', bg: 'rgba(22,163,74,0.10)' },
   SHIFT_CLAIMED_OTHER: { icon: <CalendarX size={18} color={D.muted} weight="fill" />, color: D.muted, bg: 'rgba(96,115,112,0.10)' },
-  MISSED_CLOCK_IN: { icon: <Warning size={18} color="#EF4444" weight="fill" />, color: '#EF4444', bg: 'rgba(239,68,68,0.10)' },
+  MISSED_CLOCK_IN: { icon: <Warning size={18} color="#CC3A3A" weight="fill" />, color: '#CC3A3A', bg: 'rgba(239,68,68,0.10)' },
   CLOCK_OUT_PROMPT:{ icon: <Clock size={18} color="#F59E0B" weight="fill" />, color: '#F59E0B', bg: 'rgba(245,158,11,0.10)' },
   GENERAL:         { icon: <Bell size={18} color={D.emerald} weight="fill" />, color: D.emerald, bg: 'rgba(0,95,86,0.10)' },
 };
@@ -32,7 +32,7 @@ const typeConfig: Record<NotificationType, { icon: React.ReactNode; color: strin
 function NotificationItem({ notif, onPress }: { notif: AppNotification; onPress: () => void }) {
   const cfg = typeConfig[notif.type] ?? typeConfig.GENERAL;
   return (
-    <Pressable
+    <Pressable accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [ni.row, !notif.read && ni.unread, pressed && { opacity: 0.75 }]}
     >
@@ -58,7 +58,7 @@ const ni = StyleSheet.create({
   title: { fontSize: 14, fontWeight: '500', color: D.text, flex: 1, marginRight: 8 },
   titleBold: { fontWeight: '700' },
   body: { fontSize: 13, color: D.muted, lineHeight: 18 },
-  time: { fontSize: 11, color: D.light, flexShrink: 0 },
+  time: { fontSize: 11, color: D.muted, flexShrink: 0 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: D.unreadDot, marginTop: 6, flexShrink: 0 },
 });
 
@@ -103,7 +103,7 @@ export default function NotificationsScreen() {
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={s.header}>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -120,8 +120,10 @@ export default function NotificationsScreen() {
           )}
         </View>
         {unread > 0 ? (
-          <Pressable
+          <Pressable hitSlop={4}
             onPress={() => readAllMutation.mutate()}
+            accessibilityRole="button"
+            accessibilityLabel="Mark all notifications as read"
             style={({ pressed }) => [s.readAllBtn, pressed && { opacity: 0.65 }]}
           >
             <CheckFat size={16} color={D.emerald} weight="bold" />

@@ -42,11 +42,12 @@ function Field({
       <View style={[fi.row, focused && fi.rowFocused, multiline && fi.rowMulti]}>
         <View style={fi.iconBox}>{icon}</View>
         <TextInput
+          accessibilityLabel={label}
           style={[fi.input, multiline && fi.inputMulti]}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder ?? ''}
-          placeholderTextColor={D.light}
+          placeholderTextColor={D.muted}
           keyboardType={keyboardType ?? 'default'}
           autoCapitalize="none"
           multiline={multiline}
@@ -96,7 +97,7 @@ function ReadonlyRow({
 const ro = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', backgroundColor: D.bg, borderWidth: 1.5, borderColor: D.border, borderRadius: 14, overflow: 'hidden' },
   value: { flex: 1, paddingVertical: 14, paddingHorizontal: 10, fontSize: 15, color: D.muted },
-  hint: { fontSize: 11, color: D.light, marginTop: 6, marginLeft: 2 },
+  hint: { fontSize: 11, color: D.muted, marginTop: 6, marginLeft: 2 },
 });
 
 export default function PersonalInfoScreen() {
@@ -193,7 +194,7 @@ export default function PersonalInfoScreen() {
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={s.header}>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -202,9 +203,12 @@ export default function PersonalInfoScreen() {
           <ArrowLeft size={20} color={D.text} weight="bold" />
         </Pressable>
         <Text style={s.title}>Personal Information</Text>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => saveMutation.mutate()}
           disabled={saveMutation.isPending || !dirty}
+          accessibilityRole="button"
+          accessibilityLabel="Save changes"
+          accessibilityState={{ disabled: saveMutation.isPending || !dirty, busy: saveMutation.isPending }}
           style={({ pressed }) => [s.saveBtn, (saveMutation.isPending || !dirty) && { opacity: 0.4 }, pressed && { opacity: 0.65 }]}
         >
           {saveMutation.isPending
@@ -226,7 +230,7 @@ export default function PersonalInfoScreen() {
           <View style={s.avatarSection}>
             <View style={s.avatarWrap}>
               {avatarUri
-                ? <Image source={{ uri: avatarUri }} style={s.avatarImg} />
+                ? <Image source={{ uri: avatarUri }} style={s.avatarImg} accessibilityLabel="Your profile photo" />
                 : (
                   <View style={s.avatarFallback}>
                     <Text style={s.avatarTxt}>{initials}</Text>
@@ -239,7 +243,7 @@ export default function PersonalInfoScreen() {
               )}
             </View>
             <View style={s.photoActions}>
-              <Pressable
+              <Pressable accessibilityRole="button"
                 onPress={pickAvatar}
                 disabled={avatarMutation.isPending || removeAvatarMutation.isPending}
                 style={({ pressed }) => [s.changePhotoBtn, pressed && { opacity: 0.75 }]}
@@ -248,7 +252,7 @@ export default function PersonalInfoScreen() {
                 <Text style={s.changePhotoTxt}>{avatarUri ? 'Change Photo' : 'Add Photo'}</Text>
               </Pressable>
               {avatarUri && (
-                <Pressable
+                <Pressable accessibilityRole="button"
                   onPress={confirmRemoveAvatar}
                   disabled={avatarMutation.isPending || removeAvatarMutation.isPending}
                   style={({ pressed }) => [s.removePhotoBtn, pressed && { opacity: 0.75 }]}
@@ -386,5 +390,5 @@ const s = StyleSheet.create({
 
   card: { backgroundColor: D.white, borderRadius: 22, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: D.border, shadowColor: '#00534810', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 16, elevation: 3 },
 
-  note: { fontSize: 12, color: D.light, textAlign: 'center', lineHeight: 18, paddingHorizontal: 16 },
+  note: { fontSize: 12, color: D.muted, textAlign: 'center', lineHeight: 18, paddingHorizontal: 16 },
 });

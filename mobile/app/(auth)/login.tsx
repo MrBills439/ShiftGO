@@ -56,9 +56,10 @@ function Field({
       <View style={[f.inputRow, focused && f.inputFocused]}>
         <View style={f.iconBox}>{icon}</View>
         <TextInput
+          accessibilityLabel={label}
           style={f.input}
           placeholder={placeholder}
-          placeholderTextColor={D.light}
+          placeholderTextColor={D.muted}
           value={value}
           onChangeText={onChangeText}
           secureTextEntry={secure && !shown}
@@ -70,7 +71,13 @@ function Field({
           onBlur={onBlur}
         />
         {showToggle && (
-          <Pressable onPress={onToggle} style={f.toggle}>
+          <Pressable
+            onPress={onToggle}
+            style={f.toggle}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={shown ? 'Hide password' : 'Show password'}
+          >
             {shown
               ? <EyeSlash size={18} color={D.muted} weight="regular" />
               : <Eye size={18} color={D.muted} weight="regular" />}
@@ -396,6 +403,7 @@ export default function LoginScreen() {
               <Image
                 source={require('../../assets/icon.png')}
                 style={s.logo}
+                accessible={false}
                 resizeMode="contain"
               />
             </View>
@@ -407,7 +415,7 @@ export default function LoginScreen() {
           <View style={s.card}>
 
             {step !== 'credentials' && (
-              <Pressable onPress={backToSignIn} style={s.backRow} hitSlop={8}>
+              <Pressable accessibilityRole="button" onPress={backToSignIn} style={s.backRow} hitSlop={8}>
                 <ArrowLeft size={15} color={D.emerald} weight="bold" />
                 <Text style={s.backTxt}>Back to sign in</Text>
               </Pressable>
@@ -466,13 +474,13 @@ export default function LoginScreen() {
                 />
 
                 <View style={s.optionsRow}>
-                  <Pressable style={s.rememberRow} onPress={() => setRemember(r => !r)}>
+                  <Pressable accessibilityRole="button" style={s.rememberRow} onPress={() => setRemember(r => !r)}>
                     {remember
                       ? <CheckSquare size={18} color={D.emerald} weight="fill" />
                       : <Square size={18} color={D.light} weight="regular" />}
                     <Text style={s.rememberTxt}>Remember me</Text>
                   </Pressable>
-                  <Pressable onPress={openForgotPassword} hitSlop={8}>
+                  <Pressable accessibilityRole="button" onPress={openForgotPassword} hitSlop={8}>
                     <Text style={s.forgotTxt}>Forgot password?</Text>
                   </Pressable>
                 </View>
@@ -494,7 +502,7 @@ export default function LoginScreen() {
                   onFocus={() => setFocusedField('code')}
                   onBlur={() => setFocusedField(null)}
                 />
-                <Pressable onPress={handleResendLoginCode} disabled={loading} hitSlop={8} style={s.resendRow}>
+                <Pressable accessibilityRole="button" onPress={handleResendLoginCode} disabled={loading} hitSlop={8} style={s.resendRow}>
                   <Text style={s.resendTxt}>Didn&apos;t get a code? Resend</Text>
                 </Pressable>
               </>
@@ -546,14 +554,14 @@ export default function LoginScreen() {
                   onFocus={() => setFocusedField('newPw')}
                   onBlur={() => setFocusedField(null)}
                 />
-                <Pressable onPress={handleResendResetCode} disabled={loading} hitSlop={8} style={s.resendRow}>
+                <Pressable accessibilityRole="button" onPress={handleResendResetCode} disabled={loading} hitSlop={8} style={s.resendRow}>
                   <Text style={s.resendTxt}>Didn't get a code? Resend</Text>
                 </Pressable>
               </>
             )}
 
             {/* Primary Button */}
-            <Pressable
+            <Pressable accessibilityRole="button"
               onPress={primary[step].action}
               disabled={loading || !isLoaded}
               style={({ pressed }) => [s.signInBtn, pressed && { opacity: 0.88 }, (loading || !isLoaded) && { opacity: 0.7 }]}
@@ -677,7 +685,7 @@ const s = StyleSheet.create({
   // Divider
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 },
   dividerLine: { flex: 1, height: 1, backgroundColor: D.border },
-  dividerTxt: { fontSize: 12, color: D.light, fontWeight: '500' },
+  dividerTxt: { fontSize: 12, color: D.muted, fontWeight: '500' },
 
   // Social
   socialRow: { flexDirection: 'row', gap: 12 },

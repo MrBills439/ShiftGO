@@ -24,7 +24,7 @@ const statusConfig: Record<TrainingStatus, { label: string; bg: string; txt: str
   COMPLETED:   { label: 'Completed',   bg: 'rgba(22,163,74,0.10)',  txt: '#16A34A', icon: <CheckCircle size={14} color="#16A34A" weight="fill" /> },
   IN_PROGRESS: { label: 'In Progress', bg: 'rgba(245,158,11,0.10)', txt: '#F59E0B', icon: <Clock size={14} color="#F59E0B" weight="fill" /> },
   PENDING:     { label: 'Pending',     bg: 'rgba(96,115,112,0.11)', txt: '#607370', icon: <Hourglass size={14} color="#607370" weight="fill" /> },
-  EXPIRED:     { label: 'Expired',     bg: 'rgba(239,68,68,0.10)',  txt: '#EF4444', icon: <Warning size={14} color="#EF4444" weight="fill" /> },
+  EXPIRED:     { label: 'Expired',     bg: 'rgba(239,68,68,0.10)',  txt: '#CC3A3A', icon: <Warning size={14} color="#CC3A3A" weight="fill" /> },
 };
 
 function TrainingCard({ item }: { item: Training }) {
@@ -77,7 +77,7 @@ const tc = StyleSheet.create({
   badgeTxt: { fontSize: 11, fontWeight: '700' },
   footer: { flexDirection: 'row', gap: 16 },
   dateRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  dateLabel: { fontSize: 11, color: D.light, fontWeight: '500' },
+  dateLabel: { fontSize: 11, color: D.muted, fontWeight: '500' },
   dateVal: { fontSize: 11, color: D.muted, fontWeight: '600' },
 });
 
@@ -93,7 +93,7 @@ export default function TrainingScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
