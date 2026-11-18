@@ -170,7 +170,7 @@ export default function RightToWorkScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -203,7 +203,7 @@ export default function RightToWorkScreen() {
         </LinearGradient>
 
         {/* gov.uk link */}
-        <Pressable
+        <Pressable accessibilityRole="button"
           onPress={() => Linking.openURL(RIGHT_TO_WORK_URL)}
           style={({ pressed }) => [s.linkRow, pressed && { opacity: 0.7 }]}
         >
@@ -219,12 +219,13 @@ export default function RightToWorkScreen() {
         <View style={s.card}>
           <Text style={s.fieldLabel}>9-character share code — spaces optional</Text>
           <TextInput
+            accessibilityLabel="Share code, 9 characters"
             style={s.input}
             value={code}
             onChangeText={(t) => { setCode(t.toUpperCase()); setDirty(true); }}
             onBlur={() => setCode((c) => (c.trim() ? formatShareCode(c) : c))}
             placeholder="e.g. WE4 PWW 7D6"
-            placeholderTextColor={D.light}
+            placeholderTextColor={D.muted}
             autoCapitalize="characters"
             autoCorrect={false}
             autoComplete="off"
@@ -234,8 +235,8 @@ export default function RightToWorkScreen() {
           />
 
           <Text style={[s.fieldLabel, { marginTop: 14 }]}>Date you generated it</Text>
-          <Pressable onPress={() => setShowPicker(true)} style={s.input}>
-            <Text style={{ color: shareDate ? D.text : D.light, fontSize: 15 }}>
+          <Pressable accessibilityRole="button" onPress={() => setShowPicker(true)} style={s.input}>
+            <Text style={{ color: shareDate ? D.text : D.muted, fontSize: 15 }}>
               {fmtDate(shareDate ? shareDate.toISOString() : null)}
             </Text>
           </Pressable>
@@ -252,14 +253,14 @@ export default function RightToWorkScreen() {
             />
           )}
           {Platform.OS === 'ios' && showPicker && (
-            <Pressable onPress={() => setShowPicker(false)} style={s.doneBtn}>
+            <Pressable accessibilityRole="button" onPress={() => setShowPicker(false)} style={s.doneBtn}>
               <Text style={s.doneTxt}>Done</Text>
             </Pressable>
           )}
 
           {error && <Text style={s.errTxt}>{error}</Text>}
 
-          <Pressable
+          <Pressable accessibilityRole="button"
             onPress={onSave}
             disabled={!canSave}
             style={({ pressed }) => [s.saveBtn, (!canSave || pressed) && { opacity: 0.6 }]}
@@ -288,7 +289,7 @@ export default function RightToWorkScreen() {
             </Text>
           )}
 
-          <Pressable
+          <Pressable accessibilityRole="button"
             onPress={pickDocument}
             disabled={upload.isPending}
             style={({ pressed }) => [s.uploadBtn, (upload.isPending || pressed) && { opacity: 0.6 }]}
@@ -333,7 +334,7 @@ const s = StyleSheet.create({
   linkTitle: { fontSize: 14, fontWeight: '700', color: D.text },
   linkSub: { fontSize: 11, color: D.muted, marginTop: 1 },
 
-  sectionLabel: { fontSize: 10, fontWeight: '700', color: D.light, letterSpacing: 1.2, marginBottom: 8, marginLeft: 4 },
+  sectionLabel: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 1.2, marginBottom: 8, marginLeft: 4 },
   card: { backgroundColor: D.white, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: D.border, marginBottom: 22 },
 
   fieldLabel: { fontSize: 12, fontWeight: '600', color: D.muted, marginBottom: 6 },

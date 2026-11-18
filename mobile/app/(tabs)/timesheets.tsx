@@ -57,12 +57,12 @@ const dr = StyleSheet.create({
   iconBoxOff: { backgroundColor: '#F4F6F5' },
   mid: { flex: 1 },
   day: { fontSize: 13, fontWeight: '600', color: D.text, marginBottom: 2 },
-  dayOff: { color: D.light },
+  dayOff: { color: D.muted },
   time: { fontSize: 11, color: D.muted },
   timeFaint: { fontSize: 11, color: '#C4D0CE' },
   right: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   hours: { fontSize: 13, fontWeight: '700', color: D.text },
-  hoursOff: { color: D.light },
+  hoursOff: { color: D.muted },
   check: { marginLeft: 2 },
   checkEmpty: { width: 16, height: 16 },
 });
@@ -142,6 +142,8 @@ export default function TimesheetsScreen() {
         <View style={s.tabRow}>
           {FILTERS.map(f => (
             <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: filter === f.key }}
               key={f.key}
               style={[s.tab, filter === f.key && s.tabActive]}
               onPress={() => setFilter(f.key)}

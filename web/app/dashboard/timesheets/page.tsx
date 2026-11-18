@@ -249,7 +249,7 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
     else setClockOutTime('');
     setReason('');
     setError('');
-  }, [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item?.id]);
 
   if (!item) return null;
 
@@ -284,10 +284,10 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
 
         {stillOpen ? (
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
+            <label htmlFor="timesheets-actual-clock-out-time" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
               Actual clock-out time
             </label>
-            <input
+            <input id="timesheets-actual-clock-out-time"
               type="datetime-local"
               className="input-field"
               value={clockOutTime}
@@ -307,10 +307,10 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
         )}
 
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
+          <label htmlFor="timesheets-resolution-note-optional" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
             Resolution note (optional)
           </label>
-          <textarea
+          <textarea id="timesheets-resolution-note-optional"
             className="input-field min-h-20 resize-none"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -490,10 +490,10 @@ function ManageTimesheetsView() {
       {canResolveReview && <NeedsReviewSection />}
 
       <div className="mb-5">
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
+        <label htmlFor="timesheets-filter-by-house" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
           Filter by House
         </label>
-        <select
+        <select id="timesheets-filter-by-house"
           className="input-field max-w-xs"
           value={selectedHouse}
           onChange={(e) => setSelectedHouse(e.target.value)}
@@ -603,10 +603,10 @@ function ManageTimesheetsView() {
       <Modal open={!!rejectId} onClose={closeReject} title="Reject Timesheet">
         <form onSubmit={submitReject} className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
+            <label htmlFor="timesheets-reason" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
               Reason
             </label>
-            <textarea
+            <textarea id="timesheets-reason"
               className="input-field min-h-28 resize-none"
               value={rejectReason}
               onChange={(e) => {

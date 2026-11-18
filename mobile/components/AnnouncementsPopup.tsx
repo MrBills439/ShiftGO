@@ -10,7 +10,7 @@ const D = {
   white: '#FFFFFF',
   text: '#0D1514',
   muted: '#607370',
-  light: '#96AEAB',
+  light: '#7E9290',
   border: '#E2EDEB',
   pinnedBg: 'rgba(0,95,86,0.05)',
   pinnedBorder: 'rgba(0,95,86,0.25)',
@@ -94,7 +94,7 @@ export function AnnouncementsPopup({ enabled }: { enabled: boolean }) {
               </View>
               <Text style={s.heading}>{heading}</Text>
             </View>
-            <Pressable onPress={handleClose} hitSlop={8}>
+            <Pressable onPress={handleClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close announcements">
               <X size={20} color={D.muted} weight="bold" />
             </Pressable>
           </View>
@@ -119,7 +119,7 @@ export function AnnouncementsPopup({ enabled }: { enabled: boolean }) {
             ))}
           </ScrollView>
 
-          <Pressable
+          <Pressable accessibilityRole="button"
             onPress={handleClose}
             disabled={closing}
             style={({ pressed }) => [s.btn, (pressed || closing) && { opacity: 0.7 }]}
@@ -152,7 +152,7 @@ const s = StyleSheet.create({
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   avatar: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,95,86,0.10)', alignItems: 'center', justifyContent: 'center' },
   avatarTxt: { fontSize: 8, fontWeight: '700', color: D.emerald },
-  authorTxt: { fontSize: 11, color: D.light, flexShrink: 1 },
+  authorTxt: { fontSize: 11, color: D.muted, flexShrink: 1 },
 
   btn: { marginTop: 16, backgroundColor: D.emerald, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   btnTxt: { fontSize: 15, fontWeight: '700', color: D.white },

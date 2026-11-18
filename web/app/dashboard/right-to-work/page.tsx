@@ -198,8 +198,8 @@ export default function RightToWorkPage() {
             <ArrowSquareOutIcon size={13} /> Check a share code on gov.uk
           </a>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Share code</label>
-            <input
+            <label htmlFor="right-to-work-share-code" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Share code</label>
+            <input id="right-to-work-share-code"
               className="input-field"
               value={form.code}
               onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
@@ -208,8 +208,8 @@ export default function RightToWorkPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Share date</label>
-            <input
+            <label htmlFor="right-to-work-share-date" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Share date</label>
+            <input id="right-to-work-share-date"
               type="date"
               className="input-field"
               value={form.shareDate}
@@ -219,8 +219,8 @@ export default function RightToWorkPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Notes (optional)</label>
-            <textarea
+            <label htmlFor="right-to-work-notes-optional" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Notes (optional)</label>
+            <textarea id="right-to-work-notes-optional"
               className="input-field resize-none"
               rows={2}
               value={form.notes}

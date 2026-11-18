@@ -40,7 +40,7 @@ function MenuRow({
   badge?: React.ReactNode; last?: boolean; onPress?: () => void;
 }) {
   return (
-    <Pressable
+    <Pressable accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [r.row, last && r.last, pressed && { opacity: 0.65 }]}
     >
@@ -171,7 +171,7 @@ export default function ProfileScreen() {
             {/* Avatar with edit badge */}
             <View style={s.avatarWrap}>
               {avatarUri
-                ? <Image source={{ uri: avatarUri }} style={s.avatarImg} />
+                ? <Image source={{ uri: avatarUri }} style={s.avatarImg} accessibilityLabel="Your profile photo" />
                 : (
                   <View style={s.avatar}>
                     <Text style={s.avatarTxt}>{initials}</Text>
@@ -180,6 +180,9 @@ export default function ProfileScreen() {
               <Pressable
                 style={s.editBadge}
                 onPress={() => router.push('/profile/personal')}
+                hitSlop={14}
+                accessibilityRole="button"
+                accessibilityLabel="Edit profile"
               >
                 <PencilSimple size={10} color={D.white} weight="bold" />
               </Pressable>
@@ -345,12 +348,12 @@ export default function ProfileScreen() {
 
         {/* ── Logout ── */}
         <View style={[s.card, s.logoutCard]}>
-          <Pressable
+          <Pressable accessibilityRole="button"
             onPress={handleLogout}
             style={({ pressed }) => [s.logoutRow, pressed && { opacity: 0.65 }]}
           >
             <View style={[r.icon, { backgroundColor: '#FEF2F2' }]}>
-              <SignOut size={18} color="#EF4444" weight="regular" />
+              <SignOut size={18} color="#CC3A3A" weight="regular" />
             </View>
             <Text style={s.logoutTxt}>Log Out</Text>
           </Pressable>
@@ -408,14 +411,14 @@ const s = StyleSheet.create({
   statDivider: { width: 1, height: 36, backgroundColor: 'rgba(255,255,255,0.14)' },
 
   // Section
-  sectionLabel: { fontSize: 10, fontWeight: '700', color: D.light, letterSpacing: 1.2, marginBottom: 8, marginLeft: 4 },
+  sectionLabel: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 1.2, marginBottom: 8, marginLeft: 4 },
   card: { backgroundColor: D.white, borderRadius: 18, marginBottom: 20, borderWidth: 1, borderColor: D.border, overflow: 'hidden', shadowColor: '#00534810', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2 },
 
   // Badges on rows
   verifiedBadge: { backgroundColor: D.verifiedBg, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 4, marginRight: 6 },
   verifiedTxt: { fontSize: 11, fontWeight: '700', color: D.emerald },
   actionBadge: { backgroundColor: '#FEF2F2', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 4, marginRight: 6, borderWidth: 1, borderColor: '#FECACA' },
-  actionBadgeTxt: { fontSize: 11, fontWeight: '700', color: '#EF4444' },
+  actionBadgeTxt: { fontSize: 11, fontWeight: '700', color: '#CC3A3A' },
   countBadge: { backgroundColor: D.emerald, borderRadius: 20, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginRight: 6 },
   countTxt: { fontSize: 11, fontWeight: '700', color: '#fff' },
   valueTxt: { fontSize: 12, fontWeight: '600', color: D.muted, marginRight: 6 },
@@ -423,7 +426,7 @@ const s = StyleSheet.create({
   // Logout
   logoutCard: { marginBottom: 12 },
   logoutRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
-  logoutTxt: { fontSize: 15, fontWeight: '600', color: '#EF4444', flex: 1 },
+  logoutTxt: { fontSize: 15, fontWeight: '600', color: '#CC3A3A', flex: 1 },
 
-  version: { fontSize: 11, color: D.light, textAlign: 'center', marginBottom: 8 },
+  version: { fontSize: 11, color: D.muted, textAlign: 'center', marginBottom: 8 },
 });

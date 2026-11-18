@@ -141,13 +141,14 @@ export default function ServicesPage() {
 
       {/* Search */}
       <div className="relative">
-        <MagnifyingGlassIcon size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-muted" />
+        <MagnifyingGlassIcon size={18} aria-hidden="true" className="absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-muted" />
         <input
-          type="text"
+          type="search"
+          aria-label="Search services"
           placeholder="Search by service name or address…"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full pl-10 pr-4 py-2.5 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </div>
 
@@ -259,11 +260,11 @@ export default function ServicesPage() {
           <p className="text-sm text-fg-muted">Create a new service. Set the geofence radius for automatic clock-in.</p>
 
           <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Service Name *</label>
-            <input
+            <label htmlFor="houses-service-name" className="block text-sm font-medium text-fg mb-1.5">Service Name *</label>
+            <input id="houses-service-name"
               type="text"
               placeholder="Maple House"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
@@ -271,11 +272,11 @@ export default function ServicesPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Full Address *</label>
-            <input
+            <label htmlFor="houses-full-address" className="block text-sm font-medium text-fg mb-1.5">Full Address *</label>
+            <input id="houses-full-address"
               type="text"
               placeholder="10 Maple Street, London E1 1AA"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
               required
@@ -284,24 +285,24 @@ export default function ServicesPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Latitude *</label>
-              <input
+              <label htmlFor="houses-latitude" className="block text-sm font-medium text-fg mb-1.5">Latitude *</label>
+              <input id="houses-latitude"
                 type="number"
                 step="0.0001"
                 placeholder="51.5145"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={form.latitude}
                 onChange={(e) => setForm({ ...form, latitude: e.target.value })}
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Longitude *</label>
-              <input
+              <label htmlFor="houses-longitude" className="block text-sm font-medium text-fg mb-1.5">Longitude *</label>
+              <input id="houses-longitude"
                 type="number"
                 step="0.0001"
                 placeholder="-0.0731"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={form.longitude}
                 onChange={(e) => setForm({ ...form, longitude: e.target.value })}
                 required
@@ -311,27 +312,27 @@ export default function ServicesPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Geofence Radius (m) *</label>
-              <input
+              <label htmlFor="houses-geofence-radius-m" className="block text-sm font-medium text-fg mb-1.5">Geofence Radius (m) *</label>
+              <input id="houses-geofence-radius-m"
                 type="number"
                 min="10"
                 max="500"
                 placeholder="50"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={form.geofenceRadius}
                 onChange={(e) => setForm({ ...form, geofenceRadius: e.target.value })}
               />
               <p className="text-xs text-fg-muted mt-1">Workers within this radius trigger auto clock-in</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Service Manager</label>
+              <label htmlFor="houses-service-manager" className="block text-sm font-medium text-fg mb-1.5">Service Manager</label>
               {user?.role === 'MANAGER' ? (
-                <p className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm bg-neutral-50 text-fg-muted">
+                <p className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm bg-neutral-50 text-fg-muted">
                   You ({user.name}) — services you create are assigned to you
                 </p>
               ) : (
-                <select
-                  className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                <select id="houses-service-manager"
+                  className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   value={form.managerId}
                   onChange={(e) => setForm({ ...form, managerId: e.target.value })}
                 >
@@ -345,13 +346,13 @@ export default function ServicesPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Assigned Hours (per week)</label>
-            <input
+            <label htmlFor="houses-assigned-hours-per-week" className="block text-sm font-medium text-fg mb-1.5">Assigned Hours (per week)</label>
+            <input id="houses-assigned-hours-per-week"
               type="number"
               min="0"
               step="0.5"
               placeholder="e.g. 336 for round-the-clock two-person cover"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.assignedHours}
               onChange={(e) => setForm({ ...form, assignedHours: e.target.value })}
             />
@@ -394,12 +395,12 @@ export default function ServicesPage() {
             Set the radius in metres. Workers within this distance trigger automatic clock-in when they arrive at the location.
           </p>
           <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Radius (metres) *</label>
-            <input
+            <label htmlFor="houses-radius-metres" className="block text-sm font-medium text-fg mb-1.5">Radius (metres) *</label>
+            <input id="houses-radius-metres"
               type="number"
               min="10"
               max="500"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={radius}
               onChange={(e) => setRadius(e.target.value)}
             />

@@ -67,7 +67,7 @@ export default function ShiftRequestsScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}>
+        <Pressable hitSlop={4} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back" style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.65 }]}>
           <ArrowLeft size={20} color={D.text} weight="bold" />
         </Pressable>
         <Text style={s.title}>Shift Requests</Text>
@@ -100,11 +100,11 @@ export default function ShiftRequestsScreen() {
               {req.requesterReason ? <Text style={s.reason}>“{req.requesterReason}”</Text> : null}
               {req.status === 'PENDING_RECIPIENT' && !req.expired ? (
                 <View style={s.actions}>
-                  <Pressable style={s.acceptBtn} disabled={respond.isPending} onPress={() => confirmRespond(req, 'ACCEPT')}>
+                  <Pressable accessibilityRole="button" style={s.acceptBtn} disabled={respond.isPending} onPress={() => confirmRespond(req, 'ACCEPT')}>
                     <CheckCircle size={16} color="#fff" weight="fill" />
                     <Text style={s.acceptTxt}>Accept</Text>
                   </Pressable>
-                  <Pressable style={s.declineBtn} disabled={respond.isPending} onPress={() => confirmRespond(req, 'DECLINE')}>
+                  <Pressable accessibilityRole="button" style={s.declineBtn} disabled={respond.isPending} onPress={() => confirmRespond(req, 'DECLINE')}>
                     <XCircle size={16} color={D.error} weight="fill" />
                     <Text style={s.declineTxt}>Decline</Text>
                   </Pressable>
@@ -126,7 +126,7 @@ export default function ShiftRequestsScreen() {
               <Text style={s.shiftLine}>{fmtShift(req.primaryShift)}</Text>
               <Text style={s.statusTag}>{req.expired ? 'Expired' : STATUS_LABEL[req.status]}</Text>
               {(req.status === 'PENDING_RECIPIENT' || req.status === 'PENDING_MANAGER') && !req.expired && (
-                <Pressable style={s.cancelBtn} disabled={cancel.isPending} onPress={() => cancel.mutate(req.id)}>
+                <Pressable accessibilityRole="button" style={s.cancelBtn} disabled={cancel.isPending} onPress={() => cancel.mutate(req.id)}>
                   <Text style={s.cancelTxt}>Cancel request</Text>
                 </Pressable>
               )}
@@ -146,7 +146,7 @@ const s = StyleSheet.create({
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: D.white, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: D.border },
   title: { fontSize: 17, fontWeight: '700', color: D.text },
   scroll: { paddingHorizontal: 18, paddingBottom: 24 },
-  sectionLabel: { fontSize: 10, fontWeight: '700', color: D.light, letterSpacing: 1.2, marginBottom: 10 },
+  sectionLabel: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 1.2, marginBottom: 10 },
   empty: { fontSize: 13, color: D.muted, marginBottom: 8 },
   card: { backgroundColor: D.white, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: D.border, marginBottom: 12 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },

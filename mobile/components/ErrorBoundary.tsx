@@ -39,7 +39,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           The app hit an unexpected error. You can try again — if it keeps happening, restart the app.
         </Text>
         {__DEV__ && <Text style={styles.detail}>{this.state.error.message}</Text>}
-        <Pressable style={styles.btn} onPress={this.reset}>
+        <Pressable accessibilityRole="button" style={styles.btn} onPress={this.reset}>
           <Text style={styles.btnTxt}>Try again</Text>
         </Pressable>
       </View>
@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: D.bg, alignItems: 'center', justifyContent: 'center', padding: 28 },
   title: { fontSize: 18, fontWeight: '700', color: D.text, marginTop: 16 },
   body: { fontSize: 14, color: D.muted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
-  detail: { fontSize: 12, color: D.light, textAlign: 'center', marginTop: 12, fontFamily: 'monospace' as any },
+  detail: { fontSize: 12, color: D.muted, textAlign: 'center', marginTop: 12, fontFamily: 'monospace' as any },
   btn: { marginTop: 24, backgroundColor: D.emerald, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
   btnTxt: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

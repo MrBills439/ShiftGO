@@ -432,7 +432,6 @@ export default function StaffPage() {
             accessor: (u) => (
               <div className="flex items-center gap-3">
                 {u.profilePicture ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={`${API_BASE}${u.profilePicture}`}
                     alt=""
@@ -657,7 +656,7 @@ export default function StaffPage() {
 
           <FieldShell label="Reason for Deactivation *">
             <textarea
-              className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-4 focus:ring-brand-600/20 focus:border-brand-600"
+              className="w-full px-3 py-2 border border-border-strong rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-brand-600"
               value={deactivationReason}
               onChange={(e) => {
                 setDeactivationReason(e.target.value);

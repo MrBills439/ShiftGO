@@ -85,7 +85,7 @@ export default function DbsScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -169,5 +169,5 @@ const s = StyleSheet.create({
 
   noDbsTitle: { fontSize: 18, fontWeight: '700', color: D.text },
   noDbsSub: { fontSize: 14, color: D.muted, textAlign: 'center', lineHeight: 21 },
-  footer: { fontSize: 12, color: D.light, textAlign: 'center', lineHeight: 18, paddingHorizontal: 8 },
+  footer: { fontSize: 12, color: D.muted, textAlign: 'center', lineHeight: 18, paddingHorizontal: 8 },
 });

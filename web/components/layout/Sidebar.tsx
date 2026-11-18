@@ -54,8 +54,8 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-        <p className="px-3 pb-2 text-[10px] font-semibold tracking-widest uppercase text-outline font-inter">
+      <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+        <p aria-hidden="true" className="px-3 pb-2 text-[10px] font-semibold tracking-widest uppercase text-outline font-inter">
           Navigation
         </p>
         {visible.map(({ href, label, icon: Icon }) => {
@@ -66,9 +66,10 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              aria-current={active ? 'page' : undefined}
               className={clsx('sidebar-item', active && 'active')}
             >
-              <Icon size={18} weight="regular" />
+              <Icon size={18} weight="regular" aria-hidden="true" />
               <span>{label}</span>
             </Link>
           );
@@ -103,7 +104,7 @@ export function Sidebar() {
                 onClick={logout}
                 aria-label="Sign out"
                 title="Sign out"
-                className="flex-shrink-0 rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-error-container/40 hover:text-error-DEFAULT"
+                className="flex-shrink-0 rounded-md p-1.5 text-on-surface-variant transition-colors hover:bg-error-container/40 hover:text-error"
               >
                 <SignOutIcon size={16} weight="regular" />
               </button>

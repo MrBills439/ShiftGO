@@ -123,7 +123,7 @@ export default function OnboardingScreen() {
             {step === 'welcome' && (
               <View style={s.card}>
                 <View style={s.logoWrap}>
-                  <Image source={require('../../assets/icon.png')} style={s.logo} resizeMode="contain" />
+                  <Image source={require('../../assets/icon.png')} style={s.logo} resizeMode="contain" accessible={false} />
                 </View>
                 <Text style={s.h1}>Welcome to ShiftGO</Text>
                 <Text style={s.body}>
@@ -141,11 +141,12 @@ export default function OnboardingScreen() {
                 <View style={s.field}>
                   <Text style={s.label}>Full name</Text>
                   <TextInput
+                    accessibilityLabel="Full name"
                     style={s.input}
                     value={name}
                     onChangeText={setName}
                     placeholder="e.g. Jordan Smith"
-                    placeholderTextColor={D.light}
+                    placeholderTextColor={D.muted}
                     autoCapitalize="words"
                     autoFocus
                     returnKeyType="next"
@@ -165,11 +166,12 @@ export default function OnboardingScreen() {
                 <View style={s.field}>
                   <Text style={s.label}>Phone number</Text>
                   <TextInput
+                    accessibilityLabel="Phone number (optional)"
                     style={s.input}
                     value={phone}
                     onChangeText={setPhone}
                     placeholder="+44 7700 900000"
-                    placeholderTextColor={D.light}
+                    placeholderTextColor={D.muted}
                     keyboardType="phone-pad"
                     autoFocus
                     returnKeyType="done"
@@ -199,7 +201,7 @@ export default function OnboardingScreen() {
                     <Text style={s.grantedTxt}>Location access enabled</Text>
                   </View>
                 ) : (
-                  <Pressable style={s.permBtn} onPress={askLocation} disabled={locStatus === 'busy'}>
+                  <Pressable accessibilityRole="button" style={s.permBtn} onPress={askLocation} disabled={locStatus === 'busy'}>
                     {locStatus === 'busy'
                       ? <ActivityIndicator color={D.emerald} />
                       : <Text style={s.permBtnTxt}>Allow location access</Text>}
@@ -229,7 +231,7 @@ export default function OnboardingScreen() {
                     <Text style={s.grantedTxt}>Notifications enabled</Text>
                   </View>
                 ) : (
-                  <Pressable style={s.permBtn} onPress={askNotifications} disabled={notifStatus === 'busy'}>
+                  <Pressable accessibilityRole="button" style={s.permBtn} onPress={askNotifications} disabled={notifStatus === 'busy'}>
                     {notifStatus === 'busy'
                       ? <ActivityIndicator color={D.emerald} />
                       : <Text style={s.permBtnTxt}>Enable notifications</Text>}
@@ -273,7 +275,7 @@ export default function OnboardingScreen() {
           {/* footer */}
           <View style={s.footer}>
             {step !== 'welcome' ? (
-              <Pressable style={s.backBtn} onPress={back} disabled={submitting} hitSlop={8}>
+              <Pressable accessibilityRole="button" style={s.backBtn} onPress={back} disabled={submitting} hitSlop={8}>
                 <ArrowLeft size={18} color={D.text} weight="bold" />
                 <Text style={s.backTxt}>Back</Text>
               </Pressable>
@@ -281,11 +283,11 @@ export default function OnboardingScreen() {
 
             <View style={s.footerRight}>
               {step === 'phone' && !phone.trim() && (
-                <Pressable onPress={next} disabled={submitting} hitSlop={8}>
+                <Pressable accessibilityRole="button" onPress={next} disabled={submitting} hitSlop={8}>
                   <Text style={s.skipTxt}>Skip</Text>
                 </Pressable>
               )}
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={[
                   s.primaryBtn,
                   step === 'name' && !nameValid && s.primaryBtnDisabled,

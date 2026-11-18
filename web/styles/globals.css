@@ -18,7 +18,7 @@
     --color-brand-300: #7ecab8;
     --color-brand-400: #54b9a0;
     --color-brand-500: #2a9984;
-    --color-brand-600: #1d7f6e;
+    --color-brand-600: #1c7969;
     --color-brand-700: #126655;
     --color-brand-800: #0a4d3a;
     --color-brand-900: #021e1a;
@@ -31,7 +31,7 @@
     --color-neutral-200: #e1dedd;
     --color-neutral-300: #d0cac7;
     --color-neutral-400: #a09790;
-    --color-neutral-500: #8b827a;
+    --color-neutral-500: #726b64;
     --color-neutral-600: #6b6460;
     --color-neutral-700: #4d4640;
     --color-neutral-800: #2f2a27;
@@ -48,7 +48,7 @@
     --color-warning-border: #fcd34d;
     --color-warning-text: #92400e;
 
-    --color-error: #dc2626;
+    --color-error: #d22424;
     --color-error-bg: #fef2f2;
     --color-error-border: #fecaca;
     --color-error-text: #7f1d1d;
@@ -59,7 +59,8 @@
     --color-info-text: #1e3a8a;
 
     /* Focus Ring */
-    --color-focus: rgba(42, 153, 132, 0.1);
+    --color-focus: #1c7969; /* = brand-600; ≥3:1 against white and the page grey (WCAG 2.4.7 / 1.4.11) */
+    --color-border-strong: #9c938c; /* form-field borders: 3:1 against white (WCAG 1.4.11) */
 
     /* Typography */
     --text-xs: 0.6875rem;
@@ -155,9 +156,11 @@
   }
 
   /* Focus Visible */
+  /* A solid, clearly visible outline on every keyboard-focused element. The
+     old 4px glow at 10% opacity was effectively invisible. */
   :focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 4px var(--color-focus);
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
   }
 
   /* Scrollbar */
@@ -240,9 +243,9 @@
 
   /* Input Field */
   .input-field {
-    @apply w-full border border-neutral-200 rounded-md px-3.5 py-2.5 text-base
+    @apply w-full border border-border-strong rounded-md px-3.5 py-2.5 text-base
            font-sans text-neutral-900 bg-white placeholder:text-neutral-500
-           focus:outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600
+           focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-brand-600
            transition-all duration-150;
   }
 
@@ -255,8 +258,8 @@
   }
 
   .sg-input {
-    @apply h-10 w-full rounded-md border border-border bg-surface px-3 text-sm text-fg placeholder:text-fg-subtle
-           transition-colors duration-150 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/20
+    @apply h-10 w-full rounded-md border border-border-strong bg-surface px-3 text-sm text-fg placeholder:text-fg-subtle
+           transition-colors duration-150 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600
            disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-fg-subtle;
   }
 

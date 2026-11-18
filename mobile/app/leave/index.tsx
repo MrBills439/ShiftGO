@@ -47,7 +47,7 @@ function DateField({
   return (
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
-      <Pressable style={s.control} onPress={() => setOpen((o) => !o)}>
+      <Pressable accessibilityRole="button" style={s.control} onPress={() => setOpen((o) => !o)}>
         <Text style={value ? s.controlValue : s.controlPlaceholder}>
           {value ? fmtDate(`${value}T00:00:00`) : 'Select a date'}
         </Text>
@@ -142,14 +142,14 @@ function BalanceCard({ balance, loading }: { balance?: LeaveBalanceSummary; load
 const bs = StyleSheet.create({
   card: { backgroundColor: D.white, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: D.border, marginBottom: 16 },
   headRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  kicker: { fontSize: 10, fontWeight: '700', color: D.light, letterSpacing: 0.6, textTransform: 'uppercase' },
+  kicker: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 0.6, textTransform: 'uppercase' },
   big: { fontSize: 30, fontWeight: '800', color: D.text, marginTop: 3, letterSpacing: -0.6 },
   caption: { fontSize: 11, color: D.muted, marginTop: 4, fontWeight: '600' },
   mid: { fontSize: 16, fontWeight: '700', color: D.text, marginTop: 3 },
   cap: { fontSize: 10, color: D.warning, marginTop: 2 },
   breakdown: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingTop: 13, borderTopWidth: 1, borderTopColor: '#EEF2F1' },
   bcol: { alignItems: 'center', flex: 1 },
-  bk: { fontSize: 9, color: D.light, letterSpacing: 0.4, textTransform: 'uppercase' },
+  bk: { fontSize: 9, color: D.muted, letterSpacing: 0.4, textTransform: 'uppercase' },
   bv: { fontSize: 12, fontWeight: '700', color: D.text, marginTop: 3 },
   noPolicyTitle: { fontSize: 13, fontWeight: '700', color: D.text },
   noPolicySub: { fontSize: 12, color: D.muted, marginTop: 4, lineHeight: 17 },
@@ -264,7 +264,7 @@ export default function LeaveScreen() {
           <ArrowLeft size={20} color={D.text} weight="bold" />
         </Pressable>
         <Text style={s.title}>Time Off</Text>
-        <Pressable
+        <Pressable hitSlop={4}
           style={({ pressed }) => [s.addBtn, pressed && { opacity: 0.85 }]}
           onPress={() => setShowModal(true)}
           accessibilityRole="button"
@@ -339,7 +339,7 @@ export default function LeaveScreen() {
                 )}
 
                 {req.status === 'PENDING' && (
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     style={({ pressed }) => [s.withdrawBtn, pressed && { opacity: 0.6 }]}
                     onPress={() => cancelMutation.mutate(req.id)}
                     disabled={cancelMutation.isPending}
@@ -372,7 +372,7 @@ export default function LeaveScreen() {
           <View style={s.sheet}>
             <View style={s.sheetHead}>
               <Text style={s.sheetTitle}>Request Time Off</Text>
-              <Pressable onPress={closeModal} hitSlop={10} accessibilityLabel="Close">
+              <Pressable accessibilityRole="button" onPress={closeModal} hitSlop={10} accessibilityLabel="Close">
                 <X size={22} color={D.text} weight="bold" />
               </Pressable>
             </View>
@@ -445,10 +445,10 @@ export default function LeaveScreen() {
             </ScrollView>
 
             <View style={[s.sheetFooter, { paddingBottom: Math.max(26, insets.bottom + 14) }]}>
-              <Pressable style={s.secondaryBtn} onPress={closeModal}>
+              <Pressable accessibilityRole="button" style={s.secondaryBtn} onPress={closeModal}>
                 <Text style={s.secondaryBtnTxt}>Cancel</Text>
               </Pressable>
-              <Pressable
+              <Pressable accessibilityRole="button"
                 style={[s.primaryBtn, !canSubmit && s.primaryBtnDisabled]}
                 onPress={handleSubmit}
                 disabled={!canSubmit}
@@ -530,7 +530,7 @@ const s = StyleSheet.create({
   },
   controlReadonly: { backgroundColor: '#F3F5F5', borderColor: '#E7ECEB' },
   controlValue: { fontSize: 14, color: D.text, fontWeight: '500' },
-  controlPlaceholder: { fontSize: 14, color: D.light },
+  controlPlaceholder: { fontSize: 14, color: D.muted },
 
   sectionLabel: { fontSize: 13, fontWeight: '800', color: D.text, marginTop: 4, marginBottom: 10 },
   balancePanel: { backgroundColor: '#F3F7F6', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#E3EDEB' },

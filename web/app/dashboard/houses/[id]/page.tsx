@@ -257,42 +257,42 @@ export default function ServiceDetailPage() {
         <form onSubmit={handleAdd} className="space-y-4">
           <LoadingOverlay show={createPerson.isPending} label="Adding…" />
           <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Full Name *</label>
-            <input
+            <label htmlFor="houses-id-full-name" className="block text-sm font-medium text-fg mb-1.5">Full Name *</label>
+            <input id="houses-id-full-name"
               type="text"
               placeholder="Jane Smith"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-fg mb-1.5">Date of Birth</label>
-            <input
+            <label htmlFor="houses-id-date-of-birth" className="block text-sm font-medium text-fg mb-1.5">Date of Birth</label>
+            <input id="houses-id-date-of-birth"
               type="date"
-              className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={form.dateOfBirth}
               onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Emergency Contact Name</label>
-              <input
+              <label htmlFor="houses-id-emergency-contact-name" className="block text-sm font-medium text-fg mb-1.5">Emergency Contact Name</label>
+              <input id="houses-id-emergency-contact-name"
                 type="text"
                 placeholder="Next of kin"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={form.emergencyContactName}
                 onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Emergency Contact Phone</label>
-              <input
+              <label htmlFor="houses-id-emergency-contact-phone" className="block text-sm font-medium text-fg mb-1.5">Emergency Contact Phone</label>
+              <input id="houses-id-emergency-contact-phone"
                 type="tel"
                 placeholder="+44 7700 900123"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={form.emergencyContactPhone}
                 onChange={(e) => setForm({ ...form, emergencyContactPhone: e.target.value })}
               />
@@ -338,20 +338,20 @@ export default function ServiceDetailPage() {
           <form onSubmit={handleEditService} className="space-y-4">
             <LoadingOverlay show={updateHouse.isPending} label="Saving…" />
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Service Name *</label>
-              <input
+              <label htmlFor="houses-id-service-name" className="block text-sm font-medium text-fg mb-1.5">Service Name *</label>
+              <input id="houses-id-service-name"
                 type="text"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Full Address *</label>
-              <input
+              <label htmlFor="houses-id-full-address" className="block text-sm font-medium text-fg mb-1.5">Full Address *</label>
+              <input id="houses-id-full-address"
                 type="text"
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={editForm.address}
                 onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
                 required
@@ -359,22 +359,22 @@ export default function ServiceDetailPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-fg mb-1.5">Latitude *</label>
-                <input
+                <label htmlFor="houses-id-latitude" className="block text-sm font-medium text-fg mb-1.5">Latitude *</label>
+                <input id="houses-id-latitude"
                   type="number"
                   step="0.0001"
-                  className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   value={editForm.latitude}
                   onChange={(e) => setEditForm({ ...editForm, latitude: e.target.value })}
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-fg mb-1.5">Longitude *</label>
-                <input
+                <label htmlFor="houses-id-longitude" className="block text-sm font-medium text-fg mb-1.5">Longitude *</label>
+                <input id="houses-id-longitude"
                   type="number"
                   step="0.0001"
-                  className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   value={editForm.longitude}
                   onChange={(e) => setEditForm({ ...editForm, longitude: e.target.value })}
                   required
@@ -383,24 +383,24 @@ export default function ServiceDetailPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-fg mb-1.5">Geofence Radius (m) *</label>
-                <input
+                <label htmlFor="houses-id-geofence-radius-m" className="block text-sm font-medium text-fg mb-1.5">Geofence Radius (m) *</label>
+                <input id="houses-id-geofence-radius-m"
                   type="number"
                   min="10"
                   max="500"
-                  className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   value={editForm.geofenceRadius}
                   onChange={(e) => setEditForm({ ...editForm, geofenceRadius: e.target.value })}
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-fg mb-1.5">Assigned Hours (per week)</label>
-                <input
+                <label htmlFor="houses-id-assigned-hours-per-week" className="block text-sm font-medium text-fg mb-1.5">Assigned Hours (per week)</label>
+                <input id="houses-id-assigned-hours-per-week"
                   type="number"
                   min="0"
                   step="0.5"
-                  className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   value={editForm.assignedHours}
                   onChange={(e) => setEditForm({ ...editForm, assignedHours: e.target.value })}
                 />
@@ -430,9 +430,9 @@ export default function ServiceDetailPage() {
           <form onSubmit={handleChangeManager} className="space-y-4">
             <LoadingOverlay show={updateManager.isPending} label="Saving…" />
             <div>
-              <label className="block text-sm font-medium text-fg mb-1.5">Manager</label>
-              <select
-                className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              <label htmlFor="houses-id-manager" className="block text-sm font-medium text-fg mb-1.5">Manager</label>
+              <select id="houses-id-manager"
+                className="w-full px-3 py-2 border border-border-strong rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 value={managerSelection}
                 onChange={(e) => setManagerSelection(e.target.value)}
               >

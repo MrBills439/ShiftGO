@@ -155,10 +155,10 @@ export default function AdminPage() {
           </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+              <label htmlFor="app-admin-prefix" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
                 Prefix
               </label>
-              <input
+              <input id="app-admin-prefix"
                 type="text"
                 maxLength={8}
                 placeholder="PIP"
@@ -195,10 +195,10 @@ export default function AdminPage() {
           </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+              <label htmlFor="app-admin-hours-per-week" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
                 Hours per week
               </label>
-              <input
+              <input id="app-admin-hours-per-week"
                 type="number"
                 min="1"
                 max="168"
@@ -233,10 +233,10 @@ export default function AdminPage() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
+              <label htmlFor="app-admin-radius-metres" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">
                 Radius (metres)
               </label>
-              <input
+              <input id="app-admin-radius-metres"
                 type="number"
                 min="10"
                 max="500"

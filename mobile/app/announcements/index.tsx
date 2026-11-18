@@ -55,7 +55,7 @@ const a = StyleSheet.create({
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
   avatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,95,86,0.10)', alignItems: 'center', justifyContent: 'center' },
   avatarTxt: { fontSize: 9, fontWeight: '700', color: D.emerald },
-  authorTxt: { fontSize: 11, color: D.light, flexShrink: 1 },
+  authorTxt: { fontSize: 11, color: D.muted, flexShrink: 1 },
 });
 
 export default function AnnouncementsScreen() {
@@ -93,7 +93,7 @@ export default function AnnouncementsScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
-        <Pressable
+        <Pressable hitSlop={4}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"

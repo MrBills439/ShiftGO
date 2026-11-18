@@ -126,7 +126,7 @@ const sc = StyleSheet.create({
   dateDay: { fontSize: 10, fontWeight: '700', color: D.emerald, letterSpacing: 0.5 },
   dateNum: { fontSize: 26, fontWeight: '800', color: D.text, lineHeight: 30, letterSpacing: -0.5 },
   dateMon: { fontSize: 10, fontWeight: '700', color: D.muted, letterSpacing: 0.5 },
-  dateFaint: { color: D.light },
+  dateFaint: { color: D.muted },
   divider: { width: 1, height: 56, backgroundColor: D.border, marginHorizontal: 12 },
   dividerOff: { backgroundColor: '#EEF2F1' },
   content: { flex: 1 },
@@ -135,11 +135,11 @@ const sc = StyleSheet.create({
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 },
   time: { fontSize: 12, fontWeight: '600', color: D.emerald },
   timeFaint: { color: D.muted },
-  dur: { fontWeight: '500', color: D.light },
+  dur: { fontWeight: '500', color: D.muted },
   addrRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  addr: { fontSize: 11, color: D.light, flex: 1 },
+  addr: { fontSize: 11, color: D.muted, flex: 1 },
   hoursRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
-  hoursLabel: { fontSize: 11, color: D.light, fontWeight: '500' },
+  hoursLabel: { fontSize: 11, color: D.muted, fontWeight: '500' },
   right: { alignItems: 'flex-end', justifyContent: 'space-between', alignSelf: 'stretch', paddingLeft: 6 },
   caret: { marginTop: 'auto' as any },
 });
@@ -203,9 +203,9 @@ const osc = StyleSheet.create({
   role: { fontSize: 11.5, color: D.muted, marginBottom: 5 },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
   time: { fontSize: 12, fontWeight: '600', color: D.emerald },
-  dur: { fontWeight: '500', color: D.light },
+  dur: { fontWeight: '500', color: D.muted },
   addrRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
-  addr: { fontSize: 11, color: D.light, flex: 1 },
+  addr: { fontSize: 11, color: D.muted, flex: 1 },
   claimsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   claimsTxt: { fontSize: 11, fontWeight: '600', color: D.openTxt },
   claimBtn: { marginTop: 12, backgroundColor: D.emerald, borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
@@ -343,18 +343,19 @@ export default function ShiftsScreen() {
       <View style={s.searchBar}>
         <MagnifyingGlass size={17} color={D.light} weight="regular" />
         <TextInput
+          accessibilityLabel="Search shifts by home or address"
           style={s.searchInput}
           value={query}
           onChangeText={setQuery}
           placeholder="Search by home or address"
-          placeholderTextColor={D.light}
+          placeholderTextColor={D.muted}
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
           onSubmitEditing={Keyboard.dismiss}
         />
         {query.length > 0 && (
-          <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Clear search">
+          <Pressable accessibilityRole="button" onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Clear search">
             <X size={16} color={D.muted} weight="bold" />
           </Pressable>
         )}
@@ -365,7 +366,7 @@ export default function ShiftsScreen() {
         {TABS.map((t) => {
           const on = tab === t.key;
           return (
-            <Pressable key={t.key} onPress={() => setTab(t.key)} style={[s.tab, on && s.tabActive]}>
+            <Pressable accessibilityRole="tab" accessibilityState={{ selected: on }} key={t.key} onPress={() => setTab(t.key)} style={[s.tab, on && s.tabActive]}>
               <Text style={[s.tabTxt, on && s.tabTxtActive]}>{t.label}</Text>
               {counts[t.key] > 0 && (
                 <View style={[s.tabCount, on && s.tabCountActive]}>

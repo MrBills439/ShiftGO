@@ -129,7 +129,7 @@ export function AllocationView() {
           This week
         </button>
         <div className="ml-auto min-w-[240px]">
-          <UiSelect value={proposedShiftId} onChange={(e) => { setProposedShiftId(e.target.value); setFilter('ALL'); }}>
+          <UiSelect aria-label="Project an open shift onto the allocation" value={proposedShiftId} onChange={(e) => { setProposedShiftId(e.target.value); setFilter('ALL'); }}>
             <option value="">Project an open shift…</option>
             {openShifts.map((s) => (
               <option key={s.id} value={s.id}>
@@ -198,7 +198,6 @@ export function AllocationView() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           {w.profilePicture ? (
-                            // eslint-disable-next-line @next/next/no-img-element
                             <img src={`${API_BASE}${w.profilePicture}`} alt="" className="h-8 w-8 rounded-full object-cover flex-shrink-0" />
                           ) : (
                             <div className={clsx('flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold', ROLE_META[w.role].avatarClass)}>

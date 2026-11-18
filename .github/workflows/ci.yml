@@ -77,6 +77,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - name: Accessibility lint (jsx-a11y)
+        run: npm run lint:a11y
       - run: npx next build # includes the TypeScript check
       - name: Fail on critical dependency advisories
         run: npm audit --omit=dev --audit-level=critical
@@ -96,6 +98,8 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
+      - name: Accessibility check (roles, labels, tap targets)
+        run: python3 scripts/a11y_check.py
       - run: npx jest --ci
       - name: Fail on critical dependency advisories
         run: npm audit --omit=dev --audit-level=critical

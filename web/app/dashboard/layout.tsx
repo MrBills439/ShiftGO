@@ -41,8 +41,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <PrivacyNoticeGate>
     <div className="flex min-h-screen bg-surface">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[200] focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-brand-700 focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
         <div className="p-6 lg:p-8">{children}</div>
       </main>
       <CommandPalette />

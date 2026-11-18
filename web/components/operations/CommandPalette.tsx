@@ -8,6 +8,7 @@ import { useHouses } from '@/hooks/useHouses';
 import { useShifts } from '@/hooks/useShifts';
 import { useLeaveRequests } from '@/hooks/useLeaveRequests';
 import { useAuthStore } from '@/store/authStore';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface CommandItem {
   id: string;
@@ -25,6 +26,7 @@ export function CommandPalette() {
   const isWorker = role === 'WORKER';
 
   const [open, setOpen] = useState(false);
+  const dialogRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false));
   const [search, setSearch] = useState('');
 
   // GET /users is 403 for workers — don't fire it for them.
@@ -147,21 +149,29 @@ export function CommandPalette() {
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — mouse shortcut only (hidden from assistive tech); Escape closes it. */}
       <div
         className="fixed inset-0 bg-black/50 z-40"
         onClick={() => setOpen(false)}
+        aria-hidden="true"
       />
 
       {/* Modal */}
-      <div className="fixed top-1/4 left-1/2 transform -translate-x-1/2 w-full max-w-xl z-50">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search and quick actions"
+        tabIndex={-1}
+        className="fixed top-1/4 left-1/2 transform -translate-x-1/2 w-full max-w-xl z-50 focus:outline-none"
+      >
         <div className="bg-white rounded-lg shadow-lg border border-neutral-200">
           {/* Search Input */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-200">
             <MagnifyingGlassIcon size={20} className="text-fg-muted" weight="regular" />
             <input
-              autoFocus
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder={isWorker ? 'Search your shifts and leave…' : 'Search staff, services, shifts…'}
               value={search}
               onChange={(e) => setSearch(e.target.value)}

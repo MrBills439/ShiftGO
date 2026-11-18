@@ -26,11 +26,11 @@ export function Header({ title, subtitle, action }: Props) {
           <button
             onClick={() => setOpen((v) => !v)}
             aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
-            className="relative rounded-md p-2 text-fg-muted transition-colors hover:bg-surface-subtle focus-visible:ring-4 focus-visible:ring-brand-600/20"
+            className="relative rounded-md p-2 text-fg-muted transition-colors hover:bg-surface-subtle"
           >
             <BellIcon size={20} weight="regular" />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] rounded-full bg-error-DEFAULT text-white text-[9px] font-bold flex items-center justify-center px-1 leading-none border-2 border-white">
+              <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] rounded-full bg-error text-white text-[9px] font-bold flex items-center justify-center px-1 leading-none border-2 border-white">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
