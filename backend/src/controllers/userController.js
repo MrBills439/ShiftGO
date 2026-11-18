@@ -18,8 +18,7 @@ function safeAvatarFsPath(webPath) {
   if (!abs || !abs.startsWith(AVATARS_DIR + path.sep)) return null;
   return abs;
 }
-const clerkClient = require('../utils/clerkClient');
-const { ROLE_TO_ORG_ROLE } = require('../utils/clerkRoles');
+const invitationService = require('../services/invitationService');
 const { buildEmploymentData, rethrowP2002 } = require('../services/employmentService');
 const { generateEmployeeId } = require('../services/employeeIdService');
 
@@ -32,7 +31,7 @@ const parseDateOrNull = (v) => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 // Personal + emergency-contact scalars editable on user create AND update.
-// name/email are deliberately excluded (name follows Clerk sync rules; email is
+// name/email are deliberately excluded (name is edited by the person; email is
 // immutable). Only keys present in the request body are touched.
 const PERSONAL_STRING_KEYS = ['phone', 'address', 'emergencyContactName', 'emergencyContactPhone', 'emergencyContactRelationship'];
 
@@ -82,48 +81,13 @@ const userSelect = {
 };
 
 const meSelect = {
-  id: true, agencyId: true, clerkUserId: true, name: true, email: true, role: true, status: true,
+  id: true, agencyId: true, name: true, email: true, role: true, status: true, twoFactorEnabled: true, emailVerified: true,
   phone: true, bio: true, profilePicture: true, address: true, contractedHours: true,
   onboardedAt: true, createdAt: true, updatedAt: true,
   agency: { select: { name: true } },
   ...employmentSelect,
   ...onboardingSelect,
 };
-
-/** True when `name` is missing or is really just the email address — the state
- *  the Clerk membership webhook leaves a user in when Clerk has no first/last
- *  name yet. Such a value must never be shown as a person's name. */
-function nameIsUnset(name, email) {
-  const n = (name || '').trim().toLowerCase();
-  return !n || n === (email || '').trim().toLowerCase();
-}
-
-// Clerk user ids we have already tried to heal this process — so a user who
-// genuinely has no name in Clerk does not cause a Clerk API call on every
-// /users/me. The webhook (`user.updated`) is the real sync path; this is only a
-// fallback for rows created before that handler existed. Resets on redeploy.
-const _nameHealAttempted = new Set();
-
-/** Exceptional fallback: if the stored name is just the email (legacy rows from
- *  before the user.updated webhook), pull the real name from Clerk once and
- *  persist it on this user's own row. Never throws, at most one Clerk call per
- *  user per process. */
-async function backfillNameFromClerk(user) {
-  if (process.env.JEST_WORKER_ID !== undefined) return user;
-  if (!user.clerkUserId || !nameIsUnset(user.name, user.email)) return user;
-  if (_nameHealAttempted.has(user.clerkUserId)) return user;
-  _nameHealAttempted.add(user.clerkUserId);
-  try {
-    const cu = await clerkClient.users.getUser(user.clerkUserId);
-    const real = [cu.firstName, cu.lastName].filter(Boolean).join(' ').trim();
-    if (real && real.toLowerCase() !== (user.email || '').toLowerCase()) {
-      return prisma.user.update({ where: { id: user.id }, data: { name: real }, select: meSelect });
-    }
-  } catch (err) {
-    console.warn('[users/me] could not backfill name from Clerk:', err.message);
-  }
-  return user;
-}
 
 async function listUsers(req, res) {
   const { role, status = 'ACTIVE', departmentId, jobTitleId, primaryLocationId, workPatternType, employmentType } = req.query;
@@ -157,7 +121,7 @@ async function createUser(req, res) {
   }
 
   // Whole-Workforce Phase 1: validate employment references belong to THIS
-  // agency BEFORE we create a Clerk invitation for a payload we can't honour.
+  // agency BEFORE we send an invitation for a payload we can't honour.
   let employmentData;
   try {
     employmentData = await buildEmploymentData(req.body, agencyId);
@@ -169,9 +133,6 @@ async function createUser(req, res) {
     req.body.contractedHours === undefined || req.body.contractedHours === '' || req.body.contractedHours === null
       ? undefined
       : Number(req.body.contractedHours);
-
-  const agency = await prisma.agency.findUnique({ where: { id: agencyId }, select: { clerkOrgId: true } });
-  if (!agency?.clerkOrgId) return fail(res, 'Agency is not linked to a Clerk organization', 409);
 
   const email = String(req.body.email).trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -224,94 +185,60 @@ async function createUser(req, res) {
   }
   if (req.body.employmentStartDate !== undefined) personalStaging.employmentStartDate = parseDateOrNull(req.body.employmentStartDate);
 
-  // Staff onboarding sends a Clerk organization invitation rather than creating
-  // a local password — the User row is created by the organizationMembership
-  // webhook once the invite is accepted.
-  //
-  // Prisma and Clerk cannot share a transaction, so the two writes are ordered
-  // so the recoverable one runs first:
-  //   1. stage the employment data (never in client-controlled Clerk metadata);
-  //   2. create the Clerk invitation;
-  //   3. attach the invitation id to the staging row.
-  // If (1) fails, no invitation goes out. If (2) fails, a staging row we just
-  // created is rolled back. An invitation must never succeed while the HR
-  // employment data is silently lost.
-  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  // Stage the employment data, then email a one-time invitation link
+  // (services/invitationService). The User row is created only when the person
+  // accepts and chooses a password. If the email cannot be sent, a staging row
+  // created by this call is rolled back so HR can simply retry.
+  const STAGING_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  let pending;
   try {
-    await prisma.pendingEmployee.upsert({
+    pending = await prisma.pendingEmployee.upsert({
       where: { agencyId_email: { agencyId, email } },
       create: {
         agencyId, email, role: req.body.role, invitedById: req.user.id,
-        expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
+        expiresAt: new Date(Date.now() + STAGING_TTL_MS),
         contractedHours, employeeNumber: stagedEmployeeNumber, ...employmentRest, ...personalStaging,
       },
       update: {
         role: req.body.role, invitedById: req.user.id,
-        expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
-        consumedAt: null, needsReview: false, reviewNote: null, invitationId: null,
+        expiresAt: new Date(Date.now() + STAGING_TTL_MS),
+        consumedAt: null, needsReview: false, reviewNote: null, inviteTokenHash: null,
         contractedHours: contractedHours ?? null, employeeNumber: stagedEmployeeNumber, ...employmentRest, ...personalStaging,
       },
+      select: { id: true },
     });
   } catch (err) {
     console.error('[users/create] failed to stage pending employee:', err.message);
     return fail(res, 'Could not save the employment details — no invitation was sent. Please try again.', 500);
   }
 
-  // No inviterUserId: Clerk checks that user's own org-role permissions for this
-  // action, and the org:hr/org:manager custom roles in this Clerk instance
-  // currently have zero permissions granted (a Dashboard config gap, not
-  // something fixable from here — Organization Settings > Roles > grant
-  // "Manage members" to fix it there instead). Omitting it sends the invite
-  // as the API key itself, which bypasses that check entirely.
   let invitation;
   try {
-    invitation = await clerkClient.organizations.createOrganizationInvitation({
-      organizationId: agency.clerkOrgId,
-      emailAddress: email,
-      role: ROLE_TO_ORG_ROLE[req.body.role],
-    });
+    invitation = await invitationService.sendInvitation(pending.id);
   } catch (err) {
-    // Roll back a staging row we created for this call; leave a pre-existing one
-    // (its data is still the latest HR intent, and its old invitation may live).
     if (!priorPending) {
       await prisma.pendingEmployee
         .deleteMany({ where: { agencyId, email } })
         .catch((e) => console.error('[users/create] could not roll back staging row:', e.message));
     }
-    const clerkError = err.errors?.[0];
-    if (clerkError?.code === 'organization_membership_quota_exceeded') {
-      return fail(res, 'Your organization has reached its member limit for this Clerk plan. Remove an unused pending invite or upgrade the plan, then try again.', 403);
-    }
-    if (clerkError?.code === 'duplicate_record') {
-      return fail(res, 'This email already has a pending invitation or is already a member', 409);
-    }
-    throw err;
+    console.error('[users/create] invitation email failed:', err.message);
+    return fail(res, 'The invitation email could not be sent. Nothing was saved — please try again.', 502, { code: 'INVITE_EMAIL_FAILED' });
   }
 
-  try {
-    await prisma.pendingEmployee.update({
-      where: { agencyId_email: { agencyId, email } },
-      data: { invitationId: invitation.id },
-    });
-    // Opportunistic, bounded housekeeping — clear this agency's consumed /
-    // long-expired staging rows, but never one still awaiting HR review. No cron.
-    await prisma.pendingEmployee.deleteMany({
-      where: {
-        agencyId, needsReview: false,
-        OR: [{ consumedAt: { not: null } }, { expiresAt: { lt: new Date(Date.now() - THIRTY_DAYS_MS) } }],
-      },
-    });
-  } catch (err) {
-    console.error('[users/create] could not attach invitation id / run cleanup:', err.message);
-    // The employment data is safely staged and the invitation is out; the
-    // invitation id is non-critical metadata. Do not fail the request.
-  }
+  // Opportunistic, bounded housekeeping — clear this agency's consumed /
+  // long-expired staging rows, but never one still awaiting HR review. No cron.
+  await prisma.pendingEmployee.deleteMany({
+    where: {
+      agencyId, needsReview: false, id: { not: pending.id },
+      OR: [{ consumedAt: { not: null } }, { expiresAt: { lt: new Date(Date.now() - STAGING_TTL_MS) } }],
+    },
+  }).catch(() => {});
 
   await createAuditLog({
     ...auditContext(req),
     action: 'USER_INVITED',
-    entityType: 'OrganizationInvitation',
-    entityId: invitation.id,
+    entityType: 'PendingEmployee',
+    entityId: pending.id,
     newValue: {
       email, name: req.body.name, role: req.body.role,
       employeeNumber: stagedEmployeeNumber,
@@ -319,8 +246,8 @@ async function createUser(req, res) {
     },
   });
   created(res, {
-    invitationId: invitation.id, email, role: req.body.role,
-    status: invitation.status, employeeNumber: stagedEmployeeNumber,
+    invitationId: pending.id, email, role: req.body.role,
+    status: 'pending', expiresAt: invitation.expiresAt, employeeNumber: stagedEmployeeNumber,
   });
 }
 
@@ -422,17 +349,12 @@ async function deactivateUser(req, res) {
 
   if (id === req.user.id) return fail(res, 'You cannot deactivate your own account', 409);
 
-  const oldUser = await prisma.user.findFirst({
-    where: { id, agencyId },
-    select: { ...userSelect, clerkUserId: true },
-  });
+  const oldUser = await prisma.user.findFirst({ where: { id, agencyId }, select: userSelect });
   if (!oldUser) return notFound(res);
   if (oldUser.status === 'DEACTIVATED') return fail(res, 'User is already deactivated', 409);
 
   // Active-attendance safety: never deactivate someone mid-shift. We do NOT
   // auto-clock-out and do NOT mutate attendance — just block with a clear error.
-  // This runs BEFORE any Clerk call, so a currently-working employee is never
-  // banned in Clerk.
   const [openMonitors, inProgressShifts] = await Promise.all([
     prisma.attendanceMonitor.count({ where: { agencyId, workerId: id, closedAt: null } }),
     prisma.shift.count({ where: { agencyId, workerId: id, status: 'IN_PROGRESS' } }),
@@ -446,37 +368,14 @@ async function deactivateUser(req, res) {
     );
   }
 
-  // Account Suspension / Clerk Security V1 — Clerk is the first mutation, and the
-  // local status is flipped ONLY after the Clerk ban succeeds. banUser revokes
-  // every live Clerk session for this user and blocks future sign-in; auth.js's
-  // DEACTIVATED check remains as independent defence-in-depth. The Clerk id is
-  // always this tenant-scoped row's own clerkUserId — never a client value.
-  if (!oldUser.clerkUserId) {
-    return fail(
-      res,
-      'This employee has no linked sign-in identity, so their access cannot be suspended.',
-      409,
-      { code: 'NO_CLERK_IDENTITY' },
-    );
-  }
-
-  try {
-    await clerkClient.users.banUser(oldUser.clerkUserId);
-  } catch (err) {
-    console.error('[users/deactivate] Clerk ban failed:', err.message);
-    return fail(
-      res,
-      'Could not suspend this employee’s sign-in with the identity provider. No change was made.',
-      502,
-      { code: 'CLERK_SUSPENSION_FAILED' },
-    );
-  }
-
-  // Historical and future shifts are left untouched — future assigned shifts are
+  // One transaction: the status flips AND every live session (web and phone)
+  // is deleted, so they are signed out immediately. Better Auth also refuses
+  // to create a new session for a DEACTIVATED user (src/auth/index.js), and
+  // middleware/auth.js rejects them on every request — three independent locks.
+  // Historical and future shifts are left untouched; future assigned shifts are
   // surfaced for HR via GET /users/:id/offboarding-preview, not modified here.
-  let user;
-  try {
-    user = await prisma.user.update({
+  const [user, revoked] = await prisma.$transaction([
+    prisma.user.update({
       where: { id },
       data: {
         status: 'DEACTIVATED',
@@ -486,25 +385,9 @@ async function deactivateUser(req, res) {
         fcmToken: null,
       },
       select: userSelect,
-    });
-  } catch (err) {
-    // Split-brain: the Clerk ban succeeded but the local write failed. We do
-    // NOT auto-unban as a compensating action — a rollback unban can itself
-    // fail, and restoring sign-in for someone HR has chosen to offboard is the
-    // more dangerous outcome. The ban stands (access is already denied), the
-    // local row stays ACTIVE, and this is logged loudly for manual
-    // reconciliation. Re-running deactivate once the DB is healthy is safe:
-    // banUser is idempotent.
-    console.error('[users/deactivate] CRITICAL: Clerk ban succeeded but local DB update failed', JSON.stringify({
-      event: 'LOCAL_SYNC_FAILED', severity: 'high', agencyId, actorId: req.user.id, targetId: id, error: err.message,
-    }));
-    return fail(
-      res,
-      'Sign-in was suspended with the identity provider but the local record failed to save. Please retry.',
-      500,
-      { code: 'LOCAL_SYNC_FAILED' },
-    );
-  }
+    }),
+    prisma.session.deleteMany({ where: { userId: id } }),
+  ]);
 
   await createAuditLog({
     ...auditContext(req),
@@ -512,7 +395,7 @@ async function deactivateUser(req, res) {
     entityType: 'User',
     entityId: user.id,
     oldValue: oldUser,
-    newValue: user,
+    newValue: { ...user, sessionsRevoked: revoked.count },
   });
 
   ok(res, user);
@@ -520,77 +403,26 @@ async function deactivateUser(req, res) {
 
 /**
  * POST /users/:id/reactivate — HR only. DEACTIVATED -> ACTIVE, clearing the
- * deactivation metadata. Nothing else changes: role, employment fields, Clerk
- * identity/membership, and all history (shifts, timesheets, training, DBS, RTW,
- * audit) are preserved, and the same User.id is reused.
- *
- * Account Suspension / Clerk Security V1 — the Clerk unban is the first
- * mutation; the local status is flipped ONLY after it succeeds. unbanUser lifts
- * the sign-in block without touching the user's organization membership or role.
+ * deactivation metadata. Role, employment fields, their password and all
+ * history are preserved, and the same User.id is reused. They sign in again
+ * with their existing password (or reset it).
  */
 async function reactivateUser(req, res) {
   const agencyId = agencyIdFor(req);
   const { id } = req.params;
 
-  const target = await prisma.user.findFirst({
-    where: { id, agencyId },
-    select: { ...userSelect, clerkUserId: true },
-  });
+  const target = await prisma.user.findFirst({ where: { id, agencyId }, select: userSelect });
   if (!target) return notFound(res); // cross-agency / unknown look identical
 
   if (target.status === 'ACTIVE') {
     return fail(res, 'This employee is already active.', 400, { code: 'ALREADY_ACTIVE' });
   }
 
-  if (!target.clerkUserId) {
-    return fail(
-      res,
-      'This employee has no linked sign-in identity, so their access cannot be restored.',
-      409,
-      { code: 'NO_CLERK_IDENTITY' },
-    );
-  }
-
-  try {
-    await clerkClient.users.unbanUser(target.clerkUserId);
-  } catch (err) {
-    console.error('[users/reactivate] Clerk unban failed:', err.message);
-    return fail(
-      res,
-      'Could not restore this employee’s sign-in with the identity provider. No change was made.',
-      502,
-      { code: 'CLERK_REACTIVATION_FAILED' },
-    );
-  }
-
-  let user;
-  try {
-    user = await prisma.user.update({
-      where: { id },
-      data: {
-        status: 'ACTIVE',
-        deactivatedAt: null,
-        deactivatedById: null,
-        deactivationReason: null,
-        // fcmToken stays null — the device re-registers on next sign-in.
-      },
-      select: userSelect,
-    });
-  } catch (err) {
-    // Split-brain: the Clerk unban succeeded but the local write failed. The
-    // local row is still DEACTIVATED, so auth.js keeps blocking this user
-    // (fail-closed). We do NOT auto re-ban — re-running reactivate once the DB
-    // is healthy is safe (unbanUser is idempotent).
-    console.error('[users/reactivate] CRITICAL: Clerk unban succeeded but local DB update failed', JSON.stringify({
-      event: 'LOCAL_SYNC_FAILED', severity: 'high', agencyId, actorId: req.user.id, targetId: id, error: err.message,
-    }));
-    return fail(
-      res,
-      'Sign-in was restored with the identity provider but the local record failed to save. Please retry.',
-      500,
-      { code: 'LOCAL_SYNC_FAILED' },
-    );
-  }
+  const user = await prisma.user.update({
+    where: { id },
+    data: { status: 'ACTIVE', deactivatedAt: null, deactivatedById: null, deactivationReason: null },
+    select: userSelect,
+  });
 
   await createAuditLog({
     ...auditContext(req),
@@ -634,25 +466,23 @@ async function offboardingPreview(req, res) {
 
 /**
  * System Access / Role Management V1 — PATCH /users/:id/system-access (HR only).
- *
- * Clerk is updated FIRST; the local User.role is written ONLY after Clerk
- * succeeds. If Clerk fails, nothing local changes. If Clerk succeeds but the
- * local write fails, we return 500 and rely on the organizationMembership.*
- * webhook to reconcile User.role (it is idempotent). The Clerk<->ShiftGO role
- * map is the single one in utils/clerkRoles (ROLE_TO_ORG_ROLE).
+ * The role lives only on the ShiftGO User row and is read from the database on
+ * every request, so a change applies immediately. Moving someone INTO HR or
+ * MANAGER means they must set up two-step verification before continuing.
  */
 async function changeSystemAccess(req, res) {
   const agencyId = agencyIdFor(req);
   const { id } = req.params;
   const newRole = req.body.role;
 
-  const orgRole = ROLE_TO_ORG_ROLE[newRole];
-  if (!orgRole) return fail(res, 'Unknown system-access role', 400, { code: 'INVALID_ROLE' });
+  if (!['HR', 'MANAGER', 'TEAM_LEADER', 'WORKER'].includes(newRole)) {
+    return fail(res, 'Unknown system-access role', 400, { code: 'INVALID_ROLE' });
+  }
 
   // Tenant scope: an unknown id and a cross-agency id are the same 404.
   const target = await prisma.user.findFirst({
     where: { id, agencyId },
-    select: { id: true, role: true, status: true, clerkUserId: true, name: true },
+    select: { id: true, role: true, status: true, name: true },
   });
   if (!target) return notFound(res);
 
@@ -674,44 +504,8 @@ async function changeSystemAccess(req, res) {
   if (target.id === req.user.id) {
     return fail(res, 'You cannot change your own system access.', 403, { code: 'SELF_ROLE_CHANGE' });
   }
-  if (!target.clerkUserId) {
-    return fail(res, 'This employee has not accepted their invitation yet, so their system access cannot be changed.', 409, { code: 'NO_CLERK_IDENTITY' });
-  }
 
-  const agency = await prisma.agency.findUnique({ where: { id: agencyId }, select: { clerkOrgId: true } });
-  if (!agency?.clerkOrgId) {
-    return fail(res, 'Your agency is not linked to a Clerk organization.', 409, { code: 'AGENCY_NOT_LINKED' });
-  }
-
-  // 1) Clerk first. `organizationId` pins the change to THIS agency's org, so
-  //    another agency's membership can never be touched.
-  try {
-    await clerkClient.organizations.updateOrganizationMembership({
-      organizationId: agency.clerkOrgId,
-      userId: target.clerkUserId,
-      role: orgRole,
-    });
-  } catch (err) {
-    const code = err.errors?.[0]?.code;
-    if (code === 'resource_not_found' || err.status === 404 || err.statusCode === 404) {
-      return fail(res, 'This employee is not a member of your Clerk organization.', 409, { code: 'NO_CLERK_MEMBERSHIP' });
-    }
-    console.error('[users/system-access] Clerk membership update failed:', err.message);
-    return fail(res, 'Could not update system access with the identity provider. No change was made.', 502, { code: 'CLERK_UPDATE_FAILED' });
-  }
-
-  // 2) Local role — ONLY now.
-  let updated;
-  try {
-    updated = await prisma.user.update({ where: { id: target.id }, data: { role: newRole }, select: userSelect });
-  } catch (err) {
-    // Clerk changed but the DB write failed. Do not hide it — the membership
-    // webhook will reconcile User.role when it arrives.
-    console.error('[users/system-access] CRITICAL: Clerk role updated but local DB write failed', JSON.stringify({
-      agencyId, actorId: req.user.id, targetId: target.id, oldRole: target.role, newRole, error: err.message,
-    }));
-    return fail(res, 'System access was changed with the identity provider but the local record failed to save. It will reconcile automatically.', 500, { code: 'LOCAL_SYNC_FAILED' });
-  }
+  const updated = await prisma.user.update({ where: { id: target.id }, data: { role: newRole }, select: userSelect });
 
   await createAuditLog({
     ...auditContext(req),
@@ -726,9 +520,8 @@ async function changeSystemAccess(req, res) {
 }
 
 async function getMe(req, res) {
-  let user = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: meSelect });
   if (!user) return notFound(res);
-  user = await backfillNameFromClerk(user);
   ok(res, user);
 }
 

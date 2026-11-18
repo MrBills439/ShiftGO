@@ -7,14 +7,8 @@ const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
 const { signAccess } = require('../src/utils/jwt');
 
-const mockCreateOrganizationInvitation = jest.fn();
-jest.mock('../src/utils/clerkClient', () => ({
-  organizations: {
-    createOrganizationInvitation: (...args) => mockCreateOrganizationInvitation(...args),
-  },
-}));
-
 const app = require('../src/app');
+const { outbox } = require('../src/lib/email');
 
 const prisma = new PrismaClient();
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -38,13 +32,12 @@ function tokenFor(user) {
 
 describe('Protected agency staff onboarding', () => {
   beforeAll(async () => {
-    agency = await prisma.agency.create({ data: { name: `Onboarding Agency ${suffix}`, clerkOrgId: `org_test_${suffix}`, employeeIdPrefix: 'ONB' } });
+    agency = await prisma.agency.create({ data: { name: `Onboarding Agency ${suffix}`, employeeIdPrefix: 'ONB' } });
     otherAgency = await prisma.agency.create({ data: { name: `Other Agency ${suffix}` } });
 
     manager = await prisma.user.create({
       data: {
         agencyId: agency.id,
-        clerkUserId: `user_test_manager_${suffix}`,
         name: 'Onboarding Manager',
         email: `onboarding-manager-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -55,7 +48,6 @@ describe('Protected agency staff onboarding', () => {
     worker = await prisma.user.create({
       data: {
         agencyId: agency.id,
-        clerkUserId: `user_test_worker_${suffix}`,
         name: 'Onboarding Worker',
         email: `onboarding-worker-${suffix}@shiftgo.test`,
         passwordHash: 'test-password-hash',
@@ -65,11 +57,11 @@ describe('Protected agency staff onboarding', () => {
   });
 
   beforeEach(() => {
-    mockCreateOrganizationInvitation.mockReset();
-    mockCreateOrganizationInvitation.mockResolvedValue({ id: `invitation_${suffix}`, status: 'pending' });
+    outbox.length = 0;
   });
 
   afterAll(async () => {
+    await prisma.pendingEmployee.deleteMany({ where: { agencyId: { in: [agency?.id, otherAgency?.id].filter(Boolean) } } });
     await prisma.auditLog.deleteMany({ where: { agencyId: { in: [agency?.id, otherAgency?.id].filter(Boolean) } } });
     await prisma.user.deleteMany({ where: { agencyId: { in: [agency?.id, otherAgency?.id].filter(Boolean) } } });
     await prisma.agency.deleteMany({ where: { id: { in: [agency?.id, otherAgency?.id].filter(Boolean) } } });
@@ -93,15 +85,12 @@ describe('Protected agency staff onboarding', () => {
       role: 'WORKER',
       status: 'pending',
     }));
-    // No inviterUserId — the org:hr/org:manager Clerk custom roles have no
-    // permissions granted in this instance, so attributing the invite to a
-    // specific member 403s. Sending it as the API key itself avoids that.
-    expect(mockCreateOrganizationInvitation).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: agency.clerkOrgId,
-      emailAddress: `created-worker-${suffix}@shiftgo.test`,
-      role: 'org:worker',
-    }));
-    expect(mockCreateOrganizationInvitation.mock.calls[0][0]).not.toHaveProperty('inviterUserId');
+    // One invitation email with a one-time link to choose a password.
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0].to).toBe(`created-worker-${suffix}@shiftgo.test`);
+    expect(outbox[0].text).toMatch(/\/accept-invite\?token=[\w-]{40,}/);
+    // No account exists until they accept.
+    expect(await prisma.user.findUnique({ where: { email: `created-worker-${suffix}@shiftgo.test` } })).toBeNull();
     createdWorkerId = res.body.data.invitationId;
   });
 
@@ -164,7 +153,7 @@ describe('Protected agency staff onboarding', () => {
         agencyId: agency.id,
         actorId: manager.id,
         action: 'USER_INVITED',
-        entityType: 'OrganizationInvitation',
+        entityType: 'PendingEmployee',
         entityId: createdWorkerId,
       },
     });
@@ -174,7 +163,7 @@ describe('Protected agency staff onboarding', () => {
       actorId: manager.id,
       actorRole: 'MANAGER',
       action: 'USER_INVITED',
-      entityType: 'OrganizationInvitation',
+      entityType: 'PendingEmployee',
       entityId: createdWorkerId,
     }));
     expect(auditLog.newValue).toEqual(expect.objectContaining({

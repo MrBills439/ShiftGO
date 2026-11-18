@@ -1,6 +1,7 @@
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
@@ -41,11 +42,18 @@ const authLimiter = rateLimit({
 });
 
 /**
- * The subject of the bearer token, WITHOUT verifying it — used only to bucket
- * requests for rate limiting, never for authorisation (auth.js verifies).
- * Clerk tokens carry `sub`; test tokens carry `id`.
+ * A stable, non-reversible key for "who is this signed-in person", used only to
+ * bucket requests for rate limiting — never for authorisation (auth.js checks
+ * the session). In order:
+ *   - the Better Auth session cookie (web via the Next.js proxy, and the mobile
+ *     app, which sends its stored cookie) -> hashed, never logged raw;
+ *   - a bearer token's subject (signed test tokens under Jest).
  */
+const SESSION_COOKIE = /(?:^|;\s*)(?:__Secure-)?shiftgo\.session_token=([^;]+)/;
 function tokenSubject(req) {
+  const cookie = req.headers.cookie;
+  const m = cookie && SESSION_COOKIE.exec(cookie);
+  if (m) return `s:${crypto.createHash('sha256').update(m[1]).digest('hex').slice(0, 24)}`;
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return null;
   try {

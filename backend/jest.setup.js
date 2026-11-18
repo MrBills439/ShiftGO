@@ -14,6 +14,9 @@ if (fs.existsSync(envTestPath)) {
 }
 
 process.env.NODE_ENV = 'test';
+// HR/managers normally must have two-step verification; most tests create them
+// without it. tests/twoFactorRequired.test.js switches this back on.
+process.env.REQUIRE_2FA_FOR_ADMINS = process.env.REQUIRE_2FA_FOR_ADMINS || 'false';
 
 if (!/(_test|test_|\btest\b)/i.test(process.env.DATABASE_URL || '')) {
   throw new Error(
