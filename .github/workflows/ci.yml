@@ -44,7 +44,15 @@ jobs:
           JWT_REFRESH_SECRET=ci-refresh-secret
           ENV
       - run: npx prisma generate
+      - name: Start local S3 emulator (for the S3 document-storage tests)
+        run: |
+          pip install --quiet "moto[server]"
+          nohup moto_server -p 5055 > /tmp/moto.log 2>&1 &
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:5055 && exit 0; sleep 1; done
+          cat /tmp/moto.log; exit 1
       - run: npm test # pretest applies all migrations to the test DB
+        env:
+          S3_TEST_ENDPOINT: http://127.0.0.1:5055
       - name: Fail on critical dependency advisories
         run: npm audit --omit=dev --audit-level=critical
 

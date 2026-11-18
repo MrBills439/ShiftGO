@@ -1,7 +1,6 @@
 const path = require('path');
-const fs = require('fs');
 const prisma = require('../lib/prisma');
-const { resolveStoredPath } = require('../lib/storage');
+const rtwStore = require('../lib/rtwStore');
 
 const STALE_AFTER_DAYS = 90;
 
@@ -135,8 +134,7 @@ async function setDocument(agencyId, userId, file, updatedById) {
   // Only NOW, with the DB pointing at the new file, remove the previous one.
   // If the update above had thrown, the old document would still be intact.
   if (existing.documentPath && existing.documentPath !== record.documentPath) {
-    const prev = resolveStoredPath(existing.documentPath);
-    if (prev) fs.promises.unlink(prev).catch(() => {});
+    rtwStore.remove(existing.documentPath);
   }
   return decorate(record);
 }
@@ -173,9 +171,9 @@ async function listForAgency(agencyId) {
 async function resolveDocument(agencyId, userId) {
   const record = await prisma.shareCode.findFirst({ where: { agencyId, userId } });
   if (!record || !record.documentPath) return null;
-  const abs = resolveStoredPath(record.documentPath);
-  if (!fs.existsSync(abs)) return null;
-  return { absolutePath: abs, downloadName: record.documentName || path.basename(abs) };
+  const stream = await rtwStore.open(record.documentPath);
+  if (!stream) return null;
+  return { stream, downloadName: record.documentName || path.basename(record.documentPath) };
 }
 
 /** Streams a ZIP of every proof document in the agency into `res`. */
@@ -197,15 +195,23 @@ async function streamAgencyZip(agencyId, res) {
   const usedNames = new Set();
 
   for (const rec of records) {
-    const abs = resolveStoredPath(rec.documentPath);
-    if (!fs.existsSync(abs)) continue;
-    const ext = path.extname(abs) || '.pdf';
+    // One document at a time: open it, hand it to the archive, and wait until
+    // the archive has consumed it before opening the next (so a large agency
+    // never holds hundreds of open S3 downloads at once).
+    const stream = await rtwStore.open(rec.documentPath);
+    if (!stream) continue;
+    const ext = path.extname(rec.documentPath) || '.pdf';
     const safe = rec.user.name.replace(/[^\w.-]+/g, '_');
     let entry = `${safe}-${rec.code}${ext}`;
     let n = 2;
     while (usedNames.has(entry)) entry = `${safe}-${rec.code}-${n++}${ext}`;
     usedNames.add(entry);
-    archive.file(abs, { name: entry });
+    const consumed = new Promise((resolve, reject) => {
+      archive.once('entry', resolve);
+      stream.once('error', reject);
+    });
+    archive.append(stream, { name: entry });
+    await consumed;
     manifest.push([
       rec.user.name,
       rec.user.email,

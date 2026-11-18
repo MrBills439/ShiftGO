@@ -9,6 +9,13 @@ const required = [
   ...(isTest ? [] : ['CLERK_SECRET_KEY', 'CLERK_WEBHOOK_SIGNING_SECRET']),
   ...(isProd ? ['CORS_ORIGINS'] : []),
 ];
+// Right-to-Work documents in an S3-compatible bucket (see lib/rtwStore.js).
+if ((process.env.RTW_STORAGE_DRIVER || 'local').toLowerCase() === 's3') required.push('S3_BUCKET');
+const RTW_DRIVERS = ['local', 's3'];
+if (!RTW_DRIVERS.includes((process.env.RTW_STORAGE_DRIVER || 'local').toLowerCase())) {
+  throw new Error(`RTW_STORAGE_DRIVER must be one of: ${RTW_DRIVERS.join(', ')}`);
+}
+
 const missing = required.filter((name) => !process.env[name]);
 if (missing.length) {
   throw new Error(`Missing required environment variable(s): ${missing.join(', ')}`);

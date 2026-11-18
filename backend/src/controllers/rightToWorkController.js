@@ -1,4 +1,3 @@
-const path = require('path');
 const service = require('../services/rightToWorkService');
 const { ok, fail, notFound } = require('../utils/response');
 const { canViewPersonRecords } = require('../services/accessScope');
@@ -9,6 +8,7 @@ const { auditContext, createAuditLog, logAccess } = require('../services/auditSe
 const rtwSummary = (r) => r && ({ shareDate: r.shareDate, status: r.status, hasDocument: Boolean(r.hasDocument) });
 const { agencyIdFor } = require('../utils/agency');
 const storage = require('../lib/storage');
+const rtwStore = require('../lib/rtwStore');
 const { validateRtwUpload } = require('../lib/fileValidation');
 const { scanUploadedFile } = require('../lib/malwareScan');
 
@@ -45,12 +45,13 @@ async function acceptRtwDocument(req, res, userId) {
       throw err;
     }
 
-    promoted = await storage.promoteRtwUpload(req.file.path); // _quarantine/<x>.pdf -> rtw/<x>.pdf
+    // _quarantine/<x>.pdf -> permanent store (local rtw/ dir, or the S3 bucket)
+    promoted = await rtwStore.acceptFromQuarantine(req.file.path);
 
     const saved = await service.setDocument(
       agencyIdFor(req),
       userId,
-      { filename: path.basename(promoted.acceptedAbsPath), originalname: req.file.originalname },
+      { filename: promoted.name, originalname: req.file.originalname },
       req.user.id,
     );
     await createAuditLog({
@@ -62,7 +63,7 @@ async function acceptRtwDocument(req, res, userId) {
     if (promoted) {
       // Promotion succeeded but a later step failed — remove the orphan we just
       // created. The previous accepted document is left exactly as it was.
-      await storage.unlinkInside(storage.RTW_DIR, promoted.acceptedAbsPath);
+      await promoted.discard();
     } else {
       // Still untrusted in quarantine — drop it.
       await storage.unlinkInside(storage.RTW_QUARANTINE_DIR, req.file && req.file.path);
@@ -133,7 +134,15 @@ async function getDocument(req, res) {
   const doc = await service.resolveDocument(agencyIdFor(req), target);
   if (!doc) return fail(res, 'No document on file for this worker', 404);
   await logAccess(req, { action: 'RTW_DOCUMENT_DOWNLOADED', entityType: 'ShareCode', entityId: target, subjectUserId: target });
-  res.download(doc.absolutePath, doc.downloadName);
+  res.attachment(doc.downloadName); // Content-Disposition + a type from the name
+  res.setHeader('Content-Type', rtwStore.contentTypeFor(doc.downloadName));
+  res.setHeader('Cache-Control', 'private, no-store');
+  doc.stream.on('error', (err) => {
+    console.error('[rtw] document stream failed:', err.message);
+    if (!res.headersSent) fail(res, 'Could not read the document', 500);
+    else res.destroy(err);
+  });
+  doc.stream.pipe(res);
 }
 
 async function exportZip(req, res) {
