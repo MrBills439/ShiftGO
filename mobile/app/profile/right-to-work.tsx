@@ -18,10 +18,11 @@ import {
 import { apiErrorMessage } from '../../services/api';
 import { ShareCode, RightToWorkStatus } from '../../types';
 import { D } from '../../constants/theme';
+import { fmtDateLongMonth } from '../../lib/datetime';
 
 function fmtDate(iso?: string | null) {
   if (!iso) return 'Select date';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  return fmtDateLongMonth(iso); // agency timezone
 }
 
 /** Strip everything but letters/digits and uppercase — the value we send/store. */

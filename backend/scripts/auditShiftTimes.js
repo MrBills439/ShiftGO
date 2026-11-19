@@ -18,7 +18,10 @@
  * falls in daylight-saving time for the agency. A person must review them.
  *
  * Also reported: rows whose `date` column disagrees with the agency calendar
- * date of their start time (a sign of an inconsistent conversion).
+ * date of their start time (a sign of an inconsistent conversion), and every
+ * Location / work pattern whose timezone differs from its agency's. This
+ * release uses one timezone per agency: such patterns are BLOCKED from
+ * generating shifts (nothing is changed automatically).
  */
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
@@ -109,11 +112,28 @@ async function main() {
           }
         }
       }
+      const [locations, patterns] = await Promise.all([
+        prisma.location.findMany({ where: { agencyId: agency.id, timezone: { not: null } }, select: { id: true, name: true, timezone: true, active: true } }),
+        prisma.fixedWorkPattern.findMany({
+          where: { agencyId: agency.id, status: 'ACTIVE' },
+          select: { id: true, timezone: true, location: { select: { name: true, timezone: true } } },
+        }),
+      ]);
+      summary.locationsWithDifferentTimezone = locations
+        .filter((l) => l.timezone !== tz)
+        .map((l) => ({ id: l.id, name: l.name, timezone: l.timezone, active: l.active }));
+      summary.activePatternsBlockedByTimezone = patterns
+        .filter((pt) => (pt.timezone && pt.timezone !== tz) || (pt.location?.timezone && pt.location.timezone !== tz))
+        .map((pt) => ({ id: pt.id, patternTimezone: pt.timezone, location: pt.location?.name, locationTimezone: pt.location?.timezone }));
       report.agencies.push(summary);
     }
 
     console.log(JSON.stringify(report, null, 2));
     const totalCandidates = report.agencies.reduce((n, a) => n + a.handEnteredInSummerTime, 0);
+    const tzIssues = report.agencies.reduce((n, a) => n + a.locationsWithDifferentTimezone.length + a.activePatternsBlockedByTimezone.length, 0);
+    console.error(tzIssues === 0
+      ? 'No Location or active pattern has a timezone different from its agency.'
+      : `${tzIssues} Location(s)/active pattern(s) have a timezone different from their agency: those patterns are blocked from generating shifts. Nothing was changed.`);
     console.error(totalCandidates === 0
       ? '\nNo hand-entered shifts fall in summer time: the old Schedule-form bug cannot have affected stored shifts.'
       : `\n${totalCandidates} hand-entered shift(s) fall in summer time and may have been stored an hour late. Review them before any change; this script changed nothing.`);

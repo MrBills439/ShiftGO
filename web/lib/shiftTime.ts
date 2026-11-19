@@ -5,7 +5,10 @@
  *      (Admin → Agency settings), never the browser's and never UTC.
  *   2. They are converted to real UTC instants for the API and the database.
  *   3. Stored instants are shown back in the agency's timezone.
- *   4. An end time at or before the start time means the next day (overnight).
+ *   4. An end time before the start time means the next day (overnight).
+ *      An end time EQUAL to the start time is a 24-hour shift, on purpose
+ *      (e.g. 09:00 to 09:00 the next day); the forms say so before saving.
+ *      Shifts are still checked against the agency's weekly hours limit.
  *   5. Daylight-saving transitions are explicit, never guessed:
  *        - a time that does not exist (clocks go forward) is refused;
  *        - a time that happens twice (clocks go back) must be chosen
@@ -103,7 +106,7 @@ export interface TimeProblem {
 }
 
 export type ShiftTimesResult =
-  | { ok: true; date: string; startTime: string; endTime: string; overnight: boolean }
+  | { ok: true; date: string; startTime: string; endTime: string; overnight: boolean; durationMinutes: number; fullDay: boolean }
   | { ok: false; problem: TimeProblem };
 
 function zoneLabel(tz: string, at: Date): string {
@@ -153,7 +156,33 @@ export function shiftTimesFromForm(input: ShiftTimeInput): ShiftTimesResult {
   if (end.instant <= start.instant) {
     return { ok: false, problem: { field: 'end', code: 'INVALID', message: 'End time must be after the start time.' } };
   }
-  return { ok: true, date: input.date, startTime: start.instant.toISOString(), endTime: end.instant.toISOString(), overnight };
+  const durationMinutes = Math.round((end.instant.getTime() - start.instant.getTime()) / 60_000);
+  return {
+    ok: true, date: input.date, startTime: start.instant.toISOString(), endTime: end.instant.toISOString(),
+    overnight, durationMinutes, fullDay: input.endTime === input.startTime,
+  };
+}
+
+function hm(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
+}
+
+/**
+ * One line the forms show under the times, so the length is never a surprise:
+ *   "8h"  /  "Overnight: ends 08:00 the next day (12h)"  /
+ *   "24-hour shift: ends 09:00 the next day"
+ * (Real elapsed time, so a night across a clock change shows 11h or 13h.)
+ */
+export function describeShiftLength(r: Extract<ShiftTimesResult, { ok: true }>, endTime: string): string {
+  if (r.fullDay) {
+    return r.durationMinutes === 24 * 60
+      ? `24-hour shift: ends ${endTime} the next day`
+      : `24-hour shift by the clock: ends ${endTime} the next day (${hm(r.durationMinutes)} because the clocks change)`;
+  }
+  if (r.overnight) return `Overnight: ends ${endTime} the next day (${hm(r.durationMinutes)})`;
+  return hm(r.durationMinutes);
 }
 
 /** A stored instant as the agency's calendar date and wall-clock time (for edit forms). */

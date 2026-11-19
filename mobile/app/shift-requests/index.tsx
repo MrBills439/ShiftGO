@@ -9,13 +9,15 @@ import {
   type ShiftChangeRequest, type ShiftChangeShift,
 } from '../../services/shiftChangeService';
 import { D } from '../../constants/theme';
+import { fmtDayLabel, fmtTime } from '../../lib/datetime';
 
 function fmtShift(s: ShiftChangeShift | null) {
   if (!s) return '—';
   const d = new Date(s.startTime);
-  const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-  const start = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const end = new Date(s.endTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  // Agency timezone (lib/datetime), not the phone's.
+  const day = fmtDayLabel(d);
+  const start = fmtTime(s.startTime);
+  const end = fmtTime(s.endTime);
   return `${day} · ${start}–${end} · ${s.house?.name ?? 'a service'}`;
 }
 

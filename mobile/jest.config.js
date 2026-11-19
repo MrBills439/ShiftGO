@@ -7,5 +7,7 @@ module.exports = {
   // Better Auth ships .mjs only.
   transform: { '^.+\\.(mjs|[jt]sx?)$': 'babel-jest' },
   testMatch: ['**/__tests__/**/*.test.ts?(x)'],
+  // Needs TZ=America/New_York for the whole process: run via `npm run test:phone-tz`.
+  testPathIgnorePatterns: process.env.TZ === 'America/New_York' ? ['/node_modules/'] : ['/node_modules/', 'agencyTimezone\\.test\\.ts$'],
   clearMocks: true,
 };

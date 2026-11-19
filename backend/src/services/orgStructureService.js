@@ -7,6 +7,7 @@
  * deactivate/reactivate). Referenced records are deactivated, never hard-deleted,
  * so employee history stays intact.
  */
+const { assertAgencyTimezone } = require('../lib/agencyZone');
 const prisma = require('../lib/prisma');
 
 function httpErr(message, statusCode, code) {
@@ -101,6 +102,7 @@ async function create(entity, agencyId, body) {
   const c = cfg(entity);
   const data = pickWritable(entity, body);
   if (!data.name) throw httpErr(`${c.label} name is required`, 400, 'NAME_REQUIRED');
+  if (entity === 'location') await assertAgencyTimezone(agencyId, data.timezone, 'The location timezone');
 
   if (entity === 'jobTitle') await assertDepartmentInAgency(data.departmentId ?? null, agencyId);
   if (entity === 'location' && data.type && !LOCATION_TYPES.includes(data.type)) {
@@ -177,6 +179,9 @@ async function update(entity, agencyId, id, body) {
 
   const data = pickWritable(entity, body);
   if ('name' in data && !data.name) throw httpErr(`${c.label} name cannot be empty`, 400, 'NAME_REQUIRED');
+  // Only checked when the timezone is being set: editing other fields of a
+  // location that already has a different timezone is not blocked here.
+  if (entity === 'location' && 'timezone' in data) await assertAgencyTimezone(agencyId, data.timezone, 'The location timezone');
   if (entity === 'jobTitle' && 'departmentId' in data) await assertDepartmentInAgency(data.departmentId ?? null, agencyId);
   if (entity === 'location' && 'type' in data && !LOCATION_TYPES.includes(data.type)) {
     throw httpErr('Invalid location type', 400, 'INVALID_TYPE');

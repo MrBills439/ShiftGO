@@ -12,7 +12,7 @@ import { useTimesheets } from '../../hooks/useTimesheets';
 import { Skeleton, SkeletonCard } from '../../components/Skeleton';
 import { Timesheet } from '../../types';
 import { D } from '../../constants/theme';
-import { getWeekStart, fmtHM as fmtH, fmtTime, fmtShortDate, fmtDayLabel, fmtWeekRange } from '../../lib/datetime';
+import { getWeekStart, fmtHM as fmtH, fmtTime, fmtShortDate, fmtDayLabel, fmtWeekRange, startOfDayPlus, sameMonth, dayKey } from '../../lib/datetime';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ export default function TimesheetsScreen() {
   const filtered = useMemo<Timesheet[]>(() => {
     if (!data) return [];
     if (filter === 'week') {
-      const end = new Date(weekStart); end.setDate(weekStart.getDate() + 7);
+      const end = startOfDayPlus(weekStart, 7); // agency timezone
       return data.filter(t => {
         const d = new Date(t.shift.startTime);
         return d >= weekStart && d < end;
@@ -87,8 +87,7 @@ export default function TimesheetsScreen() {
     }
     if (filter === 'month') {
       return data.filter(t => {
-        const d = new Date(t.shift.startTime);
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        return sameMonth(t.shift.startTime, now); // agency timezone
       });
     }
     return data;
@@ -101,16 +100,14 @@ export default function TimesheetsScreen() {
 
   // Generate Mon–Sun for weekly view
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return d;
+    return startOfDayPlus(weekStart, i); // agency-timezone midnight
   });
 
   // Map timesheets by date string for quick lookup
   const tsByDay = useMemo(() => {
     const map = new Map<string, Timesheet>();
     filtered.forEach(t => {
-      const key = new Date(t.shift.startTime).toDateString();
+      const key = dayKey(t.shift.startTime);
       if (!map.has(key)) map.set(key, t);
     });
     return map;
@@ -223,8 +220,8 @@ export default function TimesheetsScreen() {
               <View style={s.dayList}>
                 {weekDays.map((day, i) => {
                   const isWeekend = i >= 5; // Sat=5, Sun=6
-                  const ts = tsByDay.get(day.toDateString());
-                  return <DayRow key={day.toDateString()} day={day} ts={ts} isWeekend={isWeekend} />;
+                  const ts = tsByDay.get(dayKey(day));
+                  return <DayRow key={dayKey(day)} day={day} ts={ts} isWeekend={isWeekend} />;
                 })}
                 {/* Remove last border */}
                 <View style={s.dayListEnd} />

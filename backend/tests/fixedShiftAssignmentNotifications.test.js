@@ -125,7 +125,7 @@ describe('Manual shift assignment notifications — target-aware (Phase 4)', () 
     expect(notif.body).toContain(house.name);
   });
 
-  it('5. FIXED message shows the Location\'s own local time, not raw UTC', async () => {
+  it('5. FIXED message shows the AGENCY time (one timezone per agency), even at a Location set to another timezone', async () => {
     const w = await makeUser('Notify NY Worker');
     // 14:00 UTC — a wall-clock time that reads differently in America/New_York
     // (EDT/EST, UTC-4/-5) than in UTC, so getting the timezone wrong would
@@ -140,10 +140,12 @@ describe('Manual shift assignment notifications — target-aware (Phase 4)', () 
     // The notification is written fire-and-forget after the response; poll for
     // it rather than sleeping a fixed 50 ms (too short on a busy CI runner).
     const notif = await eventually(() => prisma.notification.findFirst({ where: { userId: w.id, type: 'SHIFT_ASSIGNED' }, orderBy: { createdAt: 'desc' } }));
-    const expectedLocal = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'America/New_York', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    const agencyTz = (await prisma.agency.findUnique({ where: { id: agency.id } })).timezone || 'Europe/London';
+    const fmt = (tz) => new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
     }).format(start);
-    expect(notif.body).toContain(expectedLocal);
+    expect(notif.body).toContain(fmt(agencyTz));
+    expect(notif.body).not.toContain(fmt('America/New_York'));
   });
 
   it('6. a worker with no FCM token still gets a Notification row, and shift creation never fails', async () => {

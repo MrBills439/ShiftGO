@@ -193,7 +193,7 @@ describe('Recurring Fixed Work Patterns V1 — Phase 2 generation service', () =
     expect(shifts.length).toBe(0);
   });
 
-  it('15. pattern.timezone is used when set (overrides Location/Agency)', async () => {
+  it('15. a pattern timezone different from the agency is BLOCKED (one timezone per agency this release)', async () => {
     const w = await makeUser(agency.id, 'WORKER', 'Gen TzPattern');
     const locNoTz = await makeLocation(agency.id, 'Gen Loc NoTz'); // no timezone — would fall back to Agency (Europe/London) if pattern.timezone were ignored
     const janMonday = (() => {
@@ -211,12 +211,17 @@ describe('Recurring Fixed Work Patterns V1 — Phase 2 generation service', () =
       },
     });
     const result = await generateFixedWorkPatternShifts({ agencyId: agency.id, patternId: pattern.id, fromDate: janMonday, horizonDays: horizonDaysTo(todayStr, janMonday) });
-    expect(result.generated).toBe(1);
-    const [shift] = await testPrisma.shift.findMany({ where: { fixedWorkPatternId: pattern.id } });
-    expect(shift.startTime.getUTCHours()).toBe(14); // 09:00 EST (UTC-5) -> 14:00 UTC
+    expect(result.generated).toBe(0);
+    expect(result.blockedTimezoneMismatch).toBe(1);
+    const occ = result.occurrences.find((o) => o.patternId === pattern.id);
+    expect(occ.status).toBe(RESULT.BLOCKED_TIMEZONE_MISMATCH);
+    expect(occ.reason).toMatch(/America\/New_York.*Europe\/London/);
+    expect(await testPrisma.shift.count({ where: { fixedWorkPatternId: pattern.id } })).toBe(0);
+    // Nothing about the stored pattern is changed.
+    expect((await testPrisma.fixedWorkPattern.findUnique({ where: { id: pattern.id } })).timezone).toBe('America/New_York');
   });
 
-  it('16. Location.timezone is used when pattern.timezone is unset', async () => {
+  it('16. a Location timezone different from the agency is BLOCKED, not guessed', async () => {
     const w = await makeUser(agency.id, 'WORKER', 'Gen TzLocation');
     const locUS = await makeLocation(agency.id, 'Gen Loc US', 'America/New_York');
     const janMonday = (() => {
@@ -233,9 +238,32 @@ describe('Recurring Fixed Work Patterns V1 — Phase 2 generation service', () =
       },
     });
     const result = await generateFixedWorkPatternShifts({ agencyId: agency.id, patternId: pattern.id, fromDate: janMonday, horizonDays: horizonDaysTo(todayStr, janMonday) });
+    expect(result.generated).toBe(0);
+    expect(result.blockedTimezoneMismatch).toBe(1);
+    expect(result.occurrences.find((o) => o.patternId === pattern.id).reason).toMatch(/Location .* America\/New_York/);
+    expect(await testPrisma.shift.count({ where: { fixedWorkPatternId: pattern.id } })).toBe(0);
+    expect((await testPrisma.location.findUnique({ where: { id: locUS.id } })).timezone).toBe('America/New_York');
+  });
+
+  it('16b. a Location timezone EQUAL to the agency timezone is fine', async () => {
+    const w = await makeUser(agency.id, 'WORKER', 'Gen TzSame');
+    const locSame = await makeLocation(agency.id, 'Gen Loc Same', 'Europe/London');
+    const janMonday = (() => {
+      const year = new Date().getUTCFullYear() + 1;
+      let d = new Date(Date.UTC(year, 0, 1));
+      while (d.getUTCDay() !== 1) d = new Date(d.getTime() + 86400000);
+      return ymdStr({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
+    })();
+    const pattern = await testPrisma.fixedWorkPattern.create({
+      data: {
+        agencyId: agency.id, workerId: w.id, locationId: locSame.id, timezone: 'Europe/London',
+        effectiveFrom: new Date(`${janMonday}T00:00:00.000Z`), createdById: hr.id, status: 'ACTIVE',
+        days: { create: [{ weekday: 1, startTime: '09:00', endTime: '17:00' }] },
+      },
+    });
+    const result = await generateFixedWorkPatternShifts({ agencyId: agency.id, patternId: pattern.id, fromDate: janMonday, horizonDays: horizonDaysTo(todayStr, janMonday) });
     expect(result.generated).toBe(1);
-    const [shift] = await testPrisma.shift.findMany({ where: { fixedWorkPatternId: pattern.id } });
-    expect(shift.startTime.getUTCHours()).toBe(14); // Location's America/New_York, EST -5
+    expect(result.blockedTimezoneMismatch).toBe(0);
   });
 
   it('17. Agency.timezone is used when neither pattern nor Location set one', async () => {
@@ -270,13 +298,14 @@ describe('Recurring Fixed Work Patterns V1 — Phase 2 generation service', () =
     // never more than ~189 days apart, so 200 days of daily scanning always
     // finds one.
     const [ty, tm, td] = todayStr.split('-').map(Number);
-    let prevOffset = zonedWallTimeToUtc('America/New_York', ty, tm, td, 9, 0).getUTCHours();
+    // Agency timezone (Europe/London): the only one generation uses this release.
+    let prevOffset = zonedWallTimeToUtc('Europe/London', ty, tm, td, 9, 0).getUTCHours();
     let cursor = todayStr;
     let transitionDate = null;
     for (let i = 0; i < 200 && !transitionDate; i++) {
       cursor = addDaysStr(cursor, 1);
       const [y, m, d] = cursor.split('-').map(Number);
-      const offset = zonedWallTimeToUtc('America/New_York', y, m, d, 9, 0).getUTCHours();
+      const offset = zonedWallTimeToUtc('Europe/London', y, m, d, 9, 0).getUTCHours();
       if (offset !== prevOffset) transitionDate = cursor;
       prevOffset = offset;
     }
@@ -285,7 +314,7 @@ describe('Recurring Fixed Work Patterns V1 — Phase 2 generation service', () =
     const from = addDaysStr(transitionDate, -4);
     const pattern = await testPrisma.fixedWorkPattern.create({
       data: {
-        agencyId: agency.id, workerId: w.id, locationId: locUS.id, timezone: 'America/New_York',
+        agencyId: agency.id, workerId: w.id, locationId: locUS.id, timezone: null,
         effectiveFrom: new Date('2000-01-01T00:00:00.000Z'), createdById: hr.id, status: 'ACTIVE',
         days: { create: ALL_WEEK_9_5 },
       },
@@ -299,7 +328,7 @@ describe('Recurring Fixed Work Patterns V1 — Phase 2 generation service', () =
     let sawTransition = false;
     for (const s of shifts) {
       const { year, month, day } = { year: s.date.getUTCFullYear(), month: s.date.getUTCMonth() + 1, day: s.date.getUTCDate() };
-      const expected = zonedWallTimeToUtc('America/New_York', year, month, day, 9, 0);
+      const expected = zonedWallTimeToUtc('Europe/London', year, month, day, 9, 0);
       expect(s.startTime.getTime()).toBe(expected.getTime()); // every single occurrence individually correct
     }
     for (let i = 1; i < shifts.length; i++) {

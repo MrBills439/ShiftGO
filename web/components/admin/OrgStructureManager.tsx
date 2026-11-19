@@ -182,7 +182,7 @@ export function OrgStructureManager({ entity }: { entity: Entity }) {
                   <UiInput type="number" min="1" max="5000" value={formVal.geofenceRadius} onChange={(e) => setFormVal({ ...formVal, geofenceRadius: e.target.value })} />
                 </FieldShell>
               </div>
-              <FieldShell label="Timezone (optional)" hint="Blank inherits the agency timezone.">
+              <FieldShell label="Timezone (optional)" hint="Leave blank to use the agency timezone. A different timezone isn't supported yet and will be refused.">
                 <UiInput type="text" placeholder="Europe/London" value={formVal.timezone} onChange={(e) => setFormVal({ ...formVal, timezone: e.target.value })} />
               </FieldShell>
               <p className="text-xs text-on-surface-variant">

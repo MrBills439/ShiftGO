@@ -20,6 +20,7 @@ import { useUsers } from '@/hooks/useWorkers';
 import { useAgencyTimeZone } from '@/hooks/useAgencyTimeZone';
 import { shiftTimesFromForm, instantToAgencyParts, type AmbiguousChoice, type TimeProblem } from '@/lib/shiftTime';
 import { ShiftTimeProblem } from '@/components/shifts/ShiftTimeProblem';
+import { ShiftLengthSummary } from '@/components/shifts/ShiftLengthSummary';
 import { todayInTimeZone } from '@/lib/agencyDate';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
@@ -896,7 +897,8 @@ function ManageShiftsView() {
               ))}
             </select>
           </div>
-          <p className="text-xs text-fg-subtle">Times are {agencyTz} time. An end time at or before the start is the next day.</p>
+          <p className="text-xs text-fg-subtle">Times are {agencyTz} time. Earlier than the start = next day; same as the start = a 24-hour shift.</p>
+          <ShiftLengthSummary date={form.date} startTime={form.startTime} endTime={form.endTime} timeZone={agencyTz} choices={choices} />
           <ShiftTimeProblem
             problem={timeProblem}
             chosen={choices}

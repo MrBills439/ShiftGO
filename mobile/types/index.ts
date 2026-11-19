@@ -10,6 +10,8 @@ export interface AuthUser {
   twoFactorEnabled?: boolean | null;
   /** HR/managers must turn on two-step verification before using the app. */
   twoFactorRequired?: boolean;
+  /** timezone: the agency's IANA timezone; shift times are shown in it. */
+  agency?: { name: string; timezone?: string };
 }
 
 export interface AuthTokens {

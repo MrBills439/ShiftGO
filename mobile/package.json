@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
+    "test:phone-tz": "TZ=America/New_York jest --ci __tests__/agencyTimezone.test.ts",
     "start": "expo start --dev-client",
     "start:tunnel": "expo start --dev-client --tunnel",
     "start:lan": "expo start --dev-client --lan",

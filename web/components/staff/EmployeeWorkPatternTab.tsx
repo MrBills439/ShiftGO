@@ -1,4 +1,5 @@
 'use client';
+import { useAgencyTimeZone } from '@/hooks/useAgencyTimeZone';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarCheckIcon, PencilSimpleIcon, StopCircleIcon, PlusIcon, MapPinIcon,
@@ -212,6 +213,7 @@ function SummaryItem({ label, value, icon }: { label: string; value: React.React
 
 // ─────────────────────────── Full schedule ───────────────────────────
 function PatternScheduleCard({ pattern }: { pattern: FixedWorkPattern }) {
+  const agencyTz = useAgencyTimeZone();
   const byWeekday = new Map(pattern.days.map((d) => [d.weekday, d]));
   return (
     <Card className="p-5">
@@ -234,6 +236,11 @@ function PatternScheduleCard({ pattern }: { pattern: FixedWorkPattern }) {
       <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 border-t border-border pt-3 text-sm sm:grid-cols-2">
         <DRow label="Location" value={pattern.location.name} />
         <DRow label="Timezone" value={pattern.timezone ?? `Inherited (${pattern.location.timezone ?? 'agency default'})`} />
+        {agencyTz && ((pattern.timezone && pattern.timezone !== agencyTz) || (pattern.location.timezone && pattern.location.timezone !== agencyTz)) && (
+          <p role="alert" className="text-xs font-medium text-danger-text">
+            Shifts are not being generated for this pattern: its timezone differs from the agency timezone ({agencyTz}), which isn&apos;t supported yet. Ask HR to clear the pattern or location timezone.
+          </p>
+        )}
         <DRow label="Effective from" value={fmtDate(pattern.effectiveFrom)} />
         <DRow label="Effective to" value={pattern.effectiveTo ? fmtDate(pattern.effectiveTo) : 'Ongoing'} />
       </div>

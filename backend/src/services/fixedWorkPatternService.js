@@ -1,3 +1,4 @@
+const { assertAgencyTimezone } = require('../lib/agencyZone');
 const prisma = require('../lib/prisma');
 const agencyCache = require('../lib/agencyCache');
 const { isValidTimeZone } = require('../lib/agencyTime');
@@ -242,6 +243,16 @@ function assertValidTimezone(timezone) {
   }
 }
 
+/** One timezone per agency for shift times in this release: a pattern (or
+ *  the Location it uses) can't be set to a different one. */
+async function assertPatternTimezoneSupported(agencyId, data) {
+  await assertAgencyTimezone(agencyId, data.timezone, 'The pattern timezone');
+  if (data.locationId) {
+    const loc = await prisma.location.findFirst({ where: { id: data.locationId, agencyId }, select: { name: true, timezone: true } });
+    if (loc?.timezone) await assertAgencyTimezone(agencyId, loc.timezone, `Location "${loc.name}" timezone`);
+  }
+}
+
 function parseEffectiveRange(data) {
   const effectiveFrom = new Date(data.effectiveFrom);
   if (Number.isNaN(effectiveFrom.getTime())) {
@@ -285,6 +296,7 @@ async function createPattern(data, createdById, agencyId, actor) {
   const { effectiveFrom, effectiveTo } = parseEffectiveRange(data);
   const days = normalizeDays(data.days);
   assertValidTimezone(data.timezone);
+  await assertPatternTimezoneSupported(agencyId, data);
 
   await loadAndValidateTargets({ agencyId, workerId: data.workerId, locationId: data.locationId });
   await assertNoConflictingActivePattern({ agencyId, workerId: data.workerId, effectiveFrom, effectiveTo });
@@ -329,6 +341,7 @@ async function supersedePattern(id, data, actorId, agencyId, actor) {
   }
   const days = normalizeDays(data.days);
   assertValidTimezone(data.timezone);
+  await assertPatternTimezoneSupported(agencyId, { ...data, locationId: data.locationId ?? oldPattern.locationId });
 
   // Worker is NOT re-validated/changeable here — it is the same employee the
   // old pattern already belongs to. Location is re-validated: a supersede is

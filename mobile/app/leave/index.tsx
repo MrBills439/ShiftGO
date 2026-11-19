@@ -12,7 +12,7 @@ import { getLeaveRequests, getLeaveBalance, createLeaveRequest, cancelLeaveReque
 import { apiErrorMessage } from '../../services/api';
 import { LeaveBalanceSummary, LeaveRequest } from '../../types';
 import { D } from '../../constants/theme';
-import { weekdaysInRange, fmtDate } from '../../lib/datetime';
+import { weekdaysInRange, fmtDate, fmtShortDate } from '../../lib/datetime';
 import { fmtLeaveDays, nextDayCaption } from '../../lib/leave';
 import { Skeleton } from '../../components/Skeleton';
 
@@ -311,9 +311,9 @@ export default function LeaveScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={s.reqType}>{LEAVE_TYPE}</Text>
                     <Text style={s.reqDates}>
-                      {new Date(req.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      {fmtShortDate(new Date(req.startDate))}
                       {'  –  '}
-                      {new Date(req.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {fmtDate(req.endDate)}
                     </Text>
                   </View>
                   <View style={[s.statusPill, { backgroundColor: `${statusColor(req.status)}1A` }]}>
@@ -327,7 +327,7 @@ export default function LeaveScreen() {
                 <View style={s.reqMetaRow}>
                   {req.totalHours > 0 && <Text style={s.reqMeta}>{fmtLeaveDays(req.totalHours, balance?.dailyHours)}</Text>}
                   <Text style={s.reqMeta}>
-                    Requested {new Date(req.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    Requested {fmtShortDate(new Date(req.createdAt))}
                   </Text>
                 </View>
 

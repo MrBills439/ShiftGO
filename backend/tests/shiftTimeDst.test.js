@@ -63,6 +63,7 @@ describe('fixed work pattern generation across daylight-saving changes', () => {
     await prisma.fixedWorkPattern.deleteMany({ where: { agencyId: agency.id } });
     await prisma.location.deleteMany({ where: { agencyId: agency.id } });
     await prisma.user.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.auditLog.deleteMany({ where: { agencyId: agency.id } });
     await prisma.agency.deleteMany({ where: { id: agency.id } });
     await prisma.$disconnect();
   });
@@ -115,6 +116,7 @@ describe('Schedule week uses agency days, not UTC days', () => {
     await prisma.shift.deleteMany({ where: { agencyId: agency.id } });
     await prisma.house.deleteMany({ where: { agencyId: agency.id } });
     await prisma.user.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.auditLog.deleteMany({ where: { agencyId: agency.id } });
     await prisma.agency.deleteMany({ where: { id: agency.id } });
     await prisma.$disconnect();
   });
@@ -141,5 +143,107 @@ describe('server-written times use the agency timezone (server runs in UTC)', ()
     expect(shiftStartLabel('2026-07-01T08:00:00Z', LON)).toMatch(/09:00/);
     expect(shiftStartLabel('2026-11-19T09:00:00Z', LON)).toMatch(/09:00/);
     expect(formatInZone('2026-07-01T16:00:00Z', LON, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })).toBe('17:00');
+  });
+});
+
+describe('equal start and end = a 24-hour shift, checked against the weekly hours limit', () => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-access-secret';
+  process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'test-refresh-secret';
+  const request = require('supertest');
+  const app = require('../src/app');
+  const { signAccess } = require('../src/utils/jwt');
+  const agencyCache = require('../src/lib/agencyCache');
+  const prisma = new PrismaClient();
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  let agency; let hr; let worker; let house; let token;
+
+  beforeAll(async () => {
+    agency = await prisma.agency.create({ data: { name: `24h ${suffix}`, timezone: LON, maxWeeklyScheduledHours: 40 } });
+    hr = await prisma.user.create({ data: { agencyId: agency.id, role: 'HR', name: '24h HR', email: `h24-hr-${suffix}@shiftgo.test`, passwordHash: 'x' } });
+    worker = await prisma.user.create({ data: { agencyId: agency.id, role: 'WORKER', name: '24h W', email: `h24-w-${suffix}@shiftgo.test`, passwordHash: 'x' } });
+    house = await prisma.house.create({ data: { agencyId: agency.id, name: `24h House ${suffix}`, address: 'x', latitude: 51, longitude: 0 } });
+    token = signAccess({ id: hr.id, agencyId: agency.id, role: 'HR', status: 'ACTIVE', name: hr.name, email: hr.email });
+  });
+  afterAll(async () => {
+    await prisma.shift.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.house.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.user.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.auditLog.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.agency.deleteMany({ where: { id: agency.id } });
+    await prisma.$disconnect();
+  });
+
+  // What the forms send for 2027-01-12 09:00 -> 09:00 (GMT, so instants equal wall time).
+  const day24 = (d) => ({ date: d, startTime: `${d}T09:00:00.000Z`, endTime: new Date(Date.parse(`${d}T09:00:00Z`) + 86_400_000).toISOString() });
+  const create = (body) => request(app).post('/shifts').set('Authorization', `Bearer ${token}`)
+    .send({ houseId: house.id, workerId: worker.id, shiftType: 'LONG_DAY', ...body });
+
+  test('a 24-hour shift within the weekly limit is accepted as exactly 24 hours', async () => {
+    const res = await create(day24('2027-01-12'));
+    expect(res.status).toBe(201);
+    const s = await prisma.shift.findUnique({ where: { id: res.body.data.id } });
+    expect((s.endTime - s.startTime) / 3_600_000).toBe(24);
+  });
+
+  test('a second 24-hour shift that takes the week past the 40h limit needs approval', async () => {
+    agencyCache.invalidate(agency.id);
+    const res = await create(day24('2027-01-14'));
+    expect(res.body.code).toBe('APPROVAL_REQUIRED');
+    expect(await prisma.shift.count({ where: { agencyId: agency.id } })).toBe(1);
+  });
+});
+
+describe('one timezone per agency: Location and pattern timezones', () => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-access-secret';
+  process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'test-refresh-secret';
+  const request = require('supertest');
+  const app = require('../src/app');
+  const { signAccess } = require('../src/utils/jwt');
+  const prisma = new PrismaClient();
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  let agency; let hr; let worker; let auth;
+
+  beforeAll(async () => {
+    agency = await prisma.agency.create({ data: { name: `TZ ${suffix}`, timezone: LON } });
+    hr = await prisma.user.create({ data: { agencyId: agency.id, role: 'HR', name: 'TZ HR', email: `tz-hr-${suffix}@shiftgo.test`, passwordHash: 'x' } });
+    worker = await prisma.user.create({ data: { agencyId: agency.id, role: 'WORKER', name: 'TZ W', email: `tz-w-${suffix}@shiftgo.test`, passwordHash: 'x' } });
+    auth = `Bearer ${signAccess({ id: hr.id, agencyId: agency.id, role: 'HR', status: 'ACTIVE', name: hr.name, email: hr.email })}`;
+  });
+  afterAll(async () => {
+    await prisma.fixedWorkPatternDay.deleteMany({ where: { pattern: { agencyId: agency.id } } });
+    await prisma.fixedWorkPattern.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.location.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.user.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.auditLog.deleteMany({ where: { agencyId: agency.id } });
+    await prisma.agency.deleteMany({ where: { id: agency.id } });
+    await prisma.$disconnect();
+  });
+
+  test('a new Location in a different timezone is refused; blank or the agency timezone is fine', async () => {
+    const bad = await request(app).post('/locations').set('Authorization', auth).send({ name: `NY ${suffix}`, type: 'OFFICE', timezone: 'America/New_York' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe('TIMEZONE_NOT_SUPPORTED');
+    expect((await request(app).post('/locations').set('Authorization', auth).send({ name: `Blank ${suffix}`, type: 'OFFICE' })).status).toBe(201);
+    expect((await request(app).post('/locations').set('Authorization', auth).send({ name: `Ldn ${suffix}`, type: 'OFFICE', timezone: LON })).status).toBe(201);
+  });
+
+  test('an existing different-timezone Location is not changed, can still be edited, but not set to another zone', async () => {
+    const loc = await prisma.location.create({ data: { agencyId: agency.id, name: `Legacy ${suffix}`, type: 'OFFICE', timezone: 'America/New_York' } });
+    const rename = await request(app).patch(`/locations/${loc.id}`).set('Authorization', auth).send({ name: `Legacy renamed ${suffix}` });
+    expect(rename.status).toBe(200);
+    expect((await prisma.location.findUnique({ where: { id: loc.id } })).timezone).toBe('America/New_York');
+    const setTz = await request(app).patch(`/locations/${loc.id}`).set('Authorization', auth).send({ timezone: 'Asia/Tokyo' });
+    expect(setTz.body.code).toBe('TIMEZONE_NOT_SUPPORTED');
+  });
+
+  test('a work pattern in a different timezone, or at a Location in one, is refused', async () => {
+    const office = await prisma.location.create({ data: { agencyId: agency.id, name: `Office ${suffix}`, type: 'OFFICE' } });
+    const nyOffice = await prisma.location.create({ data: { agencyId: agency.id, name: `NY Office ${suffix}`, type: 'OFFICE', timezone: 'America/New_York' } });
+    const body = (extra) => ({ workerId: worker.id, effectiveFrom: '2027-01-04', days: [{ weekday: 1, startTime: '09:00', endTime: '17:00' }], ...extra });
+    const a = await request(app).post('/fixed-work-patterns').set('Authorization', auth).send(body({ locationId: office.id, timezone: 'America/New_York' }));
+    expect(a.body.code).toBe('TIMEZONE_NOT_SUPPORTED');
+    const b = await request(app).post('/fixed-work-patterns').set('Authorization', auth).send(body({ locationId: nyOffice.id }));
+    expect(b.body.code).toBe('TIMEZONE_NOT_SUPPORTED');
+    expect(await prisma.fixedWorkPattern.count({ where: { agencyId: agency.id } })).toBe(0);
   });
 });

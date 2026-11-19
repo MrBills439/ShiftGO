@@ -15,6 +15,7 @@ import { COVER_ROLE_GROUPS, isGroupSelected, toggleGroupRoles } from '@/lib/cove
 import { shiftTimesFromForm, instantToAgencyParts, type AmbiguousChoice, type TimeProblem } from '@/lib/shiftTime';
 import { useAgencyTimeZone } from '@/hooks/useAgencyTimeZone';
 import { ShiftTimeProblem } from '@/components/shifts/ShiftTimeProblem';
+import { ShiftLengthSummary } from '@/components/shifts/ShiftLengthSummary';
 
 interface ShiftModalProps {
   defaultDate?: string;
@@ -311,7 +312,7 @@ export function ShiftModal({
                 required
               />
             </FieldShell>
-            <FieldShell label="End time *" hint={`An end time at or before the start is the next day. Times are ${timeZone} time.`}>
+            <FieldShell label="End time *" hint={`Earlier than the start = next day; same as the start = a 24-hour shift. Times are ${timeZone} time.`}>
               <Input
                 type="time"
                 value={form.endTime}
@@ -320,6 +321,7 @@ export function ShiftModal({
               />
             </FieldShell>
           </div>
+          <ShiftLengthSummary date={form.date} startTime={form.startTime} endTime={form.endTime} timeZone={timeZone} choices={choices} />
 
           {/* Actions */}
           <div className="flex gap-3 border-t border-border pt-4">

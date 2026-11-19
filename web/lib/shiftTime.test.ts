@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  resolveWallTime, shiftTimesFromForm, instantToAgencyParts, formatTimeInZone, addCalendarDays,
+  resolveWallTime, shiftTimesFromForm, instantToAgencyParts, formatTimeInZone, addCalendarDays, describeShiftLength,
 } from './shiftTime.ts';
 
 const LON = 'Europe/London';
@@ -37,9 +37,26 @@ test('overnight in winter and summer: end on the next day', () => {
   assert.equal(s.endTime, '2026-07-02T07:00:00.000Z');
 });
 
-test('equal start and end is a 24-hour shift (unchanged behaviour)', () => {
+test('equal start and end is intentionally a 24-hour shift, and the form says so', () => {
   const r = ok({ date: '2026-11-19', startTime: '08:00', endTime: '08:00', timeZone: LON });
   assert.equal(+new Date(r.endTime) - +new Date(r.startTime), 24 * 3_600_000);
+  assert.equal(r.fullDay, true);
+  assert.equal(r.durationMinutes, 1440);
+  assert.equal(describeShiftLength(r, '08:00'), '24-hour shift: ends 08:00 the next day');
+});
+
+test('a 24-hour shift across a clock change is honest about real hours', () => {
+  const spring = ok({ date: '2026-03-28', startTime: '09:00', endTime: '09:00', timeZone: LON });
+  assert.equal(spring.durationMinutes, 23 * 60);
+  assert.match(describeShiftLength(spring, '09:00'), /23h because the clocks change/);
+  const autumn = ok({ date: '2026-10-24', startTime: '09:00', endTime: '09:00', timeZone: LON });
+  assert.equal(autumn.durationMinutes, 25 * 60);
+});
+
+test('length summary for day and overnight shifts', () => {
+  assert.equal(describeShiftLength(ok({ date: '2026-11-19', startTime: '09:00', endTime: '17:30', timeZone: LON }), '17:30'), '8h 30m');
+  assert.equal(describeShiftLength(ok({ date: '2026-11-19', startTime: '20:00', endTime: '08:00', timeZone: LON }), '08:00'),
+    'Overnight: ends 08:00 the next day (12h)');
 });
 
 test('spring forward: 01:30 on 29 Mar does not exist and is refused', () => {

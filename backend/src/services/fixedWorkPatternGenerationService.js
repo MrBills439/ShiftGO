@@ -39,10 +39,26 @@ const RESULT = {
   // The pattern's start or end time does not exist on this date in the
   // pattern's timezone (clocks go forward). Skipped and reported, never guessed.
   SKIPPED_NONEXISTENT_TIME: 'SKIPPED_NONEXISTENT_TIME',
+  // The pattern (or its Location) has a timezone different from the agency's.
+  // Not supported in this release: nothing is generated for the pattern.
+  BLOCKED_TIMEZONE_MISMATCH: 'BLOCKED_TIMEZONE_MISMATCH',
   ERROR: 'ERROR',
 };
 
 const WALL_CLOCK_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Why a pattern can't be generated under the one-timezone-per-agency rule,
+ *  or null. Compares resolved IANA names (an alias of the same zone, e.g.
+ *  "GB" vs "Europe/London", is treated as different: block, don't guess). */
+function timezoneMismatch(pattern, agencyTimezone) {
+  if (pattern.timezone && pattern.timezone !== agencyTimezone) {
+    return `Pattern timezone ${pattern.timezone} differs from the agency timezone ${agencyTimezone}; not supported yet`;
+  }
+  if (pattern.location?.timezone && pattern.location.timezone !== agencyTimezone) {
+    return `Location "${pattern.location.name}" timezone ${pattern.location.timezone} differs from the agency timezone ${agencyTimezone}; not supported yet`;
+  }
+  return null;
+}
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /** True only for a P2002 on Shift's specific (fixedWorkPatternId, date)
@@ -168,6 +184,7 @@ async function generateFixedWorkPatternShifts({ agencyId, patternId, fromDate, h
     skippedInactiveWorker: 0,
     skippedConflict: 0,
     skippedNonexistentTime: 0,
+    blockedTimezoneMismatch: 0,
     weeklyHoursReviewRequired: 0,
     errors: [],
     occurrences: [],
@@ -206,12 +223,21 @@ async function generateFixedWorkPatternShifts({ agencyId, patternId, fromDate, h
       const agency = await agencyCache.getAgencySettings(pattern.agencyId);
       const agencyTimezone = resolveTimeZone(agency?.timezone);
       const maxWeeklyScheduledHours = agency?.maxWeeklyScheduledHours ?? 60;
-      // Effective timezone for THIS pattern's wall-clock day/start/end times:
-      // pattern.timezone -> Location.timezone -> Agency.timezone. Distinct from
-      // `agencyTimezone` above, which is always Agency.timezone specifically —
-      // that is the one true definition of "the agency week" for the weekly-
-      // hours ceiling (matches shiftService.assertWeeklyHoursOk exactly).
-      const patternTimezone = resolveTimeZone(pattern.timezone || pattern.location.timezone || agency?.timezone);
+      // This release supports ONE timezone per agency for shift times: manual
+      // shifts, generation, notifications and exports all use Agency.timezone.
+      // A pattern or Location configured with a DIFFERENT timezone is not
+      // supported yet: block it (generate nothing, report why) rather than
+      // guess which clock was meant or change the stored settings.
+      const mismatch = timezoneMismatch(pattern, agencyTimezone);
+      if (mismatch) {
+        summary.blockedTimezoneMismatch += 1;
+        summary.occurrences.push({
+          patternId: pattern.id, workerId: pattern.workerId, date: null,
+          status: RESULT.BLOCKED_TIMEZONE_MISMATCH, reason: mismatch,
+        });
+        continue;
+      }
+      const patternTimezone = agencyTimezone;
       const patternWeeklyHours = calcPatternWeeklyHours(pattern.days);
 
       const todayYmd = ymdInZone(patternTimezone, new Date());
@@ -381,4 +407,4 @@ async function generateFixedWorkPatternShifts({ agencyId, patternId, fromDate, h
   return summary;
 }
 
-module.exports = { generateFixedWorkPatternShifts, RESULT };
+module.exports = { generateFixedWorkPatternShifts, RESULT, timezoneMismatch };
