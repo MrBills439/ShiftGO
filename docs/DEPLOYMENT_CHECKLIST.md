@@ -277,6 +277,8 @@ First-time / out-of-band manual apply (e.g. a brand-new database):
 DATABASE_URL="postgresql://..." npm run db:migrate:deploy   # never `db:migrate` (that is migrate dev)
 ```
 
+> **Current hosting: Google Cloud.** Follow `deploy/gcp/README.md` (one script deploys everything). The Railway notes below are kept for reference.
+
 ### Build & Deploy Backend
 ```bash
 # 1. Set up production database (Railway, AWS RDS, DigitalOcean, etc.)

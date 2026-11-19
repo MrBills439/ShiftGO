@@ -137,6 +137,10 @@ app.get('/metrics', (req, res) => {
   res.json(metrics.snapshot());
 });
 
+// Background job ticks triggered by an outside scheduler (Cloud Run). Secret-
+// protected, 404 when JOBS_SECRET is unset. Outside the rate limiter.
+app.use('/internal/jobs', require('./routes/internalJobs'));
+
 // General API limiter. Health checks are intentionally outside this limiter.
 app.use(apiLimiter);
 
