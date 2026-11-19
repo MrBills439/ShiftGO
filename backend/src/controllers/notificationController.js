@@ -47,7 +47,7 @@ async function pushStatus(req, res) {
 }
 
 async function sendTestPush(req, res) {
-  const { token, title = 'ShiftGO test notification', body = 'This is a ShiftGO push notification test.' } = req.body;
+  const { token, title = 'LeafRota test notification', body = 'This is a LeafRota push notification test.' } = req.body;
   const result = await notificationService.sendPush(token, { title, body });
   if (!result.sent) {
     const statusCode = result.reason === 'firebase-not-ready' ? 503 : 400;

@@ -19,7 +19,7 @@ const LOCATION_TYPES: LocationType[] = ['CARE_SERVICE', 'SUPPORTED_LIVING', 'RES
 const META: Record<Entity, { title: string; subtitle: string; singular: string }> = {
   department: { title: 'Departments', subtitle: 'How your organisation is grouped — Care, HR, Finance, IT…', singular: 'department' },
   jobTitle: { title: 'Job Titles', subtitle: 'What people do. Never a system permission.', singular: 'job title' },
-  location: { title: 'Locations', subtitle: 'Services and offices. Geofence here does NOT affect care clock-in yet — House settings still do.', singular: 'location' },
+  location: { title: 'Locations', subtitle: 'Services and offices. Geofence here does NOT affect care clock-in yet — Service settings still do.', singular: 'location' },
 };
 
 export function OrgStructureManager({ entity }: { entity: Entity }) {

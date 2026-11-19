@@ -306,7 +306,7 @@ async function generatePDF(houseId, res, agencyId) {
   doc.pipe(res);
 
   const house = timesheets[0]?.house;
-  doc.fontSize(20).font('Helvetica-Bold').text('ShiftGO — Confirmed Timesheet', { align: 'center' });
+  doc.fontSize(20).font('Helvetica-Bold').text('LeafRota — Confirmed Timesheet', { align: 'center' });
   doc.moveDown(0.5);
   if (house) {
     doc.fontSize(14).font('Helvetica').text(`House: ${house.name}`, { align: 'center' });

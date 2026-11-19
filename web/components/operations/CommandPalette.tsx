@@ -64,7 +64,7 @@ export function CommandPalette() {
         ]
       : [
           { id: 'today', title: 'Today', description: 'Operations overview', category: 'page', href: '/dashboard' },
-          { id: 'operations', title: 'Operations', description: 'Live command centre', category: 'page', href: '/dashboard/operations' },
+          { id: 'operations', title: 'Operations', description: "Today's shifts and issues", category: 'page', href: '/dashboard/operations' },
           { id: 'schedule', title: 'Schedule', description: 'Shift planning', category: 'page', href: '/dashboard/rota' },
           { id: 'people', title: 'Staff', description: 'Staff management', category: 'page', href: '/dashboard/workers' },
           { id: 'locations', title: 'Services', description: 'Care homes', category: 'page', href: '/dashboard/houses' },

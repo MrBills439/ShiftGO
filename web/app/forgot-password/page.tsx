@@ -58,7 +58,7 @@ function ForgotPasswordForm() {
   }
 
   return (
-    <AuthCard title="Check your email" subtitle={`If ${email} has a ShiftGO account, we've sent it a code. It works for 10 minutes.`}>
+    <AuthCard title="Check your email" subtitle={`If ${email} has a LeafRota account, we've sent it a code. It works for 10 minutes.`}>
       <form onSubmit={reset} className="space-y-4">
         <AuthField id="otp" label="6-digit code" inputMode="numeric" autoComplete="one-time-code" required
           maxLength={7} value={otp} onChange={(e) => setOtp(e.target.value)} />

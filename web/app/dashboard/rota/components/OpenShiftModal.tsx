@@ -43,7 +43,7 @@ export function OpenShiftModal({ defaultDate, defaultHouseId, onClose, onSuccess
     setError(null);
 
     if (!form.houseId) {
-      setError('Please select a house');
+      setError('Please select a service');
       return;
     }
     if (eligibleRoles.length === 0) {
@@ -102,13 +102,13 @@ export function OpenShiftModal({ defaultDate, defaultHouseId, onClose, onSuccess
             </div>
           )}
 
-          <FieldShell label="House/site *">
+          <FieldShell label="Service *">
             <Select
               value={form.houseId}
               onChange={(e) => handleChange('houseId', e.target.value)}
               required
             >
-              <option value="">Select a house</option>
+              <option value="">Select a service</option>
               {houses?.map((h: House) => (
                 <option key={h.id} value={h.id}>
                   {h.name}

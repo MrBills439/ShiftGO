@@ -78,6 +78,8 @@ jobs:
       - run: npm ci
       - name: Accessibility lint (jsx-a11y)
         run: npm run lint:a11y
+      - name: Unit tests (dashboard states, dates)
+        run: npm test
       - run: npx next build # includes the TypeScript check
       - name: Fail on critical dependency advisories
         run: npm audit --omit=dev --audit-level=critical
@@ -102,3 +104,12 @@ jobs:
       - run: npx jest --ci
       - name: Fail on critical dependency advisories
         run: npm audit --omit=dev --audit-level=critical
+
+  deploy-script:
+    name: Deploy script checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n deploy/gcp/deploy.sh
+      - name: Email sender is preserved across deploys (stub gcloud)
+        run: bash deploy/gcp/test/email_from.test.sh

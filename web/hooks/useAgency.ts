@@ -3,8 +3,9 @@ import { api } from '@/lib/api';
 import type { AgencySettings } from '@/types';
 
 /** The caller's own agency settings (managers + HR can read). */
-export function useAgency() {
+export function useAgency(enabled = true) {
   return useQuery<AgencySettings>({
+    enabled,
     queryKey: ['agency'],
     queryFn: async () => {
       const { data } = await api.get('/agency');

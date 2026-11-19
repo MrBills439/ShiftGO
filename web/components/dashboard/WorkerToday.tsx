@@ -175,8 +175,8 @@ function NextShiftCard({ shift, live }: { shift: Shift; live: boolean }) {
 
         <p className="mt-5 text-xs text-fg-muted">
           {live
-            ? 'Remember to clock out from the ShiftGO mobile app when your shift ends.'
-            : 'Clock in from the ShiftGO mobile app when you arrive on site.'}
+            ? 'Remember to clock out in the mobile app when your shift ends.'
+            : 'Clock in from the mobile app when you arrive on site.'}
         </p>
       </div>
     </Card>

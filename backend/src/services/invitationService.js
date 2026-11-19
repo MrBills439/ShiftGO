@@ -52,14 +52,14 @@ async function sendInvitation(pendingId) {
   const greeting = pending.name ? `Hello ${pending.name},` : 'Hello,';
   const lines = [
     greeting,
-    `${pending.agency.name} has invited you to ShiftGO, where you will see your shifts, clock in and out, and manage your leave.`,
+    `${pending.agency.name} has invited you to LeafRota, where you will see your shifts, clock in and out, and manage your leave.`,
     `Use the button below to choose your password. The link works once and expires in ${INVITE_TTL_DAYS} days.`,
   ];
   await email.sendEmail({
     to: pending.email,
-    subject: `You're invited to ShiftGO by ${pending.agency.name}`,
+    subject: `You're invited to LeafRota by ${pending.agency.name}`,
     text: `${lines.join('\n\n')}\n\n${url}`,
-    html: email.layout('You have been invited to ShiftGO', lines, { url, label: 'Choose your password' }),
+    html: email.layout('You have been invited to LeafRota', lines, { url, label: 'Choose your password' }),
   });
   return { email: pending.email, expiresAt };
 }

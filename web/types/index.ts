@@ -296,6 +296,14 @@ export interface DashboardToday {
   openShifts: DashboardOpenShift[];
   openShiftsToday: number;
   staff: { total: number };
+  /** New-agency checklist facts (agency-wide counts). MANAGER/HR only; null otherwise. */
+  setup: {
+    employeeIdPrefixSet: boolean;
+    services: number;
+    activeStaff: number;
+    pendingInvitations: number;
+    shifts: number;
+  } | null;
 }
 
 // ─── Agency settings (GET/PATCH /agency) ───────────────────────────────────

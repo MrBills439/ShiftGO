@@ -465,7 +465,7 @@ function SystemAccessPanel({ employee, isHr, isSelf }: { employee: User; isHr: b
         <Badge variant={ROLE_VARIANT[employee.role]} label={ACCESS_LABELS[employee.role]} dot={false} />
       </div>
       <p className="mt-2 max-w-prose text-sm text-fg-muted">
-        System access controls what this employee can see and manage in ShiftGO. It is separate from
+        System access controls what this employee can see and manage in LeafRota. It is separate from
         their job title — a Registered Manager can hold “Employee” access, and vice versa.
       </p>
       {isHr && (
@@ -529,7 +529,7 @@ function RoleChangeModal({ open, employee, onClose }: { open: boolean; employee:
         </div>
 
         <div className="rounded-lg border border-warning-border bg-warning-bg/50 p-3 text-sm text-warning-text">
-          Changing system access changes what this employee can view and manage in ShiftGO.
+          Changing system access changes what this employee can view and manage in LeafRota.
         </div>
         {grantingHr && (
           <div className="rounded-lg border border-danger-border bg-danger-bg/50 p-3 text-sm text-danger-text">
@@ -541,7 +541,7 @@ function RoleChangeModal({ open, employee, onClose }: { open: boolean; employee:
 
         <label className="flex items-start gap-2 text-sm text-fg-muted">
           <input type="checkbox" className="mt-0.5" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-          I understand this changes what {employee.name} can do in ShiftGO.
+          I understand this changes what {employee.name} can do in LeafRota.
         </label>
 
         {err && <p className="text-sm text-danger">{err}</p>}
@@ -586,7 +586,7 @@ function DeactivateModal({
       <form onSubmit={submit} className="space-y-4">
         <LoadingOverlay show={deactivate.isPending} label="Deactivating…" />
         <div className="rounded-lg border border-warning-border bg-warning-bg/50 p-3 text-sm text-warning-text">
-          Deactivating this employee will immediately revoke their ShiftGO sign-in sessions and block
+          Deactivating this employee will immediately revoke their LeafRota sign-in sessions and block
           future access. Historical records will be preserved.
         </div>
 

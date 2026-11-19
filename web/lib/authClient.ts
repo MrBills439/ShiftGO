@@ -1,7 +1,7 @@
 'use client';
 /**
  * Better Auth client. Requests go to /api/auth/* on this origin, which
- * next.config.mjs proxies to the ShiftGO API's /auth/* routes.
+ * next.config.mjs proxies to the LeafRota API's /auth/* routes.
  */
 import { createAuthClient } from 'better-auth/react';
 import { twoFactorClient, emailOTPClient } from 'better-auth/client/plugins';

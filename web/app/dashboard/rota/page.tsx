@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CaretLeftIcon, CaretRightIcon, CalendarBlankIcon, ListChecksIcon, HourglassMediumIcon } from '@phosphor-icons/react';
 import { useRotaWeek, useWorkers } from '@/hooks/useRota';
+import { useAgency } from '@/hooks/useAgency';
+import { todayInTimeZone, mondayOf, addDays, defaultShiftDate } from '@/lib/agencyDate';
 import { useHouses } from '@/hooks/useHouses';
 import { useOpenShift } from '@/hooks/useShifts';
 import { RotaWeekView } from './components/RotaWeekView';
@@ -20,33 +22,24 @@ import { SHIFT_TYPE_OPTIONS, SHIFT_TYPE_META } from '@/lib/shiftTypes';
 import { COVER_ROLE_GROUPS, isGroupSelected, toggleGroupRoles } from '@/lib/coverRoles';
 import type { User, Shift, Role } from '@/types';
 
-function mondayOfWeek(date: Date) {
-  const next = new Date(date);
-  const day = next.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  next.setDate(next.getDate() + diff);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
-function toDateInput(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function formatWeekRange(start: Date) {
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return `${start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+/** "16 Nov - 22 Nov 2026" for a Monday "YYYY-MM-DD" (calendar dates, so no timezone shift). */
+function formatWeekRange(weekStart: string) {
+  const fmt = (d: string, o: Intl.DateTimeFormatOptions) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-GB', { ...o, timeZone: 'UTC' });
+  return `${fmt(weekStart, { day: '2-digit', month: 'short' })} - ${fmt(addDays(weekStart, 6), { day: '2-digit', month: 'short', year: 'numeric' })}`;
 }
 
 export default function RotaPage() {
   const router = useRouter();
   const { user } = useAuthStore();
   const canManageRota = user?.role === 'MANAGER' || user?.role === 'HR';
-  const [currentDate, setCurrentDate] = useState(() => mondayOfWeek(new Date()));
+  // Dates follow the agency's timezone (Admin → Agency settings), not the browser's.
+  const agencyQuery = useAgency();
+  const agencyTz = agencyQuery.data?.timezone;
+  const agencyReady = agencyQuery.isFetched;
+  const today = todayInTimeZone(agencyTz);
+  // null = "the week containing today"; set when the person navigates weeks.
+  const [navWeek, setNavWeek] = useState<string | null>(null);
+  const weekStart = navWeek ?? mondayOf(today);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selectedShift, setSelectedShift] = useState<{
     date: string;
@@ -65,7 +58,7 @@ export default function RotaPage() {
   const toast = useToast();
   const openShift = useOpenShift();
 
-  const startDateStr = toDateInput(currentDate);
+  const startDateStr = weekStart;
   const { data: rota, isLoading, error } = useRotaWeek(startDateStr, filters);
   const { data: houses = [] } = useHouses();
   const { data: workers = [] } = useWorkers('WORKER');
@@ -85,6 +78,18 @@ export default function RotaPage() {
     if (!canManageRota) router.replace('/dashboard');
   }, [canManageRota, router]);
 
+  // "/dashboard/rota?create=1" (dashboard "Create shift" and setup checklist)
+  // opens the shift form dated today in the agency's timezone.
+  useEffect(() => {
+    if (!canManageRota || !agencyReady) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('create') !== '1') return;
+    setSelectedShift({ date: defaultShiftDate({ timeZone: agencyTz }) });
+    params.delete('create');
+    const qs = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+  }, [canManageRota, agencyReady, agencyTz]);
+
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   const operationalSummary = useMemo(() => {
@@ -96,12 +101,8 @@ export default function RotaPage() {
 
   if (!canManageRota) return null;
 
-  function changeWeek(delta: number) {
-    setCurrentDate((value) => {
-      const next = new Date(value);
-      next.setDate(value.getDate() + delta);
-      return mondayOfWeek(next);
-    });
+  function changeWeek(deltaDays: number) {
+    setNavWeek(mondayOf(addDays(weekStart, deltaDays)));
   }
 
   function handleFilterChange(key: string, value: string) {
@@ -145,8 +146,9 @@ export default function RotaPage() {
               icon={<CalendarBlankIcon size={16} />}
               onClick={() =>
                 mode === 'assign'
-                  ? setSelectedShift({ date: startDateStr })
-                  : setOpenShiftTarget({ date: startDateStr, houseId: houses[0]?.id ?? '' })
+                  // Generic create: today (agency timezone), not the Monday of the week shown.
+                  ? setSelectedShift({ date: defaultShiftDate({ timeZone: agencyTz }) })
+                  : setOpenShiftTarget({ date: defaultShiftDate({ timeZone: agencyTz }), houseId: houses[0]?.id ?? '' })
               }
             >
               {mode === 'assign' ? 'Create shift' : 'Post open shift'}
@@ -166,7 +168,7 @@ export default function RotaPage() {
             />
             <div className="min-w-[260px] rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-center">
               <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">Week commencing</p>
-              <p className="font-inter text-base font-semibold text-fg mt-1">{formatWeekRange(currentDate)}</p>
+              <p className="font-inter text-base font-semibold text-fg mt-1">{formatWeekRange(weekStart)}</p>
             </div>
             <Button
               variant="secondary"
@@ -176,7 +178,7 @@ export default function RotaPage() {
             />
             <Button
               variant="ghost"
-              onClick={() => setCurrentDate(mondayOfWeek(new Date()))}
+              onClick={() => setNavWeek(null)}
               className="ml-2"
             >
               Today
@@ -198,7 +200,7 @@ export default function RotaPage() {
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success-solid" />
               </span>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-fg-muted">Live Now</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-fg-muted">In progress</p>
                 <p className="font-inter text-lg font-semibold tabular-nums text-success">{operationalSummary.liveShifts}</p>
               </div>
             </div>
@@ -222,9 +224,9 @@ export default function RotaPage() {
             ))}
           </Select>
         </FieldShell>
-        <FieldShell label="House/site">
+        <FieldShell label="Service">
           <Select value={filters.houseId || ''} onChange={(e) => handleFilterChange('houseId', e.target.value)}>
-            <option value="">All houses</option>
+            <option value="">All services</option>
             {houses?.map((house) => (
               <option key={house.id} value={house.id}>{house.name}</option>
             ))}

@@ -155,6 +155,18 @@ export default function StaffPage() {
 
   const canViewStaff = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
   const canManageStaff = ['HR', 'MANAGER'].includes(user?.role ?? '');
+  // "/dashboard/workers?add=1" (dashboard "Invite staff" and setup checklist)
+  // opens the Add employee form straight away, then tidies the address bar.
+  useEffect(() => {
+    if (!canManageStaff) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('add') === '1') {
+      setCreateOpen(true);
+      params.delete('add');
+      const qs = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+    }
+  }, [canManageStaff]);
   const canAssignWorker = ['HR', 'MANAGER', 'TEAM_LEADER'].includes(user?.role ?? '');
   // Managers can create staff, but not HR accounts — that stays HR-only.
   const creatableRoles = user?.role === 'MANAGER' ? ROLE_OPTIONS.filter((r) => r !== 'HR') : ROLE_OPTIONS;
@@ -209,9 +221,9 @@ export default function StaffPage() {
       await assignWorker.mutateAsync({ workerId: assignOpen.id, houseId: assignHouseId });
       setAssignOpen(null);
       setAssignHouseId('');
-      toast.success(`${assignOpen.name} assigned to house`);
+      toast.success(`${assignOpen.name} assigned to service`);
     } catch {
-      toast.error('Failed to assign worker to house');
+      toast.error('Failed to assign worker to service');
     }
   }
 
@@ -565,7 +577,7 @@ export default function StaffPage() {
                   <button
                     onClick={() => setAssignOpen({ id: u.id, name: u.name })}
                     className="p-1.5 rounded text-fg-muted hover:text-primary hover:bg-primary/10 transition-colors"
-                    aria-label={`Assign house to ${u.name}`}
+                    aria-label={`Assign service to ${u.name}`}
                     title="Assign to a service"
                   >
                     <BuildingsIcon size={15} />
@@ -608,17 +620,17 @@ export default function StaffPage() {
       <Modal
         open={!!assignOpen}
         onClose={() => setAssignOpen(null)}
-        title={`Assign ${assignOpen?.name} to House`}
+        title={`Assign ${assignOpen?.name} to a service`}
       >
         <form onSubmit={handleAssign} className="space-y-4">
           <LoadingOverlay show={assignWorker.isPending} label="Assigning…" />
-          <FieldShell label="House *">
+          <FieldShell label="Service *">
             <UiSelect
               value={assignHouseId}
               onChange={(e) => setAssignHouseId(e.target.value)}
               required
             >
-              <option value="">Select house…</option>
+              <option value="">Select service…</option>
               {houses.map((h) => (
                 <option key={h.id} value={h.id}>{h.name}</option>
               ))}
@@ -633,7 +645,7 @@ export default function StaffPage() {
               type="submit"
               disabled={assignWorker.isPending}
             >
-              {assignWorker.isPending ? 'Assigning…' : 'Assign House'}
+              {assignWorker.isPending ? 'Assigning…' : 'Assign service'}
             </Button>
           </div>
         </form>

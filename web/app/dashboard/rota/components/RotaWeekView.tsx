@@ -140,7 +140,7 @@ export function RotaWeekView({ rota, houses, workers, mode, onAddShift, onOpenSh
             </h2>
             <p className="mt-1 text-xs text-fg-muted">
               {mode === 'assign'
-                ? 'Drag a worker into a house/day cell to assign a shift.'
+                ? 'Drag a worker into a service/day cell to assign a shift.'
                 : 'Switch to Assign Worker mode to drag a worker directly onto a shift.'}
             </p>
           </div>

@@ -28,7 +28,7 @@ function layout(title, paragraphs, action) {
     : '';
   return `<!doctype html><html lang="en"><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1a1815;max-width:560px;margin:0 auto;padding:24px">
 <h1 style="font-size:20px;margin:0 0 16px">${escapeHtml(title)}</h1>${body}${button}
-<p style="margin:24px 0 0;font-size:12px;color:#726b64">Sent by ShiftGO. If you weren't expecting this, you can ignore it.</p></body></html>`;
+<p style="margin:24px 0 0;font-size:12px;color:#726b64">Sent by LeafRota, a product of PIPCoRD. If you weren't expecting this, you can ignore it.</p></body></html>`;
 }
 
 async function sendEmail({ to, subject, text, html }) {
@@ -37,7 +37,10 @@ async function sendEmail({ to, subject, text, html }) {
     return { id: `test-${outbox.length}` };
   }
   const key = process.env.RESEND_API_KEY;
-  if (!key) {
+  const from = process.env.EMAIL_FROM;
+  // Production never falls back to a default sender: a missing EMAIL_FROM is a
+  // configuration error, reported instead of silently sending from elsewhere.
+  if (!key || (!from && process.env.NODE_ENV === 'production')) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Email is not configured: set RESEND_API_KEY and EMAIL_FROM.');
     }
@@ -47,7 +50,7 @@ async function sendEmail({ to, subject, text, html }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: process.env.EMAIL_FROM || 'ShiftGO <onboarding@resend.dev>', to: [to], subject, text, html }),
+    body: JSON.stringify({ from: from || 'LeafRota <onboarding@resend.dev>', to: [to], subject, text, html }),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');

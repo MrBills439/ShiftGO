@@ -8,7 +8,7 @@ const RETRY_DELAYS_MS = [1000, 2000, 4000];
 const PUBLIC_PATHS = ['/sign-in', '/forgot-password', '/accept-invite'];
 
 /**
- * Loads the signed-in person's ShiftGO profile (/users/me). The session itself
+ * Loads the signed-in person's LeafRota profile (/users/me). The session itself
  * is an HttpOnly cookie the browser sends automatically.
  *   401            -> signedOut (layouts send them to /sign-in)
  *   network/5xx    -> retried, then `profile_sync_failed` (real error screen)

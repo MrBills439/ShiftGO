@@ -50,7 +50,7 @@ function SignInForm() {
 
   if (step === 'code') {
     return (
-      <AuthCard title="Enter your code" subtitle={useBackup ? 'Type one of the backup codes you saved.' : 'Open your authenticator app and type the 6-digit code for ShiftGO.'}>
+      <AuthCard title="Enter your code" subtitle={useBackup ? 'Type one of the backup codes you saved.' : 'Open your authenticator app and type the current 6-digit code for your account (listed as “ShiftGO”).'}>
         <form onSubmit={submitCode} className="space-y-4">
           <AuthField
             id="code" label={useBackup ? 'Backup code' : '6-digit code'} required
@@ -75,7 +75,7 @@ function SignInForm() {
   }
 
   return (
-    <AuthCard title="Sign in to ShiftGO">
+    <AuthCard title="Sign in to LeafRota">
       <form onSubmit={submitPassword} className="space-y-4">
         {notice && <p role="status" className="rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm text-fg">{notice}</p>}
         <AuthField id="email" label="Email" type="email" autoComplete="email" required
@@ -92,7 +92,7 @@ function SignInForm() {
           </Link>
         </p>
         <p className="text-center text-xs text-fg-subtle">
-          New to ShiftGO? Use the invitation link your employer emailed you.
+          New to LeafRota? Use the invitation link your employer emailed you.
         </p>
       </form>
     </AuthCard>

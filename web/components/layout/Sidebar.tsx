@@ -1,10 +1,13 @@
 'use client';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   SquaresFourIcon, CalendarBlankIcon, BuildingsIcon, UsersIcon,
   ListChecksIcon, SignOutIcon, ShieldCheckIcon, UserCircleIcon, MegaphoneIcon,
+  ListIcon, XIcon,
 } from '@phosphor-icons/react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/store/authStore';
 import { ROLE_META, initials } from '@/lib/roles';
@@ -34,24 +37,82 @@ const NAV: NavItem[] = [
   { href: '/admin',                    label: 'Admin',         icon: ShieldCheckIcon, roles: ['HR'] },
 ];
 
+/** Product name in text only: there is no approved LeafRota logo asset yet. */
+function Brand() {
+  return (
+    <div>
+      <p className="text-base font-bold text-on-surface leading-none">LeafRota</p>
+      <p className="text-[11px] text-on-surface-variant font-inter mt-0.5">A product of PIPCoRD</p>
+    </div>
+  );
+}
+
+/**
+ * Desktop (lg+): fixed sidebar. Smaller screens: a top bar with a Menu button
+ * that opens the same navigation as a drawer, so the page keeps its full width.
+ */
 export function Sidebar() {
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const drawerRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false));
+
+  // Close the drawer after navigating.
+  useEffect(() => { setOpen(false); }, [pathname]);
+
+  return (
+    <>
+      <div className="lg:hidden sticky top-0 z-40 flex items-center justify-between border-b border-outline-variant/50 bg-white px-4 py-3">
+        <Brand />
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-expanded={open}
+          aria-controls="mobile-nav"
+          className="inline-flex h-10 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-fg"
+        >
+          <ListIcon size={18} aria-hidden="true" /> Menu
+        </button>
+      </div>
+
+      {open && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <button type="button" aria-label="Close menu" className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
+          <div
+            ref={drawerRef}
+            id="mobile-nav"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
+            tabIndex={-1}
+            className="absolute inset-y-0 left-0 flex w-[280px] max-w-[85vw] flex-col bg-white shadow-xl"
+          >
+            <SidebarContent onClose={() => setOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      <aside className="hidden lg:flex w-[280px] flex-shrink-0 h-screen sticky top-0 flex-col bg-white border-r border-outline-variant/50">
+        <SidebarContent />
+      </aside>
+    </>
+  );
+}
+
+function SidebarContent({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
 
   const visible = NAV.filter((n) => !n.roles || n.roles.includes(user?.role ?? ''));
 
   return (
-    <aside className="w-[280px] flex-shrink-0 h-screen sticky top-0 flex flex-col bg-white border-r border-outline-variant/50">
-      <div className="px-6 py-5 border-b border-outline-variant/30">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-white text-base font-bold font-sans">S</span>
-          </div>
-          <div>
-            <p className="text-base font-bold text-on-surface leading-none">ShiftGO</p>
-            <p className="text-[11px] text-on-surface-variant font-inter mt-0.5">Care Management</p>
-          </div>
-        </div>
+    <>
+      <div className="px-6 py-5 border-b border-outline-variant/30 flex items-start justify-between gap-2">
+        <Brand />
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close menu" className="rounded-md p-1.5 text-on-surface-variant hover:bg-surface-subtle">
+            <XIcon size={18} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
@@ -76,11 +137,13 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="px-3 py-3 border-t border-outline-variant/30">
-        <p className="text-[11px] text-on-surface-variant font-inter px-2">
-          Press <kbd className="bg-surface-low px-1.5 py-0.5 rounded text-[10px] font-medium">Cmd+K</kbd> to search
-        </p>
-      </div>
+      {!onClose && (
+        <div className="px-3 py-3 border-t border-outline-variant/30">
+          <p className="text-[11px] text-on-surface-variant font-inter px-2">
+            Press <kbd className="bg-surface-low px-1.5 py-0.5 rounded text-[10px] font-medium">Cmd+K</kbd> to search
+          </p>
+        </div>
+      )}
 
       <div className="px-3 py-3 border-t border-outline-variant/30">
         {(() => {
@@ -112,6 +175,6 @@ export function Sidebar() {
           );
         })()}
       </div>
-    </aside>
+    </>
   );
 }

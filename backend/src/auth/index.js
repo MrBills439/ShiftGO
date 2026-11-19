@@ -133,9 +133,9 @@ function getAuth() {
         expiresIn: 10 * 60,
         async sendVerificationOTP({ email, otp, type }) {
           if (type !== 'forget-password') return;
-          const subject = 'Your ShiftGO password reset code';
+          const subject = 'Your LeafRota password reset code';
           const lines = [
-            `Your code to reset your ShiftGO password is ${otp}.`,
+            `Your code to reset your LeafRota password is ${otp}.`,
             'It expires in 10 minutes. If you did not ask to reset your password, you can ignore this email.',
           ];
           // Not awaited: a slow mail provider must not reveal whether the address exists.
