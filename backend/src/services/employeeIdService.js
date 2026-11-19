@@ -64,7 +64,7 @@ async function generateEmployeeId(agencyId, client = prisma) {
   const prefix = agency && agency.employeeIdPrefix;
   if (!prefix) {
     throw httpErr(
-      'Set an Employee ID prefix in Admin → General before adding employees.',
+      'Set an employee ID prefix in Admin → Agency settings, or enter an employee ID yourself.',
       400, 'NO_EMPLOYEE_ID_PREFIX',
     );
   }

@@ -16,7 +16,7 @@ export interface ShiftAttendanceTarget {
   address: string | null;
   /** Neutral copy for the two target kinds — never the word "House" for a
    *  Location target, so office scheduling never shows care wording. */
-  label: 'House' | 'Location';
+  label: 'Service' | 'Location';
 }
 
 /**
@@ -35,7 +35,7 @@ export function shiftAttendanceTarget(
       id: shift.house.id,
       name: shift.house.name,
       address: shift.house.address ?? null,
-      label: 'House',
+      label: 'Service',
     };
   }
   if (shift.location) {

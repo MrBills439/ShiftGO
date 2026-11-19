@@ -84,19 +84,28 @@ interface ActivityFeedProps {
 }
 
 export function ActivityFeed({ limit = 20, title = 'Recent Activity' }: ActivityFeedProps) {
-  const { data: events = [], isLoading } = useActivityFeed(limit);
+  const { data, isLoading, isError, refetch } = useActivityFeed(limit);
+  const events = data ?? [];
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-semibold text-fg">{title}</h2>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-base font-semibold text-fg">{title}</h2>
+        <p className="text-xs text-fg-subtle">Refreshes every minute</p>
+      </div>
       <Card className="p-4">
         {isLoading ? (
-          <div className="text-center py-8">
+          <div className="text-center py-6" role="status" aria-label="Loading activity">
             <div className="w-6 h-6 rounded-full border-2 border-neutral-200 border-t-primary animate-spin mx-auto" />
           </div>
+        ) : isError && !data ? (
+          <div className="py-4 text-center" role="alert">
+            <p className="text-sm text-fg">Recent activity couldn&apos;t be loaded.</p>
+            <button type="button" onClick={() => refetch()} className="mt-2 text-sm font-medium text-brand-700 underline">Try again</button>
+          </div>
         ) : events.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-sm text-fg-muted">No recent activity</p>
+          <div className="text-center py-6">
+            <p className="text-sm text-fg-muted">No activity recorded yet.</p>
           </div>
         ) : (
           <div className="space-y-4">

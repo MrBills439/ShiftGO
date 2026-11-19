@@ -16,6 +16,8 @@ import { ShiftRequestsPanel } from '@/components/shifts/ShiftRequestsPanel';
 import { useHouses } from '@/hooks/useHouses';
 import { useLocationOptions } from '@/hooks/useOrgStructure';
 import { useUsers } from '@/hooks/useWorkers';
+import { useAgency } from '@/hooks/useAgency';
+import { todayInTimeZone } from '@/lib/agencyDate';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
 import { SHIFT_TYPE_OPTIONS, SHIFT_TYPE_META } from '@/lib/shiftTypes';
@@ -428,6 +430,15 @@ function ManageShiftsView() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const emptyForm = { kind: 'ROTA' as ShiftKind, houseId: '', locationId: '', workerId: '', date: '', startTime: '', endTime: '', shiftType: 'LONG_DAY' };
   const [form, setForm] = useState(emptyForm);
+  // Agency settings are readable by managers/HR; team leaders fall back to the browser's date.
+  const agencyTz = useAgency(isManagerLevel).data?.timezone;
+  /** Generic "New shift": blank form dated today in the agency's timezone. */
+  function openNewShift() {
+    setEditingId(null);
+    setErr('');
+    setForm({ ...emptyForm, date: todayInTimeZone(agencyTz) });
+    setOpen(true);
+  }
   const [err, setErr] = useState('');
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -578,9 +589,9 @@ function ManageShiftsView() {
     <div>
       <Header
         title="Shifts"
-        subtitle="Manage and schedule worker shifts across all houses"
+        subtitle="Manage and schedule worker shifts across all services"
         action={view === 'shifts' && canCreate && (
-          <button onClick={() => setOpen(true)} className="btn-primary">
+          <button onClick={openNewShift} className="btn-primary">
             <PlusIcon size={16} /> New Shift
           </button>
         )}
@@ -673,7 +684,7 @@ function ManageShiftsView() {
           icon={CalendarBlankIcon}
           title="No shifts yet"
           description="Create a shift to get started."
-          action={canCreate && <button onClick={() => setOpen(true)} className="btn-primary">New Shift</button>}
+          action={canCreate && <button onClick={openNewShift} className="btn-primary">New Shift</button>}
         />
       ) : (
         <div className="glass-card overflow-hidden">
@@ -739,7 +750,7 @@ function ManageShiftsView() {
                             onClick={() => openCopy(s)}
                             className="p-1.5 rounded text-outline hover:text-primary hover:bg-primary/10 transition-colors"
                             aria-label="Copy shift"
-                            title="Create a new shift pre-filled with the same worker, house, and type"
+                            title="Create a new shift pre-filled with the same worker, service, and type"
                           >
                             <CopyIcon size={15} />
                           </button>
@@ -801,7 +812,7 @@ function ManageShiftsView() {
                     form.kind === k ? 'bg-primary text-white' : 'text-on-surface-variant hover:text-on-surface'
                   )}
                 >
-                  {k === 'ROTA' ? 'Rota (House)' : 'Fixed (Location)'}
+                  {k === 'ROTA' ? 'Rota (Service)' : 'Fixed (Location)'}
                 </button>
               ))}
             </div>
@@ -809,9 +820,9 @@ function ManageShiftsView() {
 
           {form.kind === 'ROTA' ? (
             <div>
-              <label htmlFor="shifts-house" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">House</label>
+              <label htmlFor="shifts-house" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Service</label>
               <select id="shifts-house" value={form.houseId} onChange={(e) => setForm({ ...form, houseId: e.target.value })} className="input-field" required>
-                <option value="">Select house…</option>
+                <option value="">Select service…</option>
                 {houses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
               </select>
             </div>

@@ -69,9 +69,9 @@ export function TwoFactorSetup({ onDone }: { onDone: () => void }) {
   if (step === 'scan') {
     return (
       <form onSubmit={confirm} className="space-y-4">
-        <p className="text-sm text-fg">Scan this code with your authenticator app.</p>
+        <p className="text-sm text-fg">Scan this code with your authenticator app. It will be listed there as “ShiftGO”.</p>
         {qr && (
-          <img src={qr} alt="QR code to add ShiftGO to your authenticator app" width={220} height={220} className="mx-auto rounded-md border border-border" />
+          <img src={qr} alt="QR code to add your account to your authenticator app" width={220} height={220} className="mx-auto rounded-md border border-border" />
         )}
         <details className="text-sm text-fg-muted">
           <summary className="cursor-pointer">Can&apos;t scan it? Type this key instead</summary>

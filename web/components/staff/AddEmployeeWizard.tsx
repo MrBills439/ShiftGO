@@ -182,7 +182,7 @@ export function AddEmployeeWizard({ open, onClose, deptOptions, jobTitleOptions,
               hint={
                 f.customEmpId ? 'Custom ID — must be unique in your agency.'
                   : canAutoGenerateId ? `Auto-generated on invite (${agency?.nextEmployeeIdPreview}).`
-                  : 'Set an Employee ID prefix in Admin → General first.'
+                  : 'No employee ID prefix is set (Admin → Agency settings). Tick below to type an ID instead.'
               }
             >
               {f.customEmpId

@@ -102,7 +102,7 @@ async function buildExport(userId, agencyId) {
     exportedAt: new Date().toISOString(),
     format: 'shiftgo-subject-access-export/v1',
     notes: [
-      'This file contains the personal data ShiftGO holds about you on behalf of your employer.',
+      'This file contains the personal data LeafRota holds about you on behalf of your employer.',
       'Colleagues who acted on your records are shown by role only.',
       'Right-to-work document files are not embedded; hasDocument shows whether one is on file.',
       'GPS coordinates older than the retention period have been removed; the attendance outcome is kept.',

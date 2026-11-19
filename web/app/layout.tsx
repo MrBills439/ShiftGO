@@ -16,8 +16,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'ShiftGO — Care Management Platform',
-  description: 'GPS-powered workforce attendance for care support companies',
+  title: 'LeafRota',
+  description: 'Rotas, attendance and staff records for care providers. A product of PIPCoRD.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

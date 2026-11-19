@@ -3,11 +3,10 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface-subtle px-4 py-10">
       <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-sm sm:p-8">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary" aria-hidden="true">
-            <span className="text-base font-bold text-white">S</span>
-          </div>
-          <span className="text-base font-bold text-fg">ShiftGO</span>
+        {/* Name in text only: no approved LeafRota logo asset yet. */}
+        <div className="mb-6">
+          <p className="text-base font-bold text-fg leading-none">LeafRota</p>
+          <p className="mt-1 text-xs text-fg-muted">A product of PIPCoRD</p>
         </div>
         <h1 className="text-xl font-semibold text-fg">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-fg-muted">{subtitle}</p>}

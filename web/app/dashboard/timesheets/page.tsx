@@ -183,7 +183,7 @@ function MyTimesheetsView() {
           <table className="w-full">
             <thead>
               <tr>
-                {['Date', 'House', 'Clock In', 'Clock Out', 'Hours', 'Status'].map((h) => (
+                {['Date', 'Service', 'Clock In', 'Clock Out', 'Hours', 'Status'].map((h) => (
                   <th key={h} className="table-th">{h}</th>
                 ))}
               </tr>
@@ -347,7 +347,7 @@ function NeedsReviewSection() {
         </h2>
       </div>
       <p className="mb-3 text-xs text-fg-muted">
-        ShiftGO could not safely confirm these clock-outs automatically — check the details and resolve them.
+        LeafRota could not safely confirm these clock-outs automatically — check the details and resolve them.
       </p>
 
       {isLoading ? (
@@ -491,14 +491,14 @@ function ManageTimesheetsView() {
 
       <div className="mb-5">
         <label htmlFor="timesheets-filter-by-house" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
-          Filter by House
+          Filter by service
         </label>
         <select id="timesheets-filter-by-house"
           className="input-field max-w-xs"
           value={selectedHouse}
           onChange={(e) => setSelectedHouse(e.target.value)}
         >
-          <option value="">Select a house…</option>
+          <option value="">Select a service…</option>
           {houses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
         </select>
       </div>
@@ -522,7 +522,7 @@ function ManageTimesheetsView() {
 
       {!selectedHouse ? (
         <div className="glass-card p-10 text-center">
-          <p className="text-sm text-fg-muted">Select a house above to view its timesheets</p>
+          <p className="text-sm text-fg-muted">Select a service above to view its timesheets</p>
         </div>
       ) : isLoading ? (
         <TableSkeleton cols={canConfirm ? 8 : 7} rows={6} />

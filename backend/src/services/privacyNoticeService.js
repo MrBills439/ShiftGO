@@ -21,7 +21,7 @@ const MAX_NOTICE_LENGTH = 50_000;
 
 const DEFAULT_TEMPLATE = `# How {{agency}} uses your information
 
-{{agency}} ("we") uses ShiftGO to run rotas, attendance, leave and staff compliance. We decide how your information is used (we are the "controller"). ShiftGO stores and processes it for us (our "processor").
+{{agency}} ("we") uses LeafRota (a product of PIPCoRD) to run rotas, attendance, leave and staff compliance. We decide how your information is used (we are the "controller"). PIPCoRD, which provides LeafRota, stores and processes it for us (our "processor").
 
 ## What we hold about you
 - Identity and contact details: name, email, phone, address, emergency contact.
@@ -39,7 +39,7 @@ We do not rely on your consent, so you cannot be refused work for asking questio
 
 ## Who sees it
 - Your managers and HR see what they need for their role. Team leaders see only the staff at their own services.
-- Our service providers: ShiftGO and its hosting, email delivery (Resend), notifications (Google Firebase, Expo) and error reporting. Some are based in the United States. Transfers are covered by the UK's approved safeguards.
+- Our service providers: PIPCoRD (LeafRota) and its hosting, email delivery (Resend), notifications (Google Firebase, Expo) and error reporting. Some are based in the United States. Transfers are covered by the UK's approved safeguards.
 We never sell your information.
 
 ## How long we keep it

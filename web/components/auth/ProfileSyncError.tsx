@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/store/authStore';
 
 /**
- * Shown when there is a session but we could not load the ShiftGO profile from
+ * Shown when there is a session but we could not load the LeafRota profile from
  * the backend (usually the API is briefly unavailable). Avoids spinning forever.
  */
 export function ProfileSyncError() {
@@ -15,7 +15,7 @@ export function ProfileSyncError() {
       <div className="w-full max-w-md rounded-lg border border-border bg-surface-raised p-8 text-center">
         <h1 className="text-lg font-semibold text-fg">We couldn&apos;t load your account</h1>
         <p className="mt-2 text-sm text-fg-muted">
-          You&apos;re signed in, but we couldn&apos;t reach your ShiftGO profile. This usually
+          You&apos;re signed in, but we couldn&apos;t reach your LeafRota profile. This usually
           means your account hasn&apos;t finished being set up, or the server is briefly
           unavailable. Try again in a moment — if it keeps happening, contact your
           administrator.

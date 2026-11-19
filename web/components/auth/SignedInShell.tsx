@@ -62,7 +62,7 @@ export function SignedInShell({
 
   return (
     <PrivacyNoticeGate>
-      <div className="flex min-h-screen bg-surface">
+      <div className="flex min-h-screen flex-col bg-surface lg:flex-row">
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[200] focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-brand-700 focus:shadow-lg"
@@ -71,7 +71,7 @@ export function SignedInShell({
         </a>
         <Sidebar />
         <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
-          <div className="p-6 lg:p-8">{children}</div>
+          <div className="p-4 sm:p-6 lg:p-8">{children}</div>
         </main>
         {extras}
       </div>

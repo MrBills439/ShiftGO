@@ -74,9 +74,9 @@ export default function AdminPage() {
     try {
       const radius = parseInt(globalRadius, 10);
       await Promise.all(houses.map((h) => updateGeofence.mutateAsync({ id: h.id, radius })));
-      toast.success(`Geofence radius set to ${radius}m on all ${houses.length} houses`);
+      toast.success(`Geofence radius set to ${radius}m on all ${houses.length} services`);
     } catch {
-      toast.error('Failed to apply geofence radius to some houses');
+      toast.error('Failed to apply the geofence radius to some services');
     } finally {
       setSaving(false);
     }
@@ -89,7 +89,10 @@ export default function AdminPage() {
 
   return (
     <div>
-      <Header title="Admin Panel" subtitle="Global platform settings — HR access only" />
+      <Header
+        title="Admin"
+        subtitle={`Agency settings${agency?.name ? ` for ${agency.name}` : ''}. These apply to your agency only. HR access only.`}
+      />
 
       <div className="inline-flex rounded-lg border border-outline-variant bg-surface p-1 mb-6">
         {(['general', 'organisation', 'privacy'] as const).map((t) => (
@@ -101,7 +104,7 @@ export default function AdminPage() {
               tab === t ? 'bg-primary text-white' : 'text-on-surface-variant hover:text-on-surface',
             )}
           >
-            {t}
+            {t === 'general' ? 'Agency settings' : t}
           </button>
         ))}
       </div>
@@ -126,7 +129,7 @@ export default function AdminPage() {
       <div className="grid lg:grid-cols-4 gap-4 mb-8">
         {[
           { label: 'Total Users', value: allUsers.length,   icon: UsersIcon,      color: 'bg-[#e6f4f0] text-primary' },
-          { label: 'Houses',      value: houses.length,     icon: BuildingsIcon,  color: 'bg-[#e3f0f8] text-[#1a6b8a]' },
+          { label: 'Services',    value: houses.length,     icon: BuildingsIcon,  color: 'bg-[#e3f0f8] text-[#1a6b8a]' },
           { label: 'Managers',    value: byRole('MANAGER'), icon: ShieldCheckIcon, color: 'bg-[#fff8e1] text-[#784a00]' },
           { label: 'Workers',     value: byRole('WORKER'),  icon: UsersIcon,      color: 'bg-surface-high text-on-surface-variant' },
         ].map(({ label, value, icon: Icon, color }) => (
@@ -170,7 +173,7 @@ export default function AdminPage() {
                 2–8 letters or digits, no spaces.{' '}
                 {agency?.nextEmployeeIdPreview
                   ? <>Next Employee ID: <span className="font-semibold text-on-surface">{agency.nextEmployeeIdPreview}</span></>
-                  : 'No prefix set yet — employees cannot be added until one is configured.'}
+                  : 'No prefix set yet. Until one is set, each new employee needs an employee ID typed by hand.'}
               </p>
             </div>
             <button
@@ -226,8 +229,8 @@ export default function AdminPage() {
               <MapPinIcon size={18} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-on-surface">Global Geofence Radius</h2>
-              <p className="text-xs text-on-surface-variant font-inter">Apply a default radius to all houses</p>
+              <h2 className="text-base font-semibold text-on-surface">Default geofence radius</h2>
+              <p className="text-xs text-on-surface-variant font-inter">Apply a default radius to every service</p>
             </div>
           </div>
 
@@ -251,7 +254,7 @@ export default function AdminPage() {
               disabled={saving || houses.length === 0}
               className="btn-primary"
             >
-              {saving ? 'Applying…' : `Apply to all ${houses.length} houses`}
+              {saving ? 'Applying…' : `Apply to all ${houses.length} services`}
             </button>
           </div>
         </div>
@@ -262,8 +265,8 @@ export default function AdminPage() {
               <BuildingsIcon size={18} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-on-surface">Per-House Geofence</h2>
-              <p className="text-xs text-on-surface-variant font-inter">Current radius for each house</p>
+              <h2 className="text-base font-semibold text-on-surface">Geofence by service</h2>
+              <p className="text-xs text-on-surface-variant font-inter">Current radius for each service</p>
             </div>
           </div>
           <div className="space-y-0">
@@ -276,7 +279,7 @@ export default function AdminPage() {
                 <span className="text-sm font-semibold text-primary font-inter">{h.geofenceRadius}m</span>
               </div>
             ))}
-            {houses.length === 0 && <p className="text-sm text-on-surface-variant text-center py-4">No houses configured</p>}
+            {houses.length === 0 && <p className="text-sm text-on-surface-variant text-center py-4">No services yet</p>}
           </div>
         </div>
       </div>

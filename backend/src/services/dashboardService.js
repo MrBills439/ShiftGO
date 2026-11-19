@@ -254,6 +254,28 @@ async function getTodaySummary(user, agencyId, now = new Date()) {
     where: { agencyId, status: 'ACTIVE', role: { in: ['WORKER', 'TEAM_LEADER'] } },
   });
 
+  // ── Setup progress (new-agency checklist), managers and HR only ──────────
+  // Agency-wide facts, never role-scoped lists: "has this agency done step X".
+  // Counts only, no personal data. Every query is filtered by agencyId.
+  let setup = null;
+  if (isManagerPlus) {
+    const [agencyRow, services, pendingInvitations, shiftsEver] = await Promise.all([
+      prisma.agency.findUnique({ where: { id: agencyId }, select: { employeeIdPrefix: true } }),
+      prisma.house.count({ where: { agencyId } }),
+      prisma.pendingEmployee.count({
+        where: { agencyId, consumedAt: null, inviteTokenHash: { not: null }, expiresAt: { gt: now } },
+      }),
+      prisma.shift.count({ where: { agencyId, status: { not: 'CANCELLED' } } }),
+    ]);
+    setup = {
+      employeeIdPrefixSet: Boolean(agencyRow?.employeeIdPrefix),
+      services,
+      activeStaff: staffTotal,
+      pendingInvitations,
+      shifts: shiftsEver,
+    };
+  }
+
   const scheduledCount = scheduled.length;
   const coveredCount = covered.length;
 
@@ -300,6 +322,7 @@ async function getTodaySummary(user, agencyId, now = new Date()) {
     openShifts,
     openShiftsToday: openShifts.filter((s) => inDay(s, dayStart, dayEnd)).length,
     staff: { total: staffTotal },
+    setup,
   };
 }
 

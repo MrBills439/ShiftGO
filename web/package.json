@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint:a11y": "eslint ."
+    "lint:a11y": "eslint .",
+    "test": "node --test \"lib/**/*.test.ts\""
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.7",

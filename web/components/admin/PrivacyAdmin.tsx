@@ -23,7 +23,7 @@ export function PrivacyNoticeEditor() {
   async function publish(next: string) {
     try {
       await update.mutateAsync(next);
-      toast.success(next ? 'Notice published. Staff will be asked to read it again.' : 'Back to the ShiftGO template.');
+      toast.success(next ? 'Notice published. Staff will be asked to read it again.' : 'Back to the LeafRota template.');
     } catch {
       toast.error('Could not save the notice.');
     }
@@ -38,7 +38,7 @@ export function PrivacyNoticeEditor() {
         <div>
           <h2 className="text-sm font-semibold text-on-surface">Staff privacy notice</h2>
           <p className="text-xs text-on-surface-variant">
-            {notice?.isDefault ? 'Using the ShiftGO template' : 'Using your own notice'} · every staff member must read the current version
+            {notice?.isDefault ? 'Using the LeafRota template' : 'Using your own notice'} · every staff member must read the current version
           </p>
         </div>
       </div>

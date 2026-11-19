@@ -97,7 +97,7 @@ export function ShiftCard({ shift, draggable = true, conflict = false, onDragSta
                 onCopy();
               }}
               className="flex flex-1 items-center justify-center gap-1 rounded border border-dashed border-border py-1 text-[11px] font-medium text-fg-muted transition-colors hover:border-brand-200 hover:bg-brand-50/40 hover:text-brand-700"
-              title="Create a new shift pre-filled with the same worker, house, and type"
+              title="Create a new shift pre-filled with the same worker, service, and type"
             >
               <CopyIcon size={12} /> Copy
             </button>

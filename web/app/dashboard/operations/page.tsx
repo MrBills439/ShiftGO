@@ -1,449 +1,164 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+/**
+ * Operations: today's shifts grouped by attendance state, plus issues, for
+ * managers and HR. Built on GET /dashboard/today, which works out "today" in
+ * the agency's timezone and applies each role's visibility rules.
+ *
+ * It refreshes every minute (not real time), and only shows figures the API
+ * actually provides.
+ */
+import { useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { WarningCircleIcon, CheckCircleIcon, ClockIcon, MapPinIcon, PhoneIcon, PlusIcon } from '@phosphor-icons/react';
+import { WarningCircleIcon, ArrowClockwiseIcon, ArrowRightIcon } from '@phosphor-icons/react';
 import { Header } from '@/components/layout/Header';
 import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
+import { StatsSkeleton } from '@/components/ui/Skeleton';
 import { ActivityFeed } from '@/components/operations/ActivityFeed';
-import { useShifts } from '@/hooks/useShifts';
-import { useUsers } from '@/hooks/useWorkers';
-import { useHouses } from '@/hooks/useHouses';
-import { useLeaveRequests } from '@/hooks/useLeaveRequests';
+import { useDashboardToday } from '@/hooks/useDashboard';
 import { useAuthStore } from '@/store/authStore';
-import { useToast } from '@/hooks/useToast';
+import { queryView } from '@/lib/dashboardView';
+import type { DashboardShift } from '@/types';
 
-interface KPIMetric {
-  label: string;
-  value: number;
-  status: 'good' | 'warning' | 'critical';
-  context?: string;
-}
-
-function formatTime(iso: string | null) {
-  if (!iso) return '—';
+function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-}
-
-function getShiftGroup(shift: any): 'in-progress' | 'due-soon' | 'not-started' | 'completed' {
-  const now = new Date();
-  const start = new Date(shift.startTime);
-  const end = new Date(shift.endTime);
-
-  if (shift.status === 'COMPLETED') return 'completed';
-  if (now >= start && now <= end) return 'in-progress';
-  if (now < start && (start.getTime() - now.getTime()) < 30 * 60 * 1000) return 'due-soon';
-  return 'not-started';
-}
-
-function determineStatus(value: number, thresholds: { good: number; warning: number }): 'good' | 'warning' | 'critical' {
-  if (value >= thresholds.good) return 'good';
-  if (value >= thresholds.warning) return 'warning';
-  return 'critical';
-}
-
-function KPICard({ metric }: { metric: KPIMetric }) {
-  const statusColors = {
-    good: 'bg-success/10 border-success/20',
-    warning: 'bg-warning/10 border-warning/20',
-    critical: 'bg-danger/10 border-danger/20',
-  };
-
-  const statusDots = {
-    good: <div className="w-2 h-2 rounded-full bg-success" />,
-    warning: <div className="w-2 h-2 rounded-full bg-warning" />,
-    critical: <div className="w-2 h-2 rounded-full bg-danger" />,
-  };
-
-  return (
-    <Card className={`p-4 ${statusColors[metric.status]}`}>
-      <div className="flex items-start justify-between mb-2">
-        <p className="text-xs font-semibold text-fg-muted uppercase tracking-widest">{metric.label}</p>
-        {statusDots[metric.status]}
-      </div>
-      <p className="text-3xl font-bold text-fg font-inter">{metric.value}</p>
-      {metric.context && <p className="text-xs text-fg-muted mt-2">{metric.context}</p>}
-    </Card>
-  );
-}
+type Attendance = DashboardShift['attendance'];
+const GROUPS: { key: Attendance; title: string; attention?: boolean }[] = [
+  { key: 'Late', title: 'Late (not clocked in)', attention: true },
+  { key: 'Open', title: 'No worker assigned', attention: true },
+  { key: 'Needs review', title: 'Needs attendance review', attention: true },
+  { key: 'Clocked in', title: 'Clocked in' },
+  { key: 'Scheduled', title: 'Not started yet' },
+  { key: 'Completed', title: 'Completed' },
+];
 
 export default function OperationsPage() {
   const router = useRouter();
-  const toast = useToast();
   const { user } = useAuthStore();
   const canViewOps = ['MANAGER', 'HR'].includes(user?.role ?? '');
-
-  const { data: shifts = [] } = useShifts();
-  const { data: workers = [] } = useUsers('WORKER');
-  const { data: houses = [] } = useHouses();
-  const { data: leaveRequests = [] } = useLeaveRequests();
-
-  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  const query = useDashboardToday(canViewOps);
+  const view = queryView({ isLoading: query.isLoading, isError: query.isError, hasData: !!query.data });
 
   useEffect(() => {
-    if (!canViewOps) router.replace('/dashboard');
-  }, [canViewOps, router]);
+    if (user && !canViewOps) router.replace('/dashboard');
+  }, [user, canViewOps, router]);
 
-  // Refresh data every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // React Query will handle the refetch automatically
-      // This just triggers refetch on all queries
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const now = new Date();
-  const todayString = now.toDateString();
-
-  // Calculate KPIs
-  const kpis = useMemo((): KPIMetric[] => {
-    const todayShifts = shifts.filter((s) => new Date(s.date).toDateString() === todayString && s.status !== 'CANCELLED');
-    const inProgressShifts = todayShifts.filter((s) => {
-      const start = new Date(s.startTime);
-      const end = new Date(s.endTime);
-      return now >= start && now <= end;
-    });
-
-    const dueSoonShifts = todayShifts.filter((s) => {
-      const start = new Date(s.startTime);
-      return now < start && (start.getTime() - now.getTime()) < 30 * 60 * 1000;
-    });
-
-    const lateShifts = todayShifts.filter((s) => {
-      const start = new Date(s.startTime);
-      return now > start && s.status === 'SCHEDULED';
-    });
-
-    const emergencyShifts = todayShifts.filter((s) => s.urgent);
-
-    const openIssues = lateShifts.length + (todayShifts.filter((s) => !s.workerId).length);
-
-    return [
-      {
-        label: 'Clocked In',
-        value: inProgressShifts.length,
-        status: inProgressShifts.length > 0 ? 'good' : 'warning',
-        context: `of ${todayShifts.length} today`,
-      },
-      {
-        label: 'Due Soon',
-        value: dueSoonShifts.length,
-        status: dueSoonShifts.length > 0 ? 'warning' : 'good',
-        context: 'next 30 mins',
-      },
-      {
-        label: 'Late Workers',
-        value: lateShifts.length,
-        status: lateShifts.length > 0 ? 'critical' : 'good',
-        context: lateShifts.length > 0 ? 'action needed' : 'on time',
-      },
-      {
-        label: 'Urgent Cover',
-        value: emergencyShifts.length,
-        status: emergencyShifts.length > 0 ? 'critical' : 'good',
-        context: emergencyShifts.length > 0 ? 'needs cover' : 'none',
-      },
-      {
-        label: 'Open Issues',
-        value: openIssues,
-        status: openIssues > 3 ? 'critical' : openIssues > 0 ? 'warning' : 'good',
-        context: 'requiring attention',
-      },
-    ];
-  }, [shifts, now, todayString]);
-
-  // Group shifts
-  const shiftGroups = useMemo(() => {
-    const todayShifts = shifts.filter((s) => new Date(s.date).toDateString() === todayString && s.status !== 'CANCELLED');
-
-    const groups = {
-      'in-progress': [] as any[],
-      'due-soon': [] as any[],
-      'not-started': [] as any[],
-      'completed': [] as any[],
-    };
-
-    todayShifts.forEach((shift) => {
-      const group = getShiftGroup(shift);
-      groups[group].push(shift);
-    });
-
-    return groups;
-  }, [shifts, todayString]);
-
-  // Attendance data
-  const attendanceData = useMemo(() => {
-    const todayShifts = shifts.filter((s) => new Date(s.date).toDateString() === todayString && s.status !== 'CANCELLED');
-
-    return todayShifts.map((shift) => {
-      const dueTime = new Date(shift.startTime);
-      const isLate = now > dueTime && shift.status === 'SCHEDULED';
-
-      return {
-        worker: shift.worker?.name || 'Unknown',
-        scheduled: formatTime(shift.startTime),
-        clockIn: shift.startTime ? formatTime(shift.startTime) : '—',
-        status: shift.status,
-        late: isLate ? Math.floor((now.getTime() - dueTime.getTime()) / 60000) : null,
-        house: shift.house?.name || '—',
-      };
-    });
-  }, [shifts, todayString, now]);
-
-  // Issues list
-  const issues = useMemo(() => {
-    const todayShifts = shifts.filter((s) => new Date(s.date).toDateString() === todayString && s.status !== 'CANCELLED');
-    const issueList: any[] = [];
-
-    // Late workers
-    todayShifts.forEach((shift) => {
-      const dueTime = new Date(shift.startTime);
-      if (now > dueTime && shift.status === 'SCHEDULED') {
-        const phone = workers.find((w) => w.id === shift.worker?.id)?.phone;
-        issueList.push({
-          type: 'late',
-          severity: 'critical',
-          title: `${shift.worker?.name || 'Unknown'} is late`,
-          context: `Expected at ${shift.house?.name || 'Unknown'} at ${formatTime(shift.startTime)}`,
-          action: 'Call',
-          tel: phone || null,
-        });
-      }
-    });
-
-    // Unassigned shifts
-    todayShifts.forEach((shift) => {
-      if (!shift.workerId) {
-        issueList.push({
-          type: 'unassigned',
-          severity: 'critical',
-          title: `${shift.house?.name || 'Unknown'} has no worker`,
-          context: `${formatTime(shift.startTime)} - ${formatTime(shift.endTime)}`,
-          action: 'Assign',
-          href: '/dashboard/rota',
-        });
-      }
-    });
-
-    // Pending leave affecting today
-    leaveRequests.forEach((leave) => {
-      if (leave.status === 'PENDING' && new Date(leave.startDate) <= now && new Date(leave.endDate) >= now) {
-        issueList.push({
-          type: 'leave',
-          severity: 'warning',
-          title: `Leave pending: ${leave.worker?.name || 'Unknown'}`,
-          context: `Affects coverage today`,
-          action: 'Review',
-          href: '/dashboard/leave',
-        });
-      }
-    });
-
-    return issueList.slice(0, 5);
-  }, [shifts, leaveRequests, workers, todayString, now]);
-
-  // Health metrics
-  const health = useMemo((): KPIMetric[] => {
-    const todayShifts = shifts.filter((s) => new Date(s.date).toDateString() === todayString && s.status !== 'CANCELLED');
-    const scheduled = todayShifts.filter((s) => s.status === 'SCHEDULED').length;
-    const completed = todayShifts.filter((s) => s.status === 'COMPLETED').length;
-    const coverage = scheduled > 0 ? Math.round((scheduled / (scheduled + completed)) * 100) : 100;
-    const pendingApprovals = leaveRequests.filter((l) => l.status === 'PENDING').length;
-
-    return [
-      {
-        label: 'Attendance',
-        value: Math.round((scheduled / (scheduled + completed || 1)) * 100),
-        status: determineStatus(scheduled / (scheduled + completed || 1), { good: 0.8, warning: 0.6 }),
-      },
-      {
-        label: 'Coverage',
-        value: coverage,
-        status: coverage > 90 ? 'good' : coverage > 70 ? 'warning' : 'critical',
-      },
-      {
-        label: 'Pending Approvals',
-        value: pendingApprovals,
-        status: pendingApprovals === 0 ? 'good' : 'warning',
-      },
-      {
-        label: 'GPS Confidence',
-        value: 0,
-        status: 'good',
-      },
-    ];
-  }, [shifts, leaveRequests, todayString]);
+  const groups = useMemo(() => {
+    const by = new Map<Attendance, DashboardShift[]>();
+    for (const s of query.data?.todayShifts ?? []) by.set(s.attendance, [...(by.get(s.attendance) ?? []), s]);
+    return by;
+  }, [query.data]);
 
   if (!canViewOps) return null;
 
+  const updatedAt = query.dataUpdatedAt
+    ? new Date(query.dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : null;
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <Header
         title="Operations"
-        subtitle="Live operational command centre — active monitoring, quick actions, real-time oversight"
+        subtitle={
+          view === 'stale'
+            ? `Couldn't refresh. Showing figures from ${updatedAt}.`
+            : updatedAt
+            ? `Today's shifts and attendance for your services. Updated ${updatedAt}, refreshes every minute.`
+            : "Today's shifts and attendance for your services. Refreshes every minute."
+        }
+        action={<Link href="/dashboard/rota" className="inline-flex h-10 items-center rounded-md border border-border bg-surface px-4 text-sm font-medium text-fg hover:bg-surface-subtle">Open schedule</Link>}
       />
 
-      {/* SECTION 1: Live KPIs */}
-      <div>
-        <h2 className="text-lg font-semibold text-fg mb-4">Live Overview</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {kpis.map((kpi, i) => (
-            <KPICard key={i} metric={kpi} />
-          ))}
-        </div>
-      </div>
+      {view === 'loading' && <StatsSkeleton count={4} />}
 
-      {/* SECTION 2: Live Shift Board */}
-      <div>
-        <h2 className="text-lg font-semibold text-fg mb-4">Shift Board</h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          {(['in-progress', 'due-soon', 'not-started', 'completed'] as const).map((groupName) => {
-            const groupLabel = {
-              'in-progress': 'In Progress',
-              'due-soon': 'Due Within 30 mins',
-              'not-started': 'Not Started',
-              'completed': 'Completed',
-            };
-
-            return (
-              <Card key={groupName} className="p-4">
-                <p className="text-sm font-semibold text-fg mb-3">{groupLabel[groupName]}</p>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {shiftGroups[groupName].length === 0 ? (
-                    <p className="text-xs text-fg-muted">No shifts</p>
-                  ) : (
-                    shiftGroups[groupName].map((shift) => (
-                      <div key={shift.id} className="bg-neutral-50 p-2 rounded text-xs">
-                        <p className="font-medium text-fg">{shift.worker?.name || '—'}</p>
-                        <p className="text-fg-muted">{shift.house?.name || '—'}</p>
-                        <p className="text-fg-muted">{formatTime(shift.startTime)} - {formatTime(shift.endTime)}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* SECTION 3: Attendance Monitor */}
-      <div>
-        <h2 className="text-lg font-semibold text-fg mb-4">Attendance Monitor</h2>
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-neutral-50 border-b border-neutral-200">
-                <tr>
-                  <th className="px-4 py-2 text-left font-semibold text-fg">Worker</th>
-                  <th className="px-4 py-2 text-left font-semibold text-fg">Scheduled</th>
-                  <th className="px-4 py-2 text-left font-semibold text-fg">Clock In</th>
-                  <th className="px-4 py-2 text-left font-semibold text-fg">Status</th>
-                  <th className="px-4 py-2 text-left font-semibold text-fg">Late</th>
-                  <th className="px-4 py-2 text-left font-semibold text-fg">House</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-200">
-                {attendanceData.slice(0, 10).map((row, i) => (
-                  <tr key={i} className={row.late ? 'bg-danger/5' : ''}>
-                    <td className="px-4 py-2 text-fg">{row.worker}</td>
-                    <td className="px-4 py-2 text-fg-muted">{row.scheduled}</td>
-                    <td className="px-4 py-2 text-fg-muted">{row.clockIn}</td>
-                    <td className="px-4 py-2">
-                      <Badge
-                        variant={row.status === 'IN_PROGRESS' ? 'success' : row.status === 'COMPLETED' ? 'neutral' : 'info'}
-                        label={row.status.replace(/_/g, ' ')}
-                        dot={false}
-                      />
-                    </td>
-                    <td className="px-4 py-2 text-fg-muted">{row.late ? `${row.late}m` : '—'}</td>
-                    <td className="px-4 py-2 text-fg-muted">{row.house}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {view === 'error' && (
+        <Card className="p-6 text-center">
+          <WarningCircleIcon size={28} className="mx-auto mb-2 text-warning" aria-hidden="true" />
+          <p className="font-medium text-fg" role="alert">Today&apos;s operations couldn&apos;t be loaded</p>
+          <p className="mt-1 text-sm text-fg-muted">No figures are shown until they load.</p>
+          <button type="button" onClick={() => query.refetch()} className="mt-4 inline-flex h-10 items-center gap-2 rounded-md border border-border bg-surface px-4 text-sm font-medium text-fg hover:bg-surface-subtle">
+            <ArrowClockwiseIcon size={16} aria-hidden="true" /> Try again
+          </button>
         </Card>
-      </div>
+      )}
 
-      {/* SECTION 4: Issues Requiring Action */}
-      <div>
-        <h2 className="text-lg font-semibold text-fg mb-4">Issues Requiring Action</h2>
-        <div className="space-y-2">
-          {issues.length === 0 ? (
-            <Card className="p-6 text-center">
-              <CheckCircleIcon size={32} className="mx-auto text-success mb-2" weight="regular" />
-              <p className="text-fg font-medium">No active issues</p>
-              <p className="text-sm text-fg-muted">Operations running smoothly</p>
-            </Card>
-          ) : (
-            issues.map((issue, i) => (
-              <Card key={i} className={`p-4 ${issue.severity === 'critical' ? 'border-danger/20 bg-danger/5' : 'border-warning/20 bg-warning/5'}`}>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-fg">{issue.title}</p>
-                    <p className="text-sm text-fg-muted mt-1">{issue.context}</p>
+      {query.data && (() => {
+        const d = query.data;
+        const total = d.todayShifts.length;
+        const figures = [
+          { label: 'Shifts today', value: total, detail: total === 0 ? 'None scheduled' : `${d.coverage.covered} with a worker` },
+          { label: 'Clocked in now', value: d.workersLive, detail: total === 0 ? 'No shifts today' : `of ${d.coverage.scheduled} scheduled` },
+          { label: 'Late', value: groups.get('Late')?.length ?? 0, detail: total === 0 ? 'Not applicable today' : 'Past start, not clocked in', attention: (groups.get('Late')?.length ?? 0) > 0 },
+          { label: 'Uncovered', value: d.coverage.uncovered, detail: total === 0 ? 'Not applicable today' : 'Today, need a worker', attention: d.coverage.uncovered > 0 },
+        ];
+        return (
+          <>
+            <section aria-labelledby="ops-figures">
+              <h2 id="ops-figures" className="sr-only">Today at a glance</h2>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {figures.map((f) => (
+                  <div key={f.label} className={`rounded-lg border p-3 ${f.attention ? 'border-warning/30 bg-warning/5' : 'border-border bg-surface'}`}>
+                    <p className="text-xs font-medium text-fg-muted">{f.label}</p>
+                    <p className="mt-1 text-xl font-semibold text-fg font-inter">{f.value}</p>
+                    <p className={`mt-0.5 text-xs ${f.attention ? 'font-medium text-warning-text' : 'text-fg-muted'}`}>{f.detail}</p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={() => {
-                      if (issue.href) router.push(issue.href);
-                      else if (issue.tel) window.location.href = `tel:${issue.tel}`;
-                      else toast.error('No phone number on file for this worker');
-                    }}
-                  >
-                    {issue.action}
-                  </Button>
-                </div>
-              </Card>
-            ))
-          )}
-        </div>
-      </div>
+                ))}
+              </div>
+            </section>
 
-      {/* SECTION 5: Quick Actions */}
-      <div>
-        <h2 className="text-lg font-semibold text-fg mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <Button variant="primary" icon={<WarningCircleIcon size={16} />} className="w-full" onClick={() => router.push('/dashboard/rota')}>Emergency Shift</Button>
-          <Button variant="primary" icon={<PhoneIcon size={16} />} className="w-full" onClick={() => router.push('/dashboard/workers')}>Call Worker</Button>
-          <Button variant="primary" icon={<PlusIcon size={16} />} className="w-full" onClick={() => router.push('/dashboard/workers')}>Assign Worker</Button>
-          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/rota')}>View Schedule</Button>
-          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/workers')}>Create Staff</Button>
-          <Button variant="secondary" className="w-full" onClick={() => router.push('/dashboard/houses')}>View Services</Button>
-        </div>
-      </div>
+            <div className="grid gap-6 lg:grid-cols-3">
+              <section className="lg:col-span-2" aria-labelledby="ops-board">
+                <h2 id="ops-board" className="mb-3 text-base font-semibold text-fg">Today&apos;s shifts by status</h2>
+                {total === 0 ? (
+                  <Card className="p-4"><p className="text-sm text-fg-muted">No shifts scheduled today.</p></Card>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {GROUPS.filter((g) => (groups.get(g.key)?.length ?? 0) > 0).map((g) => (
+                      <Card key={g.key} className={`p-3 ${g.attention ? 'border-warning/30' : ''}`}>
+                        <p className="mb-2 text-sm font-semibold text-fg">{g.title} ({groups.get(g.key)!.length})</p>
+                        <ul className="max-h-64 space-y-1.5 overflow-y-auto">
+                          {groups.get(g.key)!.map((s) => (
+                            <li key={s.id} className="rounded bg-surface-subtle p-2 text-xs">
+                              <p className="font-medium text-fg">{s.worker?.name ?? 'No worker assigned'}</p>
+                              <p className="text-fg-muted">{s.house?.name ?? 'No service'} · {formatTime(s.startTime)}–{formatTime(s.endTime)}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </section>
 
-      {/* SECTION 6: Operational Health */}
-      <div>
-        <h2 className="text-lg font-semibold text-fg mb-4">Operational Health</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {health.map((metric, i) => (
-            <KPICard key={i} metric={metric} />
-          ))}
-        </div>
-      </div>
+              <section aria-labelledby="ops-issues">
+                <h2 id="ops-issues" className="mb-3 text-base font-semibold text-fg">Issues{d.issues.length ? ` (${d.issues.length})` : ''}</h2>
+                {d.issues.length === 0 ? (
+                  <Card className="p-4">
+                    <p className="text-sm text-fg">No issues flagged.</p>
+                    <p className="mt-1 text-xs text-fg-muted">Checked: late starts, uncovered shifts, attendance reviews, right to work and approvals.</p>
+                  </Card>
+                ) : (
+                  <ul className="space-y-2">
+                    {d.issues.map((issue) => (
+                      <li key={issue.id} className={`rounded-lg border p-3 ${issue.severity === 'critical' ? 'border-danger/30 bg-danger/5' : issue.severity === 'warning' ? 'border-warning/30 bg-warning/5' : 'border-border bg-surface'}`}>
+                        <p className="text-sm font-medium text-fg">{issue.title}</p>
+                        <p className="text-xs text-fg-muted">{issue.detail}</p>
+                        <Link href={issue.href} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline">
+                          Open <ArrowRightIcon size={12} aria-hidden="true" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          </>
+        );
+      })()}
 
-      {/* SECTION 7: Live Activity */}
-      <ActivityFeed limit={12} title="Live Command Centre Activity" />
-
-      {/* NOTE: Missing Features */}
-      <Card className="p-4 bg-info/5 border-info/20">
-        <p className="text-sm text-fg font-medium">ℹ️ Features not yet available:</p>
-        <ul className="text-xs text-fg-muted mt-2 space-y-1">
-          <li>• Timeline view (requires audit log API)</li>
-          <li>• Coverage heatmap (requires occupancy data)</li>
-          <li>• GPS confidence display (requires device telemetry)</li>
-          <li>• Real-time push notifications (requires WebSocket)</li>
-        </ul>
-      </Card>
+      <ActivityFeed limit={12} title="Recent activity" />
     </div>
   );
 }

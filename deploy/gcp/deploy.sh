@@ -10,16 +10,19 @@
 # Settings (environment variables, all optional):
 #   PROJECT_ID   default: pipcord
 #   REGION       default: europe-west2 (London)
-#   EMAIL_FROM   default: "ShiftGO <onboarding@resend.dev>" (Resend's test
-#                sender: only delivers to your own Resend account email until
-#                you verify a domain in Resend; then set e.g.
-#                EMAIL_FROM="ShiftGO <no-reply@yourdomain.com>")
+#   EMAIL_FROM   sender for invitations and password-reset codes, e.g.
+#                EMAIL_FROM="LeafRota <noreply@leafrota.co.uk>" (the domain must
+#                be verified in Resend). REQUIRED on the first deploy. After
+#                that it is optional: without it, the sender already configured
+#                on the running API is kept, so a redeploy never resets it.
+#                Set it only to change the sender.
 # See deploy/gcp/README.md.
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-pipcord}"
 REGION="${REGION:-europe-west2}"
-EMAIL_FROM="${EMAIL_FROM:-ShiftGO <onboarding@resend.dev>}"
+EMAIL_FROM_OVERRIDE="${EMAIL_FROM:-}"
+EMAIL_FROM=""
 
 REPO=shiftgo
 SQL_INSTANCE=shiftgo-db
@@ -55,6 +58,45 @@ init() {
   API_URL="https://${API_SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
   WEB_URL="https://${WEB_SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
   TAG="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)-$(date +%s)"
+}
+
+# A sender is "Name <address>" or a bare address; '~' is reserved (see api_env).
+valid_sender() {
+  local re_addr='[^@<>[:space:]~]+@[^@<>[:space:]~]+\.[^@<>[:space:]~]+'
+  [[ "$1" =~ ^[^\<\>~]+\ \<${re_addr}\>$ || "$1" =~ ^${re_addr}$ ]]
+}
+
+# EMAIL_FROM on the deployed API service, or nothing if there is none yet.
+current_email_from() {
+  gcloud run services describe "$API_SERVICE" --region="$REGION" --format=json 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+  d=json.load(sys.stdin)
+except Exception:
+  sys.exit(0)
+for c in d.get("spec",{}).get("template",{}).get("spec",{}).get("containers",[]):
+  for e in c.get("env",[]) or []:
+    if e.get("name")=="EMAIL_FROM" and "value" in e:
+      print(e["value"]); sys.exit(0)' || true
+}
+
+# Decide the sender for this deploy: explicit override > what production has.
+resolve_email_from() {
+  if [ -n "$EMAIL_FROM_OVERRIDE" ]; then
+    valid_sender "$EMAIL_FROM_OVERRIDE" || die "EMAIL_FROM is not a valid sender: use \"Name <address@domain>\" or address@domain."
+    EMAIL_FROM="$EMAIL_FROM_OVERRIDE"
+    echo "   Email sender (set by you): $EMAIL_FROM"
+  else
+    EMAIL_FROM="$(current_email_from)"
+    [ -n "$EMAIL_FROM" ] || die 'No email sender configured yet. For the first deploy run:
+     EMAIL_FROM="LeafRota <noreply@yourdomain>" ./deploy/gcp/deploy.sh
+   (the domain must be verified in Resend).'
+    valid_sender "$EMAIL_FROM" || die "The deployed EMAIL_FROM is not a valid sender. Set EMAIL_FROM explicitly to fix it."
+    echo "   Email sender (kept from the running API): $EMAIL_FROM"
+  fi
+  case "$EMAIL_FROM" in *@resend.dev*)
+    warn "Resend's test sender only delivers to your own Resend account address." ;;
+  esac
 }
 
 secret_exists() { gcloud secrets describe "$1" >/dev/null 2>&1; }
@@ -152,8 +194,10 @@ build_images() {
 # refuses to start without them).
 api_env() {
   # '~' separates the settings because EMAIL_FROM contains '@' and spaces.
-  echo "--set-env-vars=^~^NODE_ENV=production~UPLOAD_DIR=/app/uploads~BETTER_AUTH_URL=${API_URL}~WEB_APP_URL=${WEB_URL}~CORS_ORIGINS=${WEB_URL}~EMAIL_FROM=${EMAIL_FROM}~RUN_SCHEDULER=false~TRUST_PROXY_HOPS=1"
-  echo "--set-secrets=DATABASE_URL=shiftgo-database-url:latest,BETTER_AUTH_SECRET=shiftgo-better-auth-secret:latest,WEB_PROXY_SECRET=shiftgo-web-proxy-secret:latest,JOBS_SECRET=shiftgo-jobs-secret:latest,RESEND_API_KEY=shiftgo-resend-api-key:latest"
+  # "update" (not "set") keeps any settings added by hand on the service,
+  # e.g. FIREBASE_* secrets, instead of wiping them on every deploy.
+  echo "--update-env-vars=^~^NODE_ENV=production~UPLOAD_DIR=/app/uploads~BETTER_AUTH_URL=${API_URL}~WEB_APP_URL=${WEB_URL}~CORS_ORIGINS=${WEB_URL}~EMAIL_FROM=${EMAIL_FROM}~RUN_SCHEDULER=false~TRUST_PROXY_HOPS=1"
+  echo "--update-secrets=DATABASE_URL=shiftgo-database-url:latest,BETTER_AUTH_SECRET=shiftgo-better-auth-secret:latest,WEB_PROXY_SECRET=shiftgo-web-proxy-secret:latest,JOBS_SECRET=shiftgo-jobs-secret:latest,RESEND_API_KEY=shiftgo-resend-api-key:latest"
 }
 
 # ── deploy ─────────────────────────────────────────────────────────────────
@@ -185,8 +229,8 @@ deploy_all() {
   log "Web app"
   gcloud run deploy "$WEB_SERVICE" --image="${AR}/web:${TAG}" --region="$REGION" \
     --service-account="$SA_EMAIL" \
-    --set-env-vars=TRUSTED_PROXY_HOPS=1 \
-    --set-secrets=WEB_PROXY_SECRET=shiftgo-web-proxy-secret:latest \
+    --update-env-vars=TRUSTED_PROXY_HOPS=1 \
+    --update-secrets=WEB_PROXY_SECRET=shiftgo-web-proxy-secret:latest \
     --port=3000 --cpu=1 --memory=512Mi --min-instances=0 --max-instances=3 \
     --allow-unauthenticated
 
@@ -237,7 +281,7 @@ create_agency() {
 main() {
   init
   case "${1:-deploy}" in
-    deploy) setup_infra; build_images; deploy_all; status
+    deploy) log "Email sender"; resolve_email_from; setup_infra; build_images; deploy_all; status
             log "Done. Next: ./deploy/gcp/deploy.sh create-agency --name \"...\" --hr-email you@example.com --hr-name \"Your Name\"";;
     status) status;;
     create-agency) shift; create_agency "$@";;

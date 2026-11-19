@@ -21,9 +21,8 @@ pennies or inside Google's free allowance at this size.
 
 1. Billing is turned on for the `pipcord` project
    (console.cloud.google.com/billing).
-2. A [Resend](https://resend.com) account and an API key. Until you verify your
-   own domain in Resend, emails can only go **to the email address you signed up
-   to Resend with**, so use that address for the first HR account.
+2. A [Resend](https://resend.com) account, an API key, and your sending domain
+   verified in Resend (for example `leafrota.co.uk`).
 
 ## First deploy (about 20 minutes, mostly waiting for the database)
 
@@ -33,8 +32,9 @@ pennies or inside Google's free allowance at this size.
    ```bash
    git clone https://github.com/MrBills439/ShiftGO.git
    cd ShiftGO
-   ./deploy/gcp/deploy.sh
+   EMAIL_FROM="LeafRota <noreply@leafrota.co.uk>" ./deploy/gcp/deploy.sh
    ```
+   The first deploy **requires** `EMAIL_FROM` (see "Email sender" below).
    If your project ID isn't literally `pipcord`, the script lists your projects;
    re-run with `PROJECT_ID=<id> ./deploy/gcp/deploy.sh`.
 3. When asked, paste the Resend API key (it isn't shown on screen and goes
@@ -51,9 +51,41 @@ pennies or inside Google's free allowance at this size.
 Open the invitation email, choose a password, then set up two-step verification
 with an authenticator app. Keep the backup codes.
 
+## Email sender
+
+Invitations and password-reset codes are sent through Resend:
+
+- **Sender address:** the `EMAIL_FROM` setting on the `shiftgo-api` service
+  (and the `shiftgo-admin` job), e.g. `LeafRota <noreply@leafrota.co.uk>`.
+- **API key:** the Secret Manager secret `shiftgo-resend-api-key`. The script
+  only creates it when it doesn't exist and never prints it.
+
+How the sender survives deployments:
+
+| You run | Sender used |
+| --- | --- |
+| `./deploy/gcp/deploy.sh` (service already deployed) | The one already on `shiftgo-api`. It is read before deploying and set again unchanged. |
+| `EMAIL_FROM="…" ./deploy/gcp/deploy.sh` | The one you give (checked first: `Name <address@domain>` or `address@domain`). |
+| First deploy without `EMAIL_FROM` | The script stops before changing anything and asks for it. |
+
+Resend's test sender (`…@resend.dev`) is accepted with a warning: it only
+delivers to your own Resend account address.
+
+The script uses Cloud Run's *update* flags, so settings added by hand on the
+services (for example Firebase secrets) are kept on every deploy. To check the
+live sender without deploying:
+
+```bash
+gcloud run services describe shiftgo-api --region europe-west2 --format=json | grep -A1 '"EMAIL_FROM"'
+```
+
+These rules are tested in `deploy/gcp/test/email_from.test.sh` (stub `gcloud`,
+runs in CI).
+
 ## Updating
 
-Pull the latest code and run `./deploy/gcp/deploy.sh` again. It rebuilds,
+Pull the latest code and run `./deploy/gcp/deploy.sh` again; the email sender
+already in production is kept. It rebuilds,
 runs any new database migrations, then switches traffic to the new version.
 To roll back: Cloud Console → Cloud Run → the service → Revisions → send 100%
 of traffic to the previous one.
@@ -70,7 +102,6 @@ of traffic to the previous one.
 - **Push notifications:** add the Firebase settings (`FIREBASE_PROJECT_ID`,
   `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`) as secrets and to the API's
   `--set-secrets`; until then notifications are not sent.
-- **Your own domain:** when you have one, verify it in Resend and set
-  `EMAIL_FROM`, and map `app.` / `api.` names to the services.
+- **Your own domain:** map `app.` / `api.` names to the services.
 - **Restore test:** Cloud SQL → `shiftgo-db` → Backups → restore one into a new
   instance once, to prove backups work.
