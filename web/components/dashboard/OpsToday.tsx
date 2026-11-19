@@ -71,6 +71,7 @@ function DashboardHeader({ data, refreshNote }: { data?: DashboardToday; refresh
   const canCreate = data ? data.permissions.canCreateShift : role !== 'WORKER';
   const canInvite = data ? data.permissions.canManageStaff : role === 'MANAGER' || role === 'HR';
   const prefixMissing = data?.setup ? !data.setup.employeeIdPrefixSet : false;
+  const noServices = data?.setup ? data.setup.services === 0 : false;
 
   return (
     <div className="border-b border-border pb-6">
@@ -98,6 +99,9 @@ function DashboardHeader({ data, refreshNote }: { data?: DashboardToday; refresh
                 </Link>
               )}
             </div>
+            {canCreate && noServices && (
+              <p className="text-xs text-fg-muted sm:text-right">Shifts need a service: add one first.</p>
+            )}
             {canInvite && prefixMissing && (
               <p className="text-xs text-fg-muted sm:text-right">
                 Inviting needs an employee ID prefix first (or a typed employee ID).
@@ -230,6 +234,12 @@ export function OpsToday() {
         </p>
       )}
 
+      {/* A new agency with nothing happening today: one line, not a wall of zeros. */}
+      {settingUp && coverage.scheduled === 0 && issues.length === 0 ? (
+        <p className="rounded-lg border border-border bg-surface p-3 text-sm text-fg-muted">
+          Nothing scheduled today. Today&apos;s shifts, clock-ins and issues appear here once shifts exist.
+        </p>
+      ) : (<>
       {/* ─── Today at a glance ─────────────────────────────────────────── */}
       <section aria-labelledby="today-figures">
         <h2 id="today-figures" className="sr-only">Today at a glance</h2>
@@ -305,7 +315,9 @@ export function OpsToday() {
               {issues.map((issue) => {
                 const tone = { critical: 'border-danger/30 bg-danger/5', warning: 'border-warning/30 bg-warning/5', info: 'border-border bg-surface' }[issue.severity];
                 const Icon = issue.severity === 'critical' ? ExclamationMarkIcon : issue.severity === 'warning' ? WarningCircleIcon : InfoIcon;
-                const context = [issue.house?.name, issue.at ? formatTime(issue.at) : null].filter(Boolean).join(' · ');
+                // Don't repeat the service name when the detail already says it.
+                const house = issue.house?.name && !issue.detail.includes(issue.house.name) ? issue.house.name : null;
+                const context = [house, issue.at ? formatTime(issue.at) : null].filter(Boolean).join(' · ');
                 return (
                   <li key={issue.id} className={`rounded-lg border p-3 ${tone}`}>
                     <div className="flex gap-2">
@@ -325,6 +337,8 @@ export function OpsToday() {
           )}
         </section>
       </div>
+
+      </>)}
 
       {/* ─── Open shifts (next 14 days) ─────────────────────────────────── */}
       {(openShifts.length > 0 || !settingUp) && (
