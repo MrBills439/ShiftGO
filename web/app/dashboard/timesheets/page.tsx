@@ -1,4 +1,6 @@
 'use client';
+import { showTime, showDate, agencyTimeZone } from '@/lib/displayTime';
+import { instantToAgencyParts, resolveWallTime, type AmbiguousChoice } from '@/lib/shiftTime';
 import { useEffect, useMemo, useState } from 'react';
 import {
   FilePdfIcon, CheckCircleIcon, ListChecksIcon, XCircleIcon,
@@ -22,7 +24,7 @@ import type { AttendanceReviewItem, LeaveRequest, LocationStatus, Timesheet } fr
 
 function fmt(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return showTime(iso);
 }
 
 function fmtDate(iso: string | null) {
@@ -230,10 +232,10 @@ function locationBadge(status: LocationStatus | null | undefined) {
   return <Badge variant="neutral" label="Unknown" />;
 }
 
+/** A stored instant as a datetime-local value in the AGENCY's timezone. */
 function toLocalInputValue(iso: string) {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const { date, time } = instantToAgencyParts(iso, agencyTimeZone());
+  return `${date}T${time}`;
 }
 
 function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | null; onClose: () => void }) {
@@ -242,6 +244,7 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
   const [clockOutTime, setClockOutTime] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
+  const [choice, setChoice] = useState<AmbiguousChoice | undefined>(undefined);
   const stillOpen = !!item && !item.clockOutAt;
 
   useEffect(() => {
@@ -249,6 +252,7 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
     else setClockOutTime('');
     setReason('');
     setError('');
+    setChoice(undefined);
   }, [item?.id]);
 
   if (!item) return null;
@@ -261,10 +265,26 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
       setError('Enter the actual clock-out time.');
       return;
     }
+    // The typed time is the agency's wall clock; daylight-saving gaps and
+    // repeats are explicit (same rule as the shift forms).
+    let clockOutIso: string | undefined;
+    if (stillOpen) {
+      const [d, t] = clockOutTime.split('T');
+      const r = resolveWallTime(agencyTimeZone(), d, t.slice(0, 5));
+      if (r.status === 'nonexistent') {
+        setError(`${t.slice(0, 5)} doesn't exist on that date: the clocks go forward then. Enter a different time.`);
+        return;
+      }
+      if (r.status === 'ambiguous' && !choice) {
+        setError(`${t.slice(0, 5)} happens twice that night because the clocks go back. Choose which below, then confirm.`);
+        return;
+      }
+      clockOutIso = (r.status === 'ok' ? r.instant : choice === 'later' ? r.later : r.earlier).toISOString();
+    }
     resolve.mutate(
       {
         id: item.id,
-        ...(stillOpen ? { clockOutTime: new Date(clockOutTime).toISOString() } : {}),
+        ...(stillOpen ? { clockOutTime: clockOutIso } : {}),
         reason: reason.trim() || undefined,
       },
       {
@@ -285,7 +305,7 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
         {stillOpen ? (
           <div>
             <label htmlFor="timesheets-actual-clock-out-time" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">
-              Actual clock-out time
+              Actual clock-out time ({agencyTimeZone()} time)
             </label>
             <input id="timesheets-actual-clock-out-time"
               type="datetime-local"
@@ -293,9 +313,22 @@ function ResolveReviewModal({ item, onClose }: { item: AttendanceReviewItem | nu
               value={clockOutTime}
               min={item.clockInAt ? toLocalInputValue(item.clockInAt) : undefined}
               max={toLocalInputValue(new Date().toISOString())}
-              onChange={(e) => { setClockOutTime(e.target.value); setError(''); }}
+              onChange={(e) => { setClockOutTime(e.target.value); setError(''); setChoice(undefined); }}
               required
             />
+            {(() => {
+              const [d, t] = clockOutTime.split('T');
+              if (!d || !t) return null;
+              const r = resolveWallTime(agencyTimeZone(), d, t.slice(0, 5));
+              if (r.status !== 'ambiguous') return null;
+              return (
+                <fieldset className="mt-2 space-y-1 text-sm text-fg">
+                  <legend className="text-xs text-fg-muted">This time happens twice (clocks go back). Which one?</legend>
+                  <label className="flex items-center gap-2"><input type="radio" name="clockout-dst" checked={choice === 'earlier'} onChange={() => setChoice('earlier')} /> First (BST, before the change)</label>
+                  <label className="flex items-center gap-2"><input type="radio" name="clockout-dst" checked={choice === 'later'} onChange={() => setChoice('later')} /> Second (GMT, after the change)</label>
+                </fieldset>
+              );
+            })()}
             <p className="mt-1.5 text-[11px] text-fg-subtle">
               No GPS is recorded for this entry — it's logged as a manager-confirmed clock-out, not a GPS-verified one.
             </p>

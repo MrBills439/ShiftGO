@@ -7,6 +7,7 @@
  * It refreshes every minute (not real time), and only shows figures the API
  * actually provides.
  */
+import { showTime, showDate } from '@/lib/displayTime';
 import { useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -21,7 +22,7 @@ import { queryView } from '@/lib/dashboardView';
 import type { DashboardShift } from '@/types';
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return showTime(iso);
 }
 
 type Attendance = DashboardShift['attendance'];
@@ -54,7 +55,7 @@ export default function OperationsPage() {
   if (!canViewOps) return null;
 
   const updatedAt = query.dataUpdatedAt
-    ? new Date(query.dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    ? showTime(new Date(query.dataUpdatedAt))
     : null;
 
   return (

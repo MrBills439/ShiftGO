@@ -79,16 +79,13 @@ async function createAndSend(userId, type, title, body, data = null) {
 }
 
 /**
- * Effective timezone for a shift-assignment message: the target's own
- * timezone if it has one (a FIXED shift's Location), else the agency's —
- * exactly the same `target.timezone -> Agency.timezone` fallback chain
- * fixedWorkPatternGenerationService uses to convert a pattern's wall-clock
- * times to UTC. A ROTA shift's HOUSE target never carries a timezone (care
- * attendance always inherits the agency's), so this is what already decided
- * "whose clock" for it before this phase — nothing changes there.
+ * Timezone for shift times in notifications: always the AGENCY's. This release
+ * supports one timezone per agency for shift times (entry, generation,
+ * display, notifications, exports); a Location's own timezone is not used.
+ * (`target` is kept in the signature so callers don't change.)
  */
+// eslint-disable-next-line no-unused-vars
 async function resolveNotificationTimezone(target, agencyId) {
-  if (target?.timezone) return resolveTimeZone(target.timezone);
   const agency = await agencyCache.getAgencySettings(agencyId);
   return resolveTimeZone(agency?.timezone);
 }
@@ -125,10 +122,7 @@ async function sendShiftAssigned({ worker, shift, target }) {
 }
 
 async function sendShiftRemoved(worker, shift, house) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   await createAndSend(
     worker.id,
     'SHIFT_REMOVED',
@@ -139,10 +133,7 @@ async function sendShiftRemoved(worker, shift, house) {
 }
 
 async function sendShiftOpen(workers, shift, house) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   await Promise.all(workers.map((worker) => createAndSend(
     worker.id,
     'SHIFT_OPEN',
@@ -153,10 +144,7 @@ async function sendShiftOpen(workers, shift, house) {
 }
 
 async function sendShiftDropped(recipients, shift, house, worker, reason) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   const body = `${worker.name} has dropped their shift at ${house.name} on ${start}. It is now open for cover.${reason ? ` Reason: ${reason}` : ''}`;
   await Promise.all(recipients.map((r) => createAndSend(
     r.id,
@@ -168,10 +156,7 @@ async function sendShiftDropped(recipients, shift, house, worker, reason) {
 }
 
 async function sendShiftClaimedYou(worker, shift, house) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   await createAndSend(
     worker.id,
     'SHIFT_CLAIMED_YOU',

@@ -1,3 +1,4 @@
+import { showTime } from '@/lib/displayTime';
 import { Shift } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { clsx } from 'clsx';
@@ -22,10 +23,7 @@ export function ShiftCard({ shift, draggable = true, conflict = false, onDragSta
   const startTime = new Date(shift.startTime);
   const endTime = new Date(shift.endTime);
 
-  const timeStr = `${startTime.toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })}-${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+  const timeStr = `${showTime(startTime)}-${showTime(endTime)}`; // agency timezone
 
   const typeMeta = SHIFT_TYPE_META[shift.shiftType];
 

@@ -336,10 +336,10 @@ async function clockInFlexible(workerId, method, metadata = {}) {
 
   const suspicious = !!mockLocationSuspected;
   const agency = await agencyCache.getAgencySettings(worker.agencyId);
-  // Shift.date is the calendar day in the location's (else agency's) timezone,
-  // stored as that date at UTC midnight — the same convention the fixed-pattern
-  // generator uses.
-  const { year, month, day } = ymdInZone(resolveTimeZone(location.timezone || agency?.timezone), now);
+  // Shift.date is the calendar day in the AGENCY's timezone (one timezone per
+  // agency for shift times in this release), stored as that date at UTC
+  // midnight: the same convention as the forms and the pattern generator.
+  const { year, month, day } = ymdInZone(resolveTimeZone(agency?.timezone), now);
   const date = new Date(Date.UTC(year, month - 1, day));
 
   const result = await prisma.$transaction(async (tx) => {

@@ -18,7 +18,7 @@ import {
 import { useAuthStore } from '../../store/authStore';
 import { Shift } from '../../types';
 import { D } from '../../constants/theme';
-import { fmtTime, fmtDateLong as fmtDate, fmtDurCompact as fmtDuration } from '../../lib/datetime';
+import { fmtTime, fmtDateLong as fmtDate, fmtDurCompact as fmtDuration, fmtDayLabel } from '../../lib/datetime';
 import { attendanceTargetFor } from '../../lib/attendanceTarget';
 
 
@@ -337,7 +337,7 @@ export default function ShiftDetailScreen() {
                     <View style={{ marginTop: 8 }}>
                       {(swapShifts.data?.shifts ?? []).map((sh) => {
                         const d = new Date(sh.startTime);
-                        const label = `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} · ${sh.house?.name ?? ''}`;
+                        const label = `${fmtDayLabel(d)} · ${fmtTime(sh.startTime)} · ${sh.house?.name ?? ''}`; // agency timezone
                         return (
                           <Pressable accessibilityRole="button" key={sh.id} style={[s.pick, targetShiftId === sh.id && s.pickOn]} onPress={() => setTargetShiftId(sh.id)}>
                             <Text style={[s.pickTxt, targetShiftId === sh.id && s.pickTxtOn]}>{label}</Text>

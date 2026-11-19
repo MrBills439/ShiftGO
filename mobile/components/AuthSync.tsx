@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { authClient } from '../services/authClient';
 import { api } from '../services/api';
+import { setDisplayTimeZone } from '../lib/datetime';
 import { useAuthStore } from '../store/authStore';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
@@ -16,6 +17,7 @@ export function AuthSync() {
     if (isPending) return;
 
     if (!signedIn) {
+      setDisplayTimeZone(null);
       useAuthStore.setState({ user: null, isLoading: false, error: null });
       return;
     }
@@ -28,7 +30,10 @@ export function AuthSync() {
     function fetchMe(attempt: number) {
       api.get('/users/me').then(
         ({ data }) => {
-          if (!cancelled) useAuthStore.setState({ user: data.data, isLoading: false, error: null });
+          if (cancelled) return;
+          // Show every date/time in the agency's timezone, not the phone's.
+          setDisplayTimeZone(data.data?.agency?.timezone);
+          useAuthStore.setState({ user: data.data, isLoading: false, error: null });
         },
         (err) => {
           if (cancelled) return;

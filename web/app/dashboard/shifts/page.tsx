@@ -1,4 +1,5 @@
 'use client';
+import { showTime, showDate } from '@/lib/displayTime';
 import { useMemo, useState } from 'react';
 import {
   PlusIcon, CalendarBlankIcon, TrashIcon, ArrowsClockwiseIcon, CopyIcon, FireIcon, MoonIcon,
@@ -16,7 +17,10 @@ import { ShiftRequestsPanel } from '@/components/shifts/ShiftRequestsPanel';
 import { useHouses } from '@/hooks/useHouses';
 import { useLocationOptions } from '@/hooks/useOrgStructure';
 import { useUsers } from '@/hooks/useWorkers';
-import { useAgency } from '@/hooks/useAgency';
+import { useAgencyTimeZone } from '@/hooks/useAgencyTimeZone';
+import { shiftTimesFromForm, instantToAgencyParts, type AmbiguousChoice, type TimeProblem } from '@/lib/shiftTime';
+import { ShiftTimeProblem } from '@/components/shifts/ShiftTimeProblem';
+import { ShiftLengthSummary } from '@/components/shifts/ShiftLengthSummary';
 import { todayInTimeZone } from '@/lib/agencyDate';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/hooks/useToast';
@@ -38,7 +42,7 @@ function shiftStatus(shift: { startTime: string; endTime: string; status?: strin
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return showTime(iso);
 }
 
 function shiftDur(start: string, end: string) {
@@ -47,11 +51,10 @@ function shiftDur(start: string, end: string) {
 }
 
 function dateParts(iso: string) {
-  const d = new Date(iso);
   return {
-    day: d.toLocaleDateString('en-GB', { weekday: 'short' }).toUpperCase(),
-    num: d.getDate(),
-    mon: d.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(),
+    day: showDate(iso, { weekday: 'short' }).toUpperCase(),
+    num: Number(showDate(iso, { day: 'numeric' })),
+    mon: showDate(iso, { month: 'short' }).toUpperCase(),
   };
 }
 
@@ -341,7 +344,7 @@ function MyShiftsView() {
           {dropTarget && (
             <p className="text-sm text-fg-muted">
               Your shift at <span className="font-semibold text-fg">{shiftAttendanceTarget(dropTarget)?.name ?? 'this location'}</span> on{' '}
-              {new Date(dropTarget.startTime).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {showDate(dropTarget.startTime, { weekday: 'long', day: 'numeric', month: 'long' })}
               {' '}({fmtTime(dropTarget.startTime)}–{fmtTime(dropTarget.endTime)}) will be released for cover, and your
               house manager and team leader will be notified.
             </p>
@@ -430,14 +433,23 @@ function ManageShiftsView() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const emptyForm = { kind: 'ROTA' as ShiftKind, houseId: '', locationId: '', workerId: '', date: '', startTime: '', endTime: '', shiftType: 'LONG_DAY' };
   const [form, setForm] = useState(emptyForm);
-  // Agency settings are readable by managers/HR; team leaders fall back to the browser's date.
-  const agencyTz = useAgency(isManagerLevel).data?.timezone;
+  // Dates and times in this form are the AGENCY's wall clock (lib/shiftTime.ts).
+  const agencyTz = useAgencyTimeZone();
+  const [choices, setChoices] = useState<{ start?: AmbiguousChoice; end?: AmbiguousChoice }>({});
+  const [timeProblem, setTimeProblem] = useState<TimeProblem | null>(null);
   /** Generic "New shift": blank form dated today in the agency's timezone. */
   function openNewShift() {
     setEditingId(null);
     setErr('');
+    setChoices({});
+    setTimeProblem(null);
     setForm({ ...emptyForm, date: todayInTimeZone(agencyTz) });
     setOpen(true);
+  }
+  /** A stored shift's times as the agency's date and wall clock, for the form. */
+  function formTimesFor(shift: Shift) {
+    const start = instantToAgencyParts(shift.startTime, agencyTz);
+    return { date: start.date, startTime: start.time, endTime: instantToAgencyParts(shift.endTime, agencyTz).time };
   }
   const [err, setErr] = useState('');
   const [cancelId, setCancelId] = useState<string | null>(null);
@@ -477,9 +489,13 @@ function ManageShiftsView() {
     }
   }
 
-  function buildPayload() {
-    const startTime = new Date(`${form.date}T${form.startTime}`).toISOString();
-    const endTime = new Date(`${form.date}T${form.endTime}`).toISOString();
+  function buildPayload(chosen = choices) {
+    const t = shiftTimesFromForm({
+      date: form.date, startTime: form.startTime, endTime: form.endTime, timeZone: agencyTz,
+      startChoice: chosen.start, endChoice: chosen.end,
+    });
+    if (!t.ok) return { problem: t.problem } as const;
+    const { startTime, endTime } = t;
     // Exactly one target, matching kind — never a fake houseId for FIXED, and
     // never both sent together.
     const target = form.kind === 'FIXED' ? { locationId: form.locationId } : { houseId: form.houseId };
@@ -487,16 +503,22 @@ function ManageShiftsView() {
       kind: form.kind,
       workerId: form.workerId || null,
       ...target,
-      date: new Date(form.date).toISOString(),
+      date: t.date,
       startTime,
       endTime,
       shiftType: form.shiftType,
     };
   }
 
-  async function submitShift(extra?: Record<string, unknown>) {
+  async function submitShift(extra?: Record<string, unknown>, chosen = choices) {
     setErr('');
-    const payload = { ...buildPayload(), ...extra };
+    const built = buildPayload(chosen);
+    if ('problem' in built) {
+      setTimeProblem(built.problem ?? null);
+      return;
+    }
+    setTimeProblem(null);
+    const payload = { ...built, ...extra };
     try {
       if (editingId) {
         await updateShift.mutateAsync({ id: editingId, ...payload });
@@ -542,9 +564,7 @@ function ManageShiftsView() {
       houseId: shift.houseId ?? '',
       locationId: shift.locationId ?? '',
       workerId: shift.workerId ?? '',
-      date: shift.date.slice(0, 10),
-      startTime: new Date(shift.startTime).toISOString().slice(11, 16),
-      endTime: new Date(shift.endTime).toISOString().slice(11, 16),
+      ...formTimesFor(shift),
       shiftType: shift.shiftType,
     });
     setOpen(true);
@@ -558,9 +578,7 @@ function ManageShiftsView() {
       houseId: shift.houseId ?? '',
       locationId: shift.locationId ?? '',
       workerId: shift.workerId ?? '',
-      date: shift.date.slice(0, 10),
-      startTime: new Date(shift.startTime).toISOString().slice(11, 16),
-      endTime: new Date(shift.endTime).toISOString().slice(11, 16),
+      ...formTimesFor(shift),
       shiftType: shift.shiftType,
     });
     setOpen(true);
@@ -655,11 +673,11 @@ function ManageShiftsView() {
                       )}
                     </div>
                     <p className="text-sm text-on-surface-variant font-inter">
-                      {new Date(s.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {showDate(s.startTime, { day: 'numeric', month: 'short', year: 'numeric' })}
                       {' · '}
-                      {new Date(s.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      {showTime(s.startTime)}
                       {' – '}
-                      {new Date(s.endTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      {showTime(s.endTime)}
                     </p>
                   </div>
                   <button
@@ -715,12 +733,12 @@ function ManageShiftsView() {
                     <td className="table-td text-on-surface-variant">{shiftAttendanceTarget(s)?.name ?? 'Unknown'}</td>
                     <td className="table-td"><KindBadge kind={s.kind} /></td>
                     <td className="table-td font-inter text-xs">
-                      {new Date(s.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {showDate(s.startTime, { day: 'numeric', month: 'short', year: 'numeric' })}
                     </td>
                     <td className="table-td font-inter text-xs">
-                      {new Date(s.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      {showTime(s.startTime)}
                       {' – '}
-                      {new Date(s.endTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      {showTime(s.endTime)}
                     </td>
                     <td className="table-td">
                       <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', SHIFT_TYPE_META[s.shiftType]?.badgeClass)}>
@@ -859,16 +877,16 @@ function ManageShiftsView() {
           </div>
           <div>
             <label htmlFor="shifts-date" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Date</label>
-            <input id="shifts-date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" required />
+            <input id="shifts-date" type="date" value={form.date} onChange={(e) => { setForm({ ...form, date: e.target.value }); setChoices({}); setTimeProblem(null); }} className="input-field" required />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="shifts-start" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">Start</label>
-              <input id="shifts-start" type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="input-field" required />
+              <input id="shifts-start" type="time" value={form.startTime} onChange={(e) => { setForm({ ...form, startTime: e.target.value }); setChoices({}); setTimeProblem(null); }} className="input-field" required />
             </div>
             <div>
               <label htmlFor="shifts-end" className="block text-xs font-semibold tracking-wider uppercase text-on-surface-variant font-inter mb-1.5">End</label>
-              <input id="shifts-end" type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="input-field" required />
+              <input id="shifts-end" type="time" value={form.endTime} onChange={(e) => { setForm({ ...form, endTime: e.target.value }); setChoices({}); setTimeProblem(null); }} className="input-field" required />
             </div>
           </div>
           <div>
@@ -879,6 +897,18 @@ function ManageShiftsView() {
               ))}
             </select>
           </div>
+          <p className="text-xs text-fg-subtle">Times are {agencyTz} time. Earlier than the start = next day; same as the start = a 24-hour shift.</p>
+          <ShiftLengthSummary date={form.date} startTime={form.startTime} endTime={form.endTime} timeZone={agencyTz} choices={choices} />
+          <ShiftTimeProblem
+            problem={timeProblem}
+            chosen={choices}
+            onChoose={(field, choice) => {
+              const next = { ...choices, [field]: choice };
+              setChoices(next);
+              const again = buildPayload(next);
+              if ('problem' in again && again.problem) setTimeProblem(again.problem);
+            }}
+          />
           {err && <p className="text-sm text-error bg-error-container rounded-md px-3 py-2">{err}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={closeCreate} className="btn-secondary flex-1 justify-center">Cancel</button>

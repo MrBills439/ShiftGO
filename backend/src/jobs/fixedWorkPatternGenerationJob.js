@@ -46,6 +46,8 @@ async function runFixedWorkPatternGenerationJob() {
       skippedInactiveWorker: result.skippedInactiveWorker,
       skippedConflict: result.skippedConflict,
       weeklyHoursReviewRequired: result.weeklyHoursReviewRequired,
+      skippedNonexistentTime: result.skippedNonexistentTime ?? 0,
+      blockedTimezoneMismatch: result.blockedTimezoneMismatch ?? 0,
       errorCount: result.errors.length,
       durationMs,
     };
@@ -61,6 +63,16 @@ async function runFixedWorkPatternGenerationJob() {
 
     // Visibility only — Phase 3 builds no review table/UI and never mutates
     // or cancels a shift over this; HR-facing surfacing is a later phase.
+    // Patterns whose (or whose Location's) timezone differs from the agency's
+    // are blocked, not guessed. Ids and reasons only (no PII).
+    if (summary.blockedTimezoneMismatch > 0) {
+      logger.warn('FIXED_WORK_PATTERN_GENERATION_BLOCKED_TIMEZONE', {
+        blocked: (result.occurrences || [])
+          .filter((o) => o.status === 'BLOCKED_TIMEZONE_MISMATCH')
+          .map((o) => ({ patternId: o.patternId, reason: o.reason })),
+      });
+    }
+
     if (summary.weeklyHoursReviewRequired > 0) {
       logger.warn('FIXED_WORK_PATTERN_GENERATION_WEEKLY_HOURS_REVIEW', {
         weeklyHoursReviewRequired: summary.weeklyHoursReviewRequired,

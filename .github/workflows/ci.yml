@@ -102,6 +102,8 @@ jobs:
       - name: Accessibility check (roles, labels, tap targets)
         run: python3 scripts/a11y_check.py
       - run: npx jest --ci
+      - name: Dates and times on a phone in another timezone (London agency, New York phone)
+        run: npm run test:phone-tz
       - name: Fail on critical dependency advisories
         run: npm audit --omit=dev --audit-level=critical
 

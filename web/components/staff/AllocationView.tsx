@@ -1,4 +1,5 @@
 'use client';
+import { showTime, showDate } from '@/lib/displayTime';
 import { useMemo, useState } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { clsx } from 'clsx';
@@ -32,7 +33,7 @@ const fmtRange = (startIso: string, endIso: string) => {
   const opt: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
   return `${s.toLocaleDateString('en-GB', opt)} – ${new Date(e.getTime() - 1).toLocaleDateString('en-GB', opt)}`;
 };
-const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+const fmtTime = (iso: string) => showTime(iso);
 
 const HOURS_META: Record<AllocationHoursStatus, { variant: 'success' | 'warning' | 'danger'; label: string }> = {
   SAFE: { variant: 'success', label: 'Safe' },
@@ -133,7 +134,7 @@ export function AllocationView() {
             <option value="">Project an open shift…</option>
             {openShifts.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.house?.name} · {new Date(s.startTime).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} {fmtTime(s.startTime)}–{fmtTime(s.endTime)}
+                {s.house?.name} · {showDate(s.startTime, { weekday: 'short', day: 'numeric', month: 'short' })} {fmtTime(s.startTime)}–{fmtTime(s.endTime)}
               </option>
             ))}
           </UiSelect>

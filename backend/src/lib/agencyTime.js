@@ -67,6 +67,28 @@ function zonedWallTimeToUtc(tz, year, month, day, hour = 0, minute = 0, second =
   return new Date(utc);
 }
 
+/**
+ * Every real instant at which the clocks in `tz` read the given wall time,
+ * made explicit around daylight-saving changes (same algorithm as the web's
+ * lib/shiftTime.ts resolveWallTime):
+ *   { status: 'ok', instant }                      normal
+ *   { status: 'nonexistent' }                      skipped (clocks go forward)
+ *   { status: 'ambiguous', earlier, later }        repeated (clocks go back)
+ * zonedWallTimeToUtc() above picks silently; prefer this where a person or a
+ * schedule supplied the wall time.
+ */
+function resolveWallTime(tz, year, month, day, hour = 0, minute = 0) {
+  const HOUR = 3_600_000;
+  const wall = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offsets = [...new Set([tzOffsetMs(tz, new Date(wall - 12 * HOUR)), tzOffsetMs(tz, new Date(wall + 12 * HOUR))])];
+  const found = [...new Set(
+    offsets.map((off) => wall - off).filter((ms) => tzOffsetMs(tz, new Date(ms)) === wall - ms),
+  )].sort((a, b) => a - b);
+  if (found.length === 0) return { status: 'nonexistent' };
+  if (found.length === 1) return { status: 'ok', instant: new Date(found[0]) };
+  return { status: 'ambiguous', earlier: new Date(found[0]), later: new Date(found[found.length - 1]) };
+}
+
 /** Calendar year/month/day of `instant` as seen in `tz`. */
 function ymdInZone(tz, instant) {
   const dtf = new Intl.DateTimeFormat('en-CA', {
@@ -135,6 +157,7 @@ function agencyWeekRangeForDate(timeZone, dateStr) {
 }
 
 module.exports = {
+  resolveWallTime,
   DEFAULT_AGENCY_TIMEZONE,
   isValidTimeZone,
   resolveTimeZone,

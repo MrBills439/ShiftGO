@@ -13,8 +13,9 @@ import {
 import { apiErrorMessage } from '../../services/api';
 import { NoticeText } from '../../components/NoticeText';
 import { D } from '../../constants/theme';
+import { fmtDateLongMonth } from '../../lib/datetime';
 
-const fmt = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+const fmt = (iso: string) => fmtDateLongMonth(iso); // agency timezone
 
 export default function PrivacyScreen() {
   const router = useRouter();

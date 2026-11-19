@@ -1,21 +1,31 @@
 const shiftService = require('../services/shiftService');
 const { agencyIdFor } = require('../utils/agency');
 const { ok } = require('../utils/response');
+const agencyCache = require('../lib/agencyCache');
+const { resolveTimeZone, zonedWallTimeToUtc } = require('../lib/agencyTime');
 
-function addDays(date, days) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function startOfUtcDay(value) {
-  const date = new Date(value);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+/**
+ * [start, end) UTC instants covering `days` agency calendar days from the
+ * "YYYY-MM-DD" date in the agency's timezone. Shifts are stored as real
+ * instants, so a shift at 00:30 BST (23:30 UTC the day before) still belongs
+ * to the agency day it starts on.
+ */
+async function agencyDaysRange(agencyId, dateStr, days) {
+  const agency = await agencyCache.getAgencySettings(agencyId);
+  const tz = resolveTimeZone(agency?.timezone);
+  const m = typeof dateStr === 'string' && dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const d = m ? { y: +m[1], mo: +m[2], da: +m[3] } : (() => {
+    const now = new Date(dateStr || Date.now());
+    return { y: now.getUTCFullYear(), mo: now.getUTCMonth() + 1, da: now.getUTCDate() };
+  })();
+  return {
+    start: zonedWallTimeToUtc(tz, d.y, d.mo, d.da),
+    end: zonedWallTimeToUtc(tz, d.y, d.mo, d.da + days),
+  };
 }
 
 async function week(req, res) {
-  const start = startOfUtcDay(req.query.startDate);
-  const end = addDays(start, 7);
+  const { start, end } = await agencyDaysRange(agencyIdFor(req), req.query.startDate, 7);
   const { workerId, houseId, status, shiftType } = req.query;
   const rota = await shiftService.listRotaForUser(req.user, agencyIdFor(req), {
     startDate: start.toISOString(),
@@ -29,8 +39,7 @@ async function week(req, res) {
 }
 
 async function day(req, res) {
-  const start = startOfUtcDay(req.query.date);
-  const end = addDays(start, 1);
+  const { start, end } = await agencyDaysRange(agencyIdFor(req), req.query.date, 1);
   const { workerId, houseId, status, shiftType } = req.query;
   const rota = await shiftService.listRotaForUser(req.user, agencyIdFor(req), {
     startDate: start.toISOString(),

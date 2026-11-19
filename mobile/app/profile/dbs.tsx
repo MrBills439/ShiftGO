@@ -12,11 +12,12 @@ import {
 import { getMyDbs } from '../../services/profileService';
 import { DbsCheck, DbsStatus } from '../../types';
 import { D } from '../../constants/theme';
+import { fmtDateLongMonth } from '../../lib/datetime';
 
 
 function fmtDate(iso?: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  return fmtDateLongMonth(iso); // agency timezone
 }
 
 function daysUntil(iso?: string | null): number | null {

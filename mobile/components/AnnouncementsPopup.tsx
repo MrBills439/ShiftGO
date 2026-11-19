@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Megaphone, PushPin, X } from 'phosphor-react-native';
 import { getUnreadAnnouncements, markAnnouncementRead } from '../services/announcementsService';
 import { Announcement } from '../types';
+import { fmtDate } from '../lib/datetime';
 
 const D = {
   emerald: '#005F56',
@@ -32,7 +33,7 @@ function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return fmtDate(iso); // agency timezone
 }
 
 function initialsOf(name: string): string {
