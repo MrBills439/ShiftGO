@@ -52,7 +52,8 @@ export interface AuthUser {
   name: string;
   email: string;
   role: Role;
-  agency?: { name: string };
+  /** timezone: the agency's IANA timezone; shift times are entered and shown in it. */
+  agency?: { name: string; timezone?: string };
   /** HR and managers must turn this on before using the dashboard. */
   twoFactorEnabled?: boolean | null;
   /** HR/managers must turn on two-step verification before using the app. */

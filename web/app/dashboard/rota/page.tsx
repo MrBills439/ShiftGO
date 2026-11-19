@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CaretLeftIcon, CaretRightIcon, CalendarBlankIcon, ListChecksIcon, HourglassMediumIcon } from '@phosphor-icons/react';
 import { useRotaWeek, useWorkers } from '@/hooks/useRota';
-import { useAgency } from '@/hooks/useAgency';
+import { useAgencyTimeZone } from '@/hooks/useAgencyTimeZone';
 import { todayInTimeZone, mondayOf, addDays, defaultShiftDate } from '@/lib/agencyDate';
 import { useHouses } from '@/hooks/useHouses';
 import { useOpenShift } from '@/hooks/useShifts';
@@ -33,9 +33,8 @@ export default function RotaPage() {
   const { user } = useAuthStore();
   const canManageRota = user?.role === 'MANAGER' || user?.role === 'HR';
   // Dates follow the agency's timezone (Admin → Agency settings), not the browser's.
-  const agencyQuery = useAgency();
-  const agencyTz = agencyQuery.data?.timezone;
-  const agencyReady = agencyQuery.isFetched;
+  const agencyTz = useAgencyTimeZone(); // from the signed-in profile, available immediately
+  const agencyReady = true;
   const today = todayInTimeZone(agencyTz);
   // null = "the week containing today"; set when the person navigates weeks.
   const [navWeek, setNavWeek] = useState<string | null>(null);

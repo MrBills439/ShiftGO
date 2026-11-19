@@ -13,6 +13,7 @@
  * hours), leaveRequestService.checkLeaveConflict, agencyTime, auditService,
  * notificationService.createAndSend, roleGuard conventions.
  */
+const { agencyTimeZone, formatInZone, shiftStartLabel } = require('../lib/agencyZone');
 const prisma = require('../lib/prisma');
 const shiftService = require('./shiftService');
 const { evaluateAssignment } = require('./staffAllocationService');
@@ -107,25 +108,26 @@ function notify(userId, title, body, data) {
   );
 }
 
-function shiftLabel(s) {
-  const start = new Date(s.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-  });
-  const end = new Date(s.endTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+/** "Thu, 19 Nov, 09:00–17:00 at Oak Lodge" in the agency's timezone (the
+ *  server runs in UTC, so a plain toLocaleString would be an hour early in BST). */
+function shiftLabel(s, timeZone) {
+  const start = shiftStartLabel(s.startTime, timeZone);
+  const end = formatInZone(s.endTime, timeZone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   return `${start}–${end} at ${s.house?.name ?? 'a service'}`;
 }
 
-function notifyRecipientNewRequest(req) {
+async function notifyRecipientNewRequest(req) {
+  const tz = await agencyTimeZone(req.agencyId ?? req.primaryShift?.agencyId);
   const meta = { event: req.type === 'SWAP' ? 'SWAP_REQUEST_RECEIVED' : 'COVER_REQUEST_RECEIVED', requestId: req.id, type: req.type, shiftId: req.primaryShiftId, swapShiftId: req.swapShiftId ?? null };
   if (req.type === 'SWAP') {
     return notify(req.targetWorkerId,
       'Shift swap request',
-      `${req.requester.name} wants to swap their ${shiftLabel(req.primaryShift)} for your ${shiftLabel(req.swapShift)}.`,
+      `${req.requester.name} wants to swap their ${shiftLabel(req.primaryShift, tz)} for your ${shiftLabel(req.swapShift, tz)}.`,
       meta);
   }
   return notify(req.targetWorkerId,
     'Shift cover request',
-    `${req.requester.name} has asked you to cover ${shiftLabel(req.primaryShift)}.`,
+    `${req.requester.name} has asked you to cover ${shiftLabel(req.primaryShift, tz)}.`,
     meta);
 }
 
@@ -762,17 +764,18 @@ async function approve(manager, agencyId, id, { overrideWeeklyHours = false, ove
     if (targetCheck.overrideAudit) await targetCheck.overrideAudit(primary.id);
     if (requesterCheck.overrideAudit) await requesterCheck.overrideAudit(swap.id);
 
+    const tz = await agencyTimeZone(r.agencyId ?? primary.agencyId);
     if (r.type === 'SWAP') {
       await notify(r.targetWorkerId, 'Shift change approved',
-        `Your swap is approved. You now work ${shiftLabel(r.primaryShift)}.`,
+        `Your swap is approved. You now work ${shiftLabel(r.primaryShift, tz)}.`,
         { kind: 'SHIFT_CHANGE', event: 'SHIFT_CHANGE_APPROVED', requestId: id, type: 'SWAP', shiftId: primary.id, swapShiftId: swap.id });
       await notify(r.requesterId, 'Shift change approved',
-        `Your swap is approved. You now work ${shiftLabel(r.swapShift)}.`,
+        `Your swap is approved. You now work ${shiftLabel(r.swapShift, tz)}.`,
         { kind: 'SHIFT_CHANGE', event: 'SHIFT_CHANGE_APPROVED', requestId: id, type: 'SWAP', shiftId: primary.id, swapShiftId: swap.id });
     } else {
-      await notify(r.targetWorkerId, 'Shift change approved', `You are now covering ${shiftLabel(r.primaryShift)}.`,
+      await notify(r.targetWorkerId, 'Shift change approved', `You are now covering ${shiftLabel(r.primaryShift, tz)}.`,
         { kind: 'SHIFT_CHANGE', event: 'SHIFT_CHANGE_APPROVED', requestId: id, type: 'COVER', shiftId: primary.id });
-      await notify(r.requesterId, 'Shift change approved', `${r.targetWorker.name} is now covering your ${shiftLabel(r.primaryShift)}.`,
+      await notify(r.requesterId, 'Shift change approved', `${r.targetWorker.name} is now covering your ${shiftLabel(r.primaryShift, tz)}.`,
         { kind: 'SHIFT_CHANGE', event: 'SHIFT_CHANGE_APPROVED', requestId: id, type: 'COVER', shiftId: primary.id });
     }
   } catch (e) {

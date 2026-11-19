@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const PDFDocument = require('pdfkit');
+const { agencyTimeZone, formatInZone } = require('../lib/agencyZone');
 const { send } = require('./notificationService');
 const clockService = require('./clockService');
 
@@ -300,6 +301,8 @@ async function generatePDF(houseId, res, agencyId) {
     orderBy: { clockInAt: 'asc' },
   });
 
+  // Clock times are shown in the agency's timezone, not the server's (UTC).
+  const pdfTimeZone = await agencyTimeZone(agencyId);
   const doc = new PDFDocument({ margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="timesheet-${houseId}.pdf"`);
@@ -330,7 +333,7 @@ async function generatePDF(houseId, res, agencyId) {
   doc.font('Helvetica').fontSize(9);
   for (const ts of timesheets) {
     const y = doc.y;
-    const fmt = (d) => d ? new Date(d).toLocaleString('en-GB') : '—';
+    const fmt = (d) => d ? formatInZone(d, pdfTimeZone, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '—';
     doc.text(ts.worker.name, colX[0], y, { width: 120 });
     doc.text(fmt(ts.clockInAt), colX[1], y, { width: 120 });
     doc.text(fmt(ts.clockOutAt), colX[2], y, { width: 75 });

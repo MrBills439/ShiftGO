@@ -5,6 +5,7 @@
 #   ./deploy/gcp/deploy.sh                    first install, and every update
 #   ./deploy/gcp/deploy.sh create-agency --name "Acme Care" --hr-email hr@acme.example --hr-name "Jo Smith"
 #   ./deploy/gcp/deploy.sh status             URLs and health
+#   ./deploy/gcp/deploy.sh audit-shift-times  read-only report on stored shift times
 #
 # Safe to run again: anything that already exists is kept or updated.
 # Settings (environment variables, all optional):
@@ -66,34 +67,65 @@ valid_sender() {
   [[ "$1" =~ ^[^\<\>~]+\ \<${re_addr}\>$ || "$1" =~ ^${re_addr}$ ]]
 }
 
-# EMAIL_FROM on the deployed API service, or nothing if there is none yet.
-current_email_from() {
-  gcloud run services describe "$API_SERVICE" --region="$REGION" --format=json 2>/dev/null \
-    | python3 -c 'import json,sys
-try:
-  d=json.load(sys.stdin)
-except Exception:
-  sys.exit(0)
+# Read EMAIL_FROM from the deployed API service. Sets:
+#   API_EXISTS        yes | no
+#   CURRENT_FROM      the plain value ("" if unset)
+#   CURRENT_FROM_KIND value | secret | none
+# Stops (changing nothing) if the service can't be read for any reason other
+# than "it doesn't exist yet".
+read_current_email_from() {
+  local out err rc
+  err="$(mktemp)"
+  # (if/else so `set -e` doesn't exit before we can look at the error)
+  if out="$(gcloud run services describe "$API_SERVICE" --region="$REGION" --format=json 2>"$err")"; then rc=0; else rc=$?; fi
+  if [ $rc -ne 0 ]; then
+    if grep -qiE "not found|could not be found|NOT_FOUND" "$err"; then
+      API_EXISTS=no; CURRENT_FROM=""; CURRENT_FROM_KIND=none; rm -f "$err"; return
+    fi
+    cat "$err" >&2; rm -f "$err"
+    die "Couldn't read the current $API_SERVICE service to keep its email sender. Nothing was changed."
+  fi
+  rm -f "$err"
+  API_EXISTS=yes
+  local parsed
+  parsed="$(printf '%s' "$out" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
 for c in d.get("spec",{}).get("template",{}).get("spec",{}).get("containers",[]):
   for e in c.get("env",[]) or []:
-    if e.get("name")=="EMAIL_FROM" and "value" in e:
-      print(e["value"]); sys.exit(0)' || true
+    if e.get("name")=="EMAIL_FROM":
+      print("secret" if "valueFrom" in e else "value"); print(e.get("value","")); sys.exit(0)
+print("none"); print("")')" || die "Couldn't parse the $API_SERVICE service settings. Nothing was changed."
+  CURRENT_FROM_KIND="$(printf '%s\n' "$parsed" | sed -n 1p)"
+  CURRENT_FROM="$(printf '%s\n' "$parsed" | sed -n 2p)"
 }
 
 # Decide the sender for this deploy: explicit override > what production has.
 resolve_email_from() {
+  read_current_email_from
+  if [ "$CURRENT_FROM_KIND" = secret ]; then
+    die "EMAIL_FROM on $API_SERVICE is set from a Secret Manager secret. This script manages it as a plain setting
+   and won't overwrite a secret-backed one. Remove that secret mapping in Cloud Run (or keep managing it there), then rerun.
+   Nothing was changed."
+  fi
   if [ -n "$EMAIL_FROM_OVERRIDE" ]; then
     valid_sender "$EMAIL_FROM_OVERRIDE" || die "EMAIL_FROM is not a valid sender: use \"Name <address@domain>\" or address@domain."
     EMAIL_FROM="$EMAIL_FROM_OVERRIDE"
     echo "   Email sender (set by you): $EMAIL_FROM"
+    [ -n "$CURRENT_FROM" ] && [ "$CURRENT_FROM" != "$EMAIL_FROM" ] && echo "   (replacing: $CURRENT_FROM)"
   else
-    EMAIL_FROM="$(current_email_from)"
-    [ -n "$EMAIL_FROM" ] || die 'No email sender configured yet. For the first deploy run:
+    EMAIL_FROM="$CURRENT_FROM"
+    if [ -z "$EMAIL_FROM" ]; then
+      if [ "$API_EXISTS" = yes ]; then
+        die "$API_SERVICE has no EMAIL_FROM set. Run with EMAIL_FROM=\"LeafRota <noreply@yourdomain>\" to set it. Nothing was changed."
+      fi
+      die 'No email sender configured yet. For the first deploy run:
      EMAIL_FROM="LeafRota <noreply@yourdomain>" ./deploy/gcp/deploy.sh
    (the domain must be verified in Resend).'
+    fi
     valid_sender "$EMAIL_FROM" || die "The deployed EMAIL_FROM is not a valid sender. Set EMAIL_FROM explicitly to fix it."
     echo "   Email sender (kept from the running API): $EMAIL_FROM"
   fi
+  echo "   Applied to: $API_SERVICE (API), $ADMIN_JOB (invitations from create-agency), $MIGRATE_JOB"
   case "$EMAIL_FROM" in *@resend.dev*)
     warn "Resend's test sender only delivers to your own Resend account address." ;;
   esac
@@ -285,7 +317,10 @@ main() {
             log "Done. Next: ./deploy/gcp/deploy.sh create-agency --name \"...\" --hr-email you@example.com --hr-name \"Your Name\"";;
     status) status;;
     create-agency) shift; create_agency "$@";;
-    *) die "Unknown command '$1' (deploy | status | create-agency)";;
+    audit-shift-times) log "Read-only shift time audit (output in the job's logs)"
+      gcloud run jobs execute "$ADMIN_JOB" --region="$REGION" --args=scripts/auditShiftTimes.js --wait
+      echo "   Results: Cloud Console -> Cloud Run -> Jobs -> ${ADMIN_JOB} -> latest execution -> Logs";;
+    *) die "Unknown command '$1' (deploy | status | create-agency | audit-shift-times)";;
   esac
 }
 main "$@"

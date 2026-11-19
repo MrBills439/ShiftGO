@@ -125,10 +125,7 @@ async function sendShiftAssigned({ worker, shift, target }) {
 }
 
 async function sendShiftRemoved(worker, shift, house) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   await createAndSend(
     worker.id,
     'SHIFT_REMOVED',
@@ -139,10 +136,7 @@ async function sendShiftRemoved(worker, shift, house) {
 }
 
 async function sendShiftOpen(workers, shift, house) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   await Promise.all(workers.map((worker) => createAndSend(
     worker.id,
     'SHIFT_OPEN',
@@ -153,10 +147,7 @@ async function sendShiftOpen(workers, shift, house) {
 }
 
 async function sendShiftDropped(recipients, shift, house, worker, reason) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   const body = `${worker.name} has dropped their shift at ${house.name} on ${start}. It is now open for cover.${reason ? ` Reason: ${reason}` : ''}`;
   await Promise.all(recipients.map((r) => createAndSend(
     r.id,
@@ -168,10 +159,7 @@ async function sendShiftDropped(recipients, shift, house, worker, reason) {
 }
 
 async function sendShiftClaimedYou(worker, shift, house) {
-  const start = new Date(shift.startTime).toLocaleString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  });
+  const start = formatShiftDateTime(shift.startTime, await resolveNotificationTimezone(house, shift.agencyId));
   await createAndSend(
     worker.id,
     'SHIFT_CLAIMED_YOU',

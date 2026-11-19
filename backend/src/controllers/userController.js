@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const prisma = require('../lib/prisma');
 const config = require('../config');
+const { resolveTimeZone } = require('../lib/agencyTime');
 const { ok, created, fail, notFound } = require('../utils/response');
 const { auditContext, createAuditLog } = require('../services/auditService');
 const { agencyIdFor } = require('../utils/agency');
@@ -85,7 +86,7 @@ const meSelect = {
   id: true, agencyId: true, name: true, email: true, role: true, status: true, twoFactorEnabled: true, emailVerified: true,
   phone: true, bio: true, profilePicture: true, address: true, contractedHours: true,
   onboardedAt: true, createdAt: true, updatedAt: true,
-  agency: { select: { name: true } },
+  agency: { select: { name: true, timezone: true } },
   ...employmentSelect,
   ...onboardingSelect,
 };
@@ -525,7 +526,10 @@ async function getMe(req, res) {
   if (!user) return notFound(res);
   // Tells the apps to show the two-step set-up screen before anything else.
   const twoFactorRequired = config.auth.require2faForAdmins && ['HR', 'MANAGER'].includes(user.role) && !user.twoFactorEnabled;
-  ok(res, { ...user, twoFactorRequired });
+  // The agency's timezone (resolved, never invalid): the apps enter and show
+  // shift times in it, whatever the browser's or phone's timezone is.
+  const agency = user.agency ? { ...user.agency, timezone: resolveTimeZone(user.agency.timezone) } : user.agency;
+  ok(res, { ...user, agency, twoFactorRequired });
 }
 
 // First-run onboarding: capture name + phone and stamp onboardedAt so the

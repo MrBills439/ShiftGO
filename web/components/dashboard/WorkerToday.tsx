@@ -1,4 +1,5 @@
 'use client';
+import { showTime, showDate } from '@/lib/displayTime';
 import { useMemo } from 'react';
 import Link from 'next/link';
 import {
@@ -27,7 +28,7 @@ function getGreeting() {
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return showTime(iso);
 }
 
 function fmtFullDate(date: Date) {
@@ -160,7 +161,7 @@ function NextShiftCard({ shift, live }: { shift: Shift; live: boolean }) {
           <div className="flex items-center gap-2.5 text-sm text-fg">
             <ClockIcon size={18} className="text-fg-subtle" weight="regular" />
             <span>
-              {new Date(shift.startTime).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {showDate(shift.startTime, { weekday: 'long', day: 'numeric', month: 'long' })}
               {'  ·  '}
               {fmtRange(shift.startTime, shift.endTime)}
             </span>

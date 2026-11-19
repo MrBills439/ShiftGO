@@ -1,4 +1,5 @@
 'use client';
+import { showTime, showDate } from '@/lib/displayTime';
 import Link from 'next/link';
 import {
   CheckCircleIcon, WarningCircleIcon, ExclamationMarkIcon, InfoIcon,
@@ -15,7 +16,7 @@ import { ActivityFeed } from '@/components/operations/ActivityFeed';
 import type { DashboardIssue, DashboardShift, DashboardOpenShift, DashboardToday } from '@/types';
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return showTime(iso);
 }
 
 function formatDay(date: Date, timeZone?: string, long = true) {
@@ -209,7 +210,7 @@ export function OpsToday() {
   const cov = coverageView(coverage);
   const steps = setup ? setupSteps(setup, data.role) : null;
   const settingUp = !!steps && !setupComplete(steps);
-  const updatedAt = new Date(query.dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const updatedAt = showTime(new Date(query.dataUpdatedAt));
 
   const refreshNote = view === 'stale' ? (
     <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-1 text-xs font-medium text-warning-text" role="status">

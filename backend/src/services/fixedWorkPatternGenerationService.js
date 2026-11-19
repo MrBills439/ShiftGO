@@ -1,7 +1,7 @@
 const prisma = require('../lib/prisma');
 const logger = require('../lib/logger');
 const agencyCache = require('../lib/agencyCache');
-const { resolveTimeZone, zonedWallTimeToUtc, ymdInZone, agencyWeekRange } = require('../lib/agencyTime');
+const { resolveTimeZone, resolveWallTime, ymdInZone, agencyWeekRange } = require('../lib/agencyTime');
 const { COUNTED_STATUSES, shiftHoursInWindow } = require('./staffAllocationService');
 const { checkLeaveConflict } = require('./leaveRequestService');
 const { calcPatternWeeklyHours } = require('./fixedWorkPatternService');
@@ -36,6 +36,9 @@ const RESULT = {
   SKIPPED_LEAVE: 'SKIPPED_LEAVE',
   SKIPPED_CONFLICT: 'SKIPPED_CONFLICT', // overlaps a different, unrelated Shift for this worker
   SKIPPED_INACTIVE_WORKER: 'SKIPPED_INACTIVE_WORKER',
+  // The pattern's start or end time does not exist on this date in the
+  // pattern's timezone (clocks go forward). Skipped and reported, never guessed.
+  SKIPPED_NONEXISTENT_TIME: 'SKIPPED_NONEXISTENT_TIME',
   ERROR: 'ERROR',
 };
 
@@ -164,6 +167,7 @@ async function generateFixedWorkPatternShifts({ agencyId, patternId, fromDate, h
     skippedLeave: 0,
     skippedInactiveWorker: 0,
     skippedConflict: 0,
+    skippedNonexistentTime: 0,
     weeklyHoursReviewRequired: 0,
     errors: [],
     occurrences: [],
@@ -239,8 +243,22 @@ async function generateFixedWorkPatternShifts({ agencyId, patternId, fromDate, h
           if (!WALL_CLOCK_TIME_RE.test(day.startTime) || !WALL_CLOCK_TIME_RE.test(day.endTime)) {
             throw new Error(`FixedWorkPatternDay ${day.id} has an invalid wall-clock time`);
           }
-          const startTime = zonedWallTimeToUtc(patternTimezone, cursor.year, cursor.month, cursor.day, startH, startM);
-          const endTime = zonedWallTimeToUtc(patternTimezone, cursor.year, cursor.month, cursor.day, endH, endM);
+          // Daylight-saving changes are explicit: a time the clocks skip is
+          // reported and skipped; a time they repeat uses its FIRST occurrence
+          // (before the clocks go back), the same as the shift forms' default.
+          const startWall = resolveWallTime(patternTimezone, cursor.year, cursor.month, cursor.day, startH, startM);
+          const endWall = resolveWallTime(patternTimezone, cursor.year, cursor.month, cursor.day, endH, endM);
+          if (startWall.status === 'nonexistent' || endWall.status === 'nonexistent') {
+            summary.skippedNonexistentTime += 1;
+            summary.occurrences.push({
+              patternId: pattern.id, workerId: pattern.workerId, date: dateStr, status: RESULT.SKIPPED_NONEXISTENT_TIME,
+              reason: `${startWall.status === 'nonexistent' ? day.startTime : day.endTime} does not exist on ${dateStr} in ${patternTimezone} (clocks go forward)`,
+            });
+            cursor = addDays(cursor, 1);
+            continue;
+          }
+          const startTime = startWall.status === 'ok' ? startWall.instant : startWall.earlier;
+          const endTime = endWall.status === 'ok' ? endWall.instant : endWall.earlier;
 
           // 1. Already handled? (generated earlier, manually edited, or
           //    cancelled — any status counts as "handled"; never regenerate.)

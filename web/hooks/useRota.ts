@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { instantToAgencyParts } from '@/lib/shiftTime';
+import { agencyTimeZone } from '@/lib/displayTime';
 import { RotaShiftSummary, RotaWeek, Shift } from '@/types';
 
 function toRotaWeek(startDate: string, items: RotaShiftSummary[]): RotaWeek {
@@ -15,7 +17,9 @@ function toRotaWeek(startDate: string, items: RotaShiftSummary[]): RotaWeek {
 
   for (const item of items) {
     if (!item.house) continue;
-    const date = new Date(item.startTime).toISOString().split('T')[0];
+    // The agency calendar day the shift starts on (not its UTC date): a shift
+    // at 00:30 BST is 23:30 UTC the day before but belongs to this day.
+    const date = instantToAgencyParts(item.startTime, agencyTimeZone()).date;
     const day = days.find((d) => d.date === date);
     if (!day) continue;
 

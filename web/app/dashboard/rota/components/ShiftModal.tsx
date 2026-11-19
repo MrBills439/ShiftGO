@@ -12,10 +12,9 @@ import { FieldShell, Input, Select } from '@/components/ui/Input';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { SHIFT_TYPE_OPTIONS, SHIFT_TYPE_META } from '@/lib/shiftTypes';
 import { COVER_ROLE_GROUPS, isGroupSelected, toggleGroupRoles } from '@/lib/coverRoles';
-
-function toTimeInput(iso: string) {
-  return new Date(iso).toISOString().slice(11, 16);
-}
+import { shiftTimesFromForm, instantToAgencyParts, type AmbiguousChoice, type TimeProblem } from '@/lib/shiftTime';
+import { useAgencyTimeZone } from '@/hooks/useAgencyTimeZone';
+import { ShiftTimeProblem } from '@/components/shifts/ShiftTimeProblem';
 
 interface ShiftModalProps {
   defaultDate?: string;
@@ -41,15 +40,20 @@ export function ShiftModal({
   onSuccess,
 }: ShiftModalProps) {
   const isEdit = !!editingShift;
+  // Dates and times in this form are the AGENCY's wall clock (lib/shiftTime.ts).
+  const timeZone = useAgencyTimeZone();
+  const at = (iso: string) => instantToAgencyParts(iso, timeZone);
 
   const [form, setForm] = useState({
     workerId: editingShift?.workerId || defaultWorkerId || '',
     houseId: editingShift?.houseId || defaultHouseId || '',
-    date: editingShift?.date.slice(0, 10) || defaultDate || new Date().toISOString().split('T')[0],
-    startTime: editingShift ? toTimeInput(editingShift.startTime) : defaultStartTime ? toTimeInput(defaultStartTime) : '09:00',
-    endTime: editingShift ? toTimeInput(editingShift.endTime) : defaultEndTime ? toTimeInput(defaultEndTime) : '17:00',
+    date: editingShift ? at(editingShift.startTime).date : defaultDate || at(new Date().toISOString()).date,
+    startTime: editingShift ? at(editingShift.startTime).time : defaultStartTime ? at(defaultStartTime).time : '09:00',
+    endTime: editingShift ? at(editingShift.endTime).time : defaultEndTime ? at(defaultEndTime).time : '17:00',
     shiftType: editingShift?.shiftType || defaultShiftType || 'LONG_DAY',
   });
+  const [choices, setChoices] = useState<{ start?: AmbiguousChoice; end?: AmbiguousChoice }>({});
+  const [timeProblem, setTimeProblem] = useState<TimeProblem | null>(null);
   // Editing an already-open (cover-needed) shift should start with the
   // toggle already on, not force you to re-pick "cover" from scratch.
   const [isCover, setIsCover] = useState(isEdit ? editingShift?.status === 'OPEN' : false);
@@ -70,6 +74,10 @@ export function ShiftModal({
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setError(null);
+    if (field === 'date' || field === 'startTime' || field === 'endTime') {
+      setChoices({});
+      setTimeProblem(null);
+    }
     // Picking a worker and marking "cover needed" are mutually exclusive.
     if (field === 'workerId' && value) setIsCover(false);
   };
@@ -83,18 +91,13 @@ export function ShiftModal({
     setError(null);
   };
 
-  function buildPayload(extra?: Record<string, unknown>) {
-    const startDateTime = new Date(`${form.date}T${form.startTime}:00Z`);
-    let endDateTime = new Date(`${form.date}T${form.endTime}:00Z`);
-    if (endDateTime <= startDateTime) {
-      endDateTime = new Date(endDateTime.getTime() + 24 * 60 * 60 * 1000);
-    }
-    const times = {
-      date: form.date,
-      startTime: startDateTime.toISOString(),
-      endTime: endDateTime.toISOString(),
-      shiftType: form.shiftType,
-    };
+  function buildPayload(extra?: Record<string, unknown>, chosen = choices) {
+    const t = shiftTimesFromForm({
+      date: form.date, startTime: form.startTime, endTime: form.endTime, timeZone,
+      startChoice: chosen.start, endChoice: chosen.end,
+    });
+    if (!t.ok) return { kind: 'problem' as const, problem: t.problem };
+    const times = { date: t.date, startTime: t.startTime, endTime: t.endTime, shiftType: form.shiftType };
     if (isEdit && editingShift) {
       return { kind: 'update' as const, body: { id: editingShift.id, workerId: form.workerId || null, houseId: form.houseId, ...times, ...(isCover ? { eligibleRoles } : {}), ...extra } };
     }
@@ -104,9 +107,15 @@ export function ShiftModal({
     return { kind: 'create' as const, body: { workerId: form.workerId, houseId: form.houseId, ...times, ...extra } };
   }
 
-  async function submit(extra?: Record<string, unknown>) {
+  async function submit(extra?: Record<string, unknown>, chosen = choices) {
     setError(null);
-    const { kind, body } = buildPayload(extra);
+    const built = buildPayload(extra, chosen);
+    if (built.kind === 'problem') {
+      setTimeProblem(built.problem);
+      return;
+    }
+    setTimeProblem(null);
+    const { kind, body } = built;
     try {
       if (kind === 'update') await updateShift.mutateAsync(body as any);
       else await createShift.mutateAsync(body as any);
@@ -168,6 +177,17 @@ export function ShiftModal({
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          <ShiftTimeProblem
+            problem={timeProblem}
+            chosen={choices}
+            onChoose={(field, choice) => {
+              const next = { ...choices, [field]: choice };
+              setChoices(next);
+              // Keep this prompt (showing the choice) unless the other time also needs one.
+              const again = buildPayload(undefined, next);
+              if (again.kind === 'problem') setTimeProblem(again.problem);
+            }}
+          />
           {error && (
             <div className="rounded-lg border border-danger-border bg-danger-bg p-3 text-sm font-medium text-danger-text">
               {error}
@@ -291,7 +311,7 @@ export function ShiftModal({
                 required
               />
             </FieldShell>
-            <FieldShell label="End time *" hint="End times before start times are treated as next day.">
+            <FieldShell label="End time *" hint={`An end time at or before the start is the next day. Times are ${timeZone} time.`}>
               <Input
                 type="time"
                 value={form.endTime}

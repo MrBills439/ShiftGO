@@ -71,6 +71,17 @@ How the sender survives deployments:
 Resend's test sender (`…@resend.dev`) is accepted with a warning: it only
 delivers to your own Resend account address.
 
+The same sender is applied to all three places that need it: the
+`shiftgo-api` service, the `shiftgo-admin` job (invitations sent by
+`create-agency`) and the `shiftgo-migrate` job. The deploy stops before
+changing anything if:
+
+- `EMAIL_FROM` on `shiftgo-api` is mapped from a Secret Manager secret (the
+  script manages it as a plain setting and won't overwrite a secret mapping);
+- the service exists but has no `EMAIL_FROM` (rerun with `EMAIL_FROM=…`);
+- the service can't be read (permissions, network): this is never treated as
+  a first deploy.
+
 The script uses Cloud Run's *update* flags, so settings added by hand on the
 services (for example Firebase secrets) are kept on every deploy. To check the
 live sender without deploying:
@@ -81,6 +92,17 @@ gcloud run services describe shiftgo-api --region europe-west2 --format=json | g
 
 These rules are tested in `deploy/gcp/test/email_from.test.sh` (stub `gcloud`,
 runs in CI).
+
+## Checking stored shift times (read-only)
+
+```bash
+./deploy/gcp/deploy.sh audit-shift-times
+```
+
+Runs `scripts/auditShiftTimes.js` in the `shiftgo-admin` job. It changes
+nothing. It lists hand-entered shifts that fall in summer time (where the old
+Schedule form stored times one hour late) and any rows whose `date` column
+disagrees with their start time. Results are in the job's logs.
 
 ## Updating
 

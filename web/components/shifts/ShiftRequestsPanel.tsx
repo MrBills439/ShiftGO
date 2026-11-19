@@ -1,4 +1,5 @@
 'use client';
+import { showTime, showDate } from '@/lib/displayTime';
 import { useState } from 'react';
 import { ArrowsClockwiseIcon, HandHeartIcon, CheckIcon, XIcon } from '@phosphor-icons/react';
 import { Card } from '@/components/ui/Card';
@@ -19,9 +20,9 @@ const TABS = [
 function fmtShift(s: ShiftChangeShift | null) {
   if (!s) return '—';
   const d = new Date(s.startTime);
-  const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-  const start = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const end = new Date(s.endTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const day = showDate(d, { weekday: 'short', day: 'numeric', month: 'short' });
+  const start = showTime(d);
+  const end = showTime(s.endTime);
   return `${day} ${start}–${end} · ${s.house?.name ?? 'a service'}`;
 }
 

@@ -14,7 +14,8 @@ echo "gcloud \$*" >> "$WORK/calls.log"
 case "\$*" in
   "projects describe pipcord --format=value(projectNumber)") echo 123456789012 ;;
   *"run services describe shiftgo-api"*"--format=json"*)
-    [ -f "$WORK/service.json" ] && cat "$WORK/service.json" || exit 1 ;;
+    if [ -f "$WORK/describe_error" ]; then cat "$WORK/describe_error" >&2; exit 1; fi
+    if [ -f "$WORK/service.json" ]; then cat "$WORK/service.json"; else echo "ERROR: (gcloud.run.services.describe) Cannot find service [shiftgo-api]. NOT_FOUND" >&2; exit 1; fi ;;
   *"billing projects describe"*) echo True ;;
   *"secrets versions access"*) echo "$SECRET_SENTINEL" ;;
   *"sql users list"*) echo shiftgo ;;
@@ -53,6 +54,8 @@ service_with_sender "LeafRota <noreply@leafrota.co.uk>"; run ""
 check "redeploy succeeds" '[ "$(cat $WORK/status)" = 0 ]'
 check "...keeps the deployed sender on the API" 'grep "run deploy shiftgo-api" "$WORK/calls.log" | grep -q "EMAIL_FROM=LeafRota <noreply@leafrota.co.uk>"'
 check "...and on the admin job (invitations)" 'grep "run jobs deploy shiftgo-admin" "$WORK/calls.log" | grep -q "EMAIL_FROM=LeafRota <noreply@leafrota.co.uk>"'
+check "...and on the migration job" 'grep "run jobs deploy shiftgo-migrate" "$WORK/calls.log" | grep -q "EMAIL_FROM=LeafRota <noreply@leafrota.co.uk>"'
+check "...and says where it applied it" 'grep -q "Applied to: shiftgo-api (API), shiftgo-admin" "$WORK/out.log"'
 check "...never falls back to the Resend test sender" '! grep -q "resend.dev" "$WORK/calls.log"'
 check "...uses update (not set), so hand-added settings survive" '! grep -qE -- "--set-(env-vars|secrets)" "$WORK/calls.log"'
 check "...never prints secret values" '! grep -q "$SECRET_SENTINEL" "$WORK/out.log"'
@@ -65,6 +68,31 @@ check "explicit EMAIL_FROM overrides the deployed one" 'grep "run deploy shiftgo
 run "not an email"
 check "invalid EMAIL_FROM is refused" '[ "$(cat $WORK/status)" != 0 ] && grep -q "not a valid sender" "$WORK/out.log"'
 check "...before changing anything" '! grep -q "run deploy" "$WORK/calls.log"'
+
+# 4b. Sender stored as a Secret Manager secret: refuse, change nothing.
+cat > "$WORK/service.json" <<JSON
+{"spec":{"template":{"spec":{"containers":[{"env":[
+  {"name":"EMAIL_FROM","valueFrom":{"secretKeyRef":{"name":"email-from","key":"latest"}}}
+]}]}}}}
+JSON
+run ""
+check "secret-backed EMAIL_FROM stops the deploy" '[ "$(cat $WORK/status)" != 0 ] && grep -q "set from a Secret Manager secret" "$WORK/out.log"'
+check "...before changing anything" '! grep -qE "run deploy|run jobs deploy|services enable" "$WORK/calls.log"'
+run "LeafRota <noreply@leafrota.co.uk>"
+check "...even with an explicit EMAIL_FROM" '[ "$(cat $WORK/status)" != 0 ] && ! grep -q "run deploy" "$WORK/calls.log"'
+
+# 4c. Service exists but has no EMAIL_FROM: say so precisely.
+echo '{"spec":{"template":{"spec":{"containers":[{"env":[{"name":"NODE_ENV","value":"production"}]}]}}}}' > "$WORK/service.json"
+run ""
+check "existing service without EMAIL_FROM is reported as such" '[ "$(cat $WORK/status)" != 0 ] && grep -q "has no EMAIL_FROM set" "$WORK/out.log"'
+
+# 4d. Can't read the service (e.g. permissions): never treated as a first deploy.
+service_with_sender "LeafRota <noreply@leafrota.co.uk>"
+echo "ERROR: (gcloud.run.services.describe) PERMISSION_DENIED: caller lacks run.services.get" > "$WORK/describe_error"
+run "LeafRota <noreply@leafrota.co.uk>"
+check "unreadable service stops the deploy" '[ "$(cat $WORK/status)" != 0 ] && grep -q "Couldn.t read the current shiftgo-api" "$WORK/out.log"'
+check "...before changing anything" '! grep -qE "run deploy|run jobs deploy|services enable" "$WORK/calls.log"'
+rm -f "$WORK/describe_error"
 
 # 5. Resend test sender: allowed, with a warning.
 rm -f "$WORK/service.json"; run "LeafRota <onboarding@resend.dev>"
