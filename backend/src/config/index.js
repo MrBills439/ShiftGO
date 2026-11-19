@@ -9,7 +9,13 @@ const required = [
   // Sign-in (Better Auth). The secret signs session cookies and tokens: 32+
   // random characters, never shared between environments.
   ...(isProd ? ['CORS_ORIGINS', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL', 'WEB_APP_URL'] : []),
+  // Shared with the web app so it can pass on each browser's real IP
+  // (lib/clientIp.js). Without it every web sign-in shares one rate limit.
+  ...(isProd ? ['WEB_PROXY_SECRET'] : []),
 ];
+if (isProd && (process.env.WEB_PROXY_SECRET || '').length < 32) {
+  throw new Error('WEB_PROXY_SECRET must be at least 32 characters.');
+}
 if (isProd && (process.env.BETTER_AUTH_SECRET || '').length < 32) {
   throw new Error('BETTER_AUTH_SECRET must be at least 32 characters.');
 }

@@ -22,6 +22,19 @@ function locked(name, job, opts) {
   };
 }
 
+/**
+ * Every background job, by name. Used by the in-process cron below and by
+ * POST /internal/jobs/:name (routes/internalJobs.js), which lets an outside
+ * scheduler (e.g. Google Cloud Scheduler) trigger a tick on platforms where
+ * the API only runs while handling requests (Cloud Run).
+ */
+const JOBS = {
+  missedClockIn: { run: missedClockInJob, opts: { maxRunMs: 4 * 60_000 } },
+  attendance: { run: attendanceJob, opts: { maxRunMs: 55_000 } },
+  fixedWorkPatternGeneration: { run: runFixedWorkPatternGenerationJob, opts: { maxRunMs: 30 * 60_000 } },
+  retention: { run: runRetentionJob, opts: { maxRunMs: 30 * 60_000 } },
+};
+
 function startScheduler() {
   // Set RUN_SCHEDULER=false on instances that should only serve HTTP. Even
   // with it on everywhere, the job lock keeps each tick to one instance.
@@ -49,4 +62,4 @@ function startScheduler() {
   console.log('[Scheduler] Started — missedClockIn (5min), attendance grace machine (1min), fixed work pattern top-up (daily 02:30 UTC), retention (daily 03:15 UTC); one instance per tick via advisory lock');
 }
 
-module.exports = { startScheduler };
+module.exports = { startScheduler, JOBS };

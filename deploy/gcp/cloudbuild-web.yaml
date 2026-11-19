@@ -1,0 +1,11 @@
+# Builds web/Dockerfile with the API URL baked in (Next.js rewrites).
+# Used by deploy/gcp/deploy.sh; run from the web/ directory.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '--build-arg', 'API_PROXY_TARGET=${_API_PROXY_TARGET}', '-t', '${_IMAGE}', '.']
+images: ['${_IMAGE}']
+substitutions:
+  _IMAGE: ''
+  _API_PROXY_TARGET: ''
+options:
+  logging: CLOUD_LOGGING_ONLY

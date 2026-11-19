@@ -30,6 +30,7 @@ function handler(message) {
 
 const commonOptions = {
   windowMs: FIFTEEN_MINUTES,
+  keyGenerator: (req) => clientIpKey(req),
   standardHeaders: true,
   legacyHeaders: false,
   skip: isRateLimitDisabled,
@@ -65,7 +66,8 @@ function tokenSubject(req) {
   }
 }
 
-const clientIpKey = (req) => ipKeyGenerator(req.ip || '');
+// req.clientIp: see lib/clientIp.js (handles the web app's server-side proxy).
+const clientIpKey = (req) => ipKeyGenerator(req.clientIp || req.ip || '');
 
 // Two layers, because a whole care home's staff usually share ONE public IP
 // (the home's Wi-Fi) and every clocked-in phone reports its location once a
@@ -101,4 +103,4 @@ const strictLimiter = rateLimit({
   handler: handler('Too many requests. Please try again later.'),
 });
 
-module.exports = { authLimiter, apiLimiter, apiIpLimiter, apiUserLimiter, strictLimiter, tokenSubject };
+module.exports = { clientIpKey, authLimiter, apiLimiter, apiIpLimiter, apiUserLimiter, strictLimiter, tokenSubject };

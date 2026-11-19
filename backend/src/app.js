@@ -32,12 +32,15 @@ const dataRightsRoutes = require('./routes/dataRights');
 const errorHandler = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimit');
 const config = require('./config');
+const { resolveClientIp, trustProxyHops } = require('./lib/clientIp');
 
 const app = express();
 
-// Trust the first upstream proxy in managed deployments such as Railway,
-// DigitalOcean, Nginx, and Cloudflare so rate limiting uses the client IP.
-app.set('trust proxy', 1);
+// How many load balancers / reverse proxies sit in front of the API
+// (TRUST_PROXY_HOPS, default 1). Express then reads X-Forwarded-For from the
+// right, so a caller cannot choose its own IP. See lib/clientIp.js.
+app.set('trust proxy', trustProxyHops());
+app.use(resolveClientIp);
 
 // Middleware
 app.use(helmet());
@@ -133,6 +136,10 @@ app.get('/metrics', (req, res) => {
   }
   res.json(metrics.snapshot());
 });
+
+// Background job ticks triggered by an outside scheduler (Cloud Run). Secret-
+// protected, 404 when JOBS_SECRET is unset. Outside the rate limiter.
+app.use('/internal/jobs', require('./routes/internalJobs'));
 
 // General API limiter. Health checks are intentionally outside this limiter.
 app.use(apiLimiter);
