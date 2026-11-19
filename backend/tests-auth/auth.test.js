@@ -241,4 +241,46 @@ describe('brute force', () => {
     for (let i = 0; i < 7; i += 1) statuses.push((await signIn(c, email, `wrong password ${i}`)).status);
     assert.ok(statuses.includes(429), `expected a 429 among ${statuses.join(',')}`);
   });
+
+  // An attacker cannot pick a fresh "IP" per guess: only the address our own
+  // load balancer appended (the right-most entry) counts.
+  test('a made-up X-Forwarded-For does not get around the limit', async () => {
+    const { email } = await invitedAndAccepted('WORKER', 'spoof');
+    const statuses = [];
+    for (let i = 0; i < 7; i += 1) {
+      const res = await request(app).post('/auth/sign-in/email')
+        .set('Origin', ORIGIN)
+        .set('X-Forwarded-For', `198.51.100.${i + 1}, 203.0.113.77`)
+        .send({ email, password: `wrong password ${i}` });
+      statuses.push(res.status);
+    }
+    assert.ok(statuses.includes(429), `expected a 429 among ${statuses.join(',')}`);
+  });
+
+  test("the web app's server can pass on each browser's IP, but only with the shared secret", async () => {
+    const { email } = await invitedAndAccepted('WORKER', 'webproxy');
+    const prev = process.env.WEB_PROXY_SECRET;
+    process.env.WEB_PROXY_SECRET = 'test-web-proxy-secret-0123456789abcdef';
+    try {
+      const viaWeb = (browserIp, secret) => request(app).post('/auth/sign-in/email')
+        .set('Origin', ORIGIN)
+        .set('X-Forwarded-For', '203.0.113.88') // the web server
+        .set('X-ShiftGO-Client-IP', browserIp)
+        .set('X-ShiftGO-Proxy-Secret', secret)
+        .send({ email, password: 'wrong password here' });
+
+      // Seven different browsers behind the same web server: none is blocked.
+      const browsers = [];
+      for (let i = 0; i < 7; i += 1) browsers.push((await viaWeb(`192.0.2.${i + 10}`, process.env.WEB_PROXY_SECRET)).status);
+      assert.ok(!browsers.includes(429), `no browser should be limited: ${browsers.join(',')}`);
+
+      // Without the right secret the header is ignored, so all of these count
+      // against the sender's own address and are limited.
+      const forged = [];
+      for (let i = 0; i < 7; i += 1) forged.push((await viaWeb(`192.0.2.${i + 50}`, 'not-the-secret')).status);
+      assert.ok(forged.includes(429), `forged headers should be limited: ${forged.join(',')}`);
+    } finally {
+      if (prev === undefined) delete process.env.WEB_PROXY_SECRET; else process.env.WEB_PROXY_SECRET = prev;
+    }
+  });
 });

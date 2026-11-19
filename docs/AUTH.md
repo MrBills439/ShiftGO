@@ -13,7 +13,8 @@ There is **no public sign-up**.
    npm run agency:create -- --name "Acme Care" --hr-email hr@acme.example --hr-name "Jo Smith"
    ```
    (`--dry-run` shows what would happen.) This creates the agency and emails
-   its HR lead an invitation.
+   its HR lead an invitation. In production, run it inside the backend
+   container (the image includes `scripts/`), so it reaches the database.
 2. **Staff** are added by HR in the web app (Staff → Add employee). They get
    an invitation email.
 3. The invitation link (`/accept-invite?token=…`) works **once** and for
@@ -43,6 +44,12 @@ switched off, so it can't be used to skip two-step verification.
 **Rate limits:** sign-in 5/minute, two-step codes 5/minute, email codes
 3/minute per IP, stored in the database so they hold across instances.
 
+The IP is never taken from what the caller sends. The API reads
+X-Forwarded-For from the right, skipping `TRUST_PROXY_HOPS` load balancers
+(default 1). Browser traffic arrives through the web app's server, which passes
+on the browser's IP in `X-ShiftGO-Client-IP` with the shared `WEB_PROXY_SECRET`;
+without the right secret that header is ignored. See `backend/src/lib/clientIp.js`.
+
 ## Sessions
 
 - Web: an HttpOnly, Secure (in production), SameSite=Lax cookie
@@ -61,6 +68,9 @@ switched off, so it can't be used to skip two-step verification.
 | `WEB_APP_URL` | backend | Used in invitation links. |
 | `CORS_ORIGINS` | backend | Must include the web app URL. |
 | `RESEND_API_KEY`, `EMAIL_FROM` | backend | Email. Without a key, development logs emails; production refuses to send. `EMAIL_FROM` must be on a domain verified in Resend. |
+| `WEB_PROXY_SECRET` | backend **and** web | Same 32+ character value in both. Required in production. |
+| `TRUST_PROXY_HOPS` | backend | Load balancers in front of the API (default 1). |
+| `TRUSTED_PROXY_HOPS` | web | Load balancers in front of the web app (default 1). |
 | `REQUIRE_2FA_FOR_ADMINS` | backend | Default `true`. Only the test suite turns it off. |
 | `API_PROXY_TARGET` | web | The API URL that `/api/*` is forwarded to. |
 | `EXPO_PUBLIC_API_URL` | mobile | The API URL (https in release builds). |

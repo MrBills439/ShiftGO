@@ -88,7 +88,8 @@ function getAuth() {
     advanced: {
       cookiePrefix: 'shiftgo',
       useSecureCookies: isProd,
-      ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
+      // Set by lib/clientIp.js on every request (never the raw X-Forwarded-For).
+      ipAddress: { ipAddressHeaders: ['x-shiftgo-client-ip'] },
     },
 
     databaseHooks: {

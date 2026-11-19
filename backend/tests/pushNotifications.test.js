@@ -60,6 +60,7 @@ describe('Push notification readiness', () => {
     process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET || 'test-placeholder-secret-0123456789abcdef';
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL || 'http://localhost:4000';
     process.env.WEB_APP_URL = process.env.WEB_APP_URL || 'http://localhost:3000';
+    process.env.WEB_PROXY_SECRET = process.env.WEB_PROXY_SECRET || 'test-placeholder-proxy-secret-0123456789';
     process.env.CORS_ORIGINS = process.env.CORS_ORIGINS || 'http://localhost:3000';
     process.env.FIREBASE_REQUIRED = 'true';
     delete process.env.FIREBASE_PROJECT_ID;

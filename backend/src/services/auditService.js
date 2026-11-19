@@ -8,7 +8,7 @@ function auditContext(req) {
     actorId: req.user?.id ?? null,
     agencyId: agencyIdFor(req),
     actorRole: req.user?.role ?? null,
-    ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+    ipAddress: req.clientIp || req.ip || req.socket?.remoteAddress || null,
     userAgent: req.get?.('user-agent') || req.headers?.['user-agent'] || null,
   };
 }

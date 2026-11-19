@@ -6,6 +6,7 @@
  */
 const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
+const { clientIpKey } = require('../middleware/rateLimit');
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok, created, fail } = require('../utils/response');
 const invitations = require('../services/invitationService');
@@ -17,6 +18,7 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => process.env.RATE_LIMIT_DISABLED === 'true',
+  keyGenerator: (req) => clientIpKey(req),
 });
 router.use(limiter);
 
@@ -44,7 +46,7 @@ router.post('/accept', asyncHandler(async (req, res) => {
       agencyId: result.user.agencyId, actorId: result.user.id, actorRole: result.user.role,
       action: 'INVITATION_ACCEPTED', entityType: 'User', entityId: result.user.id,
       newValue: { email: result.user.email, needsReview: result.needsReview },
-      ipAddress: req.ip, userAgent: req.get('user-agent') || null,
+      ipAddress: req.clientIp || req.ip, userAgent: req.get('user-agent') || null,
     });
     created(res, { email: result.user.email });
   } catch (err) { sendError(res, err); }
